@@ -172,7 +172,7 @@ class AgentService {
         location: 'Not specified',
         companySize: 'Not specified',
         decisionMakers: [],
-        quantity: 20,
+        quantity: 0,
         requiredFields: {
           companyName: true,
           contactName: true,

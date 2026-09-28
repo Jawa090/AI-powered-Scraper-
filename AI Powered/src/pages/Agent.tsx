@@ -111,6 +111,25 @@ export const Agent: React.FC<AgentPageProps> = ({ onNavigate }) => {
             messages={currentMessages}
             onSendMessage={text => sendMessage(activeSession.id, text)}
             onInstantTrigger={handleInstantTrigger}
+            onResetSession={() => createSession()}
+            onExecuteAction={action => {
+              if (action.actionType === 'view_results' || action.label === 'View Results') {
+                onNavigate('/leads');
+              } else if (action.actionType === 'view_job' || action.label === 'View Job') {
+                const jId = action.parameters?.jobId || (activeSession.requirement as any).jobId;
+                if (jId) {
+                  onNavigate(`/data-requests/${jId}`);
+                } else {
+                  onNavigate('/data-requests');
+                }
+              } else if (action.parameters?.jobId) {
+                onNavigate(`/data-requests/${action.parameters.jobId}`);
+              } else if (action.parameters?.script_id || action.parameters?.scriptId) {
+                handleInstantTrigger(action.parameters.script_id || action.parameters.scriptId);
+              } else {
+                sendMessage(activeSession.id, `Execute ${action.label}`);
+              }
+            }}
           />
         </div>
 
@@ -119,6 +138,17 @@ export const Agent: React.FC<AgentPageProps> = ({ onNavigate }) => {
           <RequirementSummaryPanel
             requirement={activeSession.requirement}
             onConfirm={() => setIsConfirmModalOpen(true)}
+            onViewJob={jobId => {
+              const jId = jobId || (activeSession.requirement as any).jobId;
+              if (jId) {
+                onNavigate(`/data-requests/${jId}`);
+              } else {
+                onNavigate('/data-requests');
+              }
+            }}
+            onViewResults={() => {
+              onNavigate('/leads');
+            }}
           />
         </div>
       </div>

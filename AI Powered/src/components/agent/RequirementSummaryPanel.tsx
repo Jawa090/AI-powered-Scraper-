@@ -1,31 +1,61 @@
 import React from 'react';
 import { Requirement } from '../../types';
-import { CheckCircle2, Circle, Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Sparkles, ArrowRight, Eye, RefreshCw, AlertCircle, Play } from 'lucide-react';
 
 interface RequirementSummaryPanelProps {
   requirement: Requirement;
   onConfirm: () => void;
+  onViewJob?: (jobId?: string) => void;
+  onViewResults?: () => void;
 }
 
 export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = ({
   requirement,
   onConfirm,
+  onViewJob,
+  onViewResults,
 }) => {
-  const isReady =
-    requirement.status === 'ready_for_confirmation' ||
-    requirement.completionPercentage >= 100;
+  const isRunning = requirement.status === 'generating' || requirement.status === 'running';
+  const isCompleted = requirement.status === 'completed';
+  const isFailed = requirement.status === 'failed';
+  const isReady = requirement.status === 'ready_for_confirmation';
+
+  const scriptKey = ((requirement as any).selectedScript || (requirement as any).scriptId || '').toLowerCase();
+  const indLower = (requirement.industry || '').toLowerCase();
+  const locLower = (requirement.location || '').toLowerCase();
 
   const selectedEngine =
     (requirement as any).selectedScriptName ||
-    (requirement.industry?.toLowerCase().includes('dallas') || requirement.industry?.toLowerCase().includes('bonfire')
+    (requirement as any).scriptName ||
+    (scriptKey === 'bonfire' || locLower.includes('dallas') || indLower.includes('bonfire')
       ? 'Dallas City Hall Bonfire Scraper'
-      : requirement.industry?.toLowerCase().includes('dasny')
-      ? 'DASNY RFP Scraper'
-      : requirement.industry?.toLowerCase().includes('jwiz') || requirement.industry?.toLowerCase().includes('directory')
+      : scriptKey === 'dasny' || indLower.includes('dasny')
+      ? 'DASNY RFP & Bid Opportunities Scraper'
+      : scriptKey === 'jwiz' || indLower.includes('jwiz') || indLower.includes('directory')
       ? 'JWiz Commercial Directory Scraper'
-      : requirement.industry?.toLowerCase().includes('nyscr')
-      ? 'NYSCR State Contracts Scraper'
+      : scriptKey === 'nyscr' || indLower.includes('nyscr') || locLower.includes('albany')
+      ? 'NYSCR State Contract Reporter Scraper'
       : 'Auto-detected Scraper Engine');
+
+  let volumeText = 'Not specified';
+  if (isCompleted) {
+    const verified = (requirement as any).verifiedRecords || requirement.quantity || 0;
+    volumeText = `${verified.toLocaleString()} verified records`;
+  } else if (isRunning) {
+    volumeText = requirement.quantity
+      ? `${requirement.quantity.toLocaleString()} target records (Extracting...)`
+      : 'Target records (Extracting...)';
+  } else if (isFailed) {
+    volumeText = requirement.quantity
+      ? `${requirement.quantity.toLocaleString()} target records (Failed)`
+      : 'Extraction Failed';
+  } else if (isReady) {
+    volumeText = requirement.quantity
+      ? `${requirement.quantity.toLocaleString()} target records (Pending confirmation)`
+      : 'Pending confirmation';
+  } else if (requirement.quantity) {
+    volumeText = `${requirement.quantity.toLocaleString()} target records`;
+  }
 
   const fields = [
     { label: 'Scraper Engine', value: selectedEngine, isHighlight: true },
@@ -33,7 +63,7 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
     { label: 'Target Location', value: requirement.location },
     {
       label: 'Extraction Volume',
-      value: requirement.quantity ? `${requirement.quantity.toLocaleString()} verified records` : 'Not specified',
+      value: volumeText,
     },
   ];
 
@@ -46,6 +76,112 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
     { key: 'website', label: 'Portal URL & Detail Spec' },
   ];
 
+  // Header status badge
+  let badgeClass = 'bg-gray-50 text-gray-600 border border-gray-200';
+  let badgeLabel = 'SPECIFICATION IN PROGRESS';
+  if (isRunning) {
+    badgeClass = 'bg-indigo-50 text-indigo-700 border border-indigo-200 animate-pulse';
+    badgeLabel = 'RUNNING / IN PROGRESS';
+  } else if (isCompleted) {
+    badgeClass = 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+    badgeLabel = 'COMPLETED';
+  } else if (isFailed) {
+    badgeClass = 'bg-rose-50 text-rose-700 border border-rose-200';
+    badgeLabel = 'FAILED';
+  } else if (isReady) {
+    badgeClass = 'bg-amber-50 text-amber-700 border border-amber-200';
+    badgeLabel = 'READY FOR CONFIRMATION';
+  }
+
+  // Progress display
+  let progressPercentage = requirement.completionPercentage || 0;
+  let progressText = `${progressPercentage}% complete`;
+  let progressBarColor = 'bg-[#2D4351]';
+
+  if (isRunning) {
+    progressPercentage = Math.max(25, Math.min(95, requirement.completionPercentage || 35));
+    progressText = `In Progress (${progressPercentage}%)`;
+    progressBarColor = 'bg-indigo-600';
+  } else if (isCompleted) {
+    progressPercentage = 100;
+    progressText = '100% complete';
+    progressBarColor = 'bg-emerald-500';
+  } else if (isFailed) {
+    progressPercentage = 0;
+    progressText = 'Failed (0%)';
+    progressBarColor = 'bg-rose-500';
+  } else if (isReady) {
+    progressPercentage = 100;
+    progressText = '100% complete';
+    progressBarColor = 'bg-emerald-500';
+  }
+
+  // Bottom action CTA
+  let ctaButton: React.ReactNode = null;
+  let ctaHelperText: string | null = null;
+
+  if (isRunning) {
+    ctaButton = (
+      <button
+        onClick={() => (onViewJob ? onViewJob((requirement as any).jobId) : onConfirm())}
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer"
+      >
+        <Eye className="w-4 h-4 text-indigo-200" />
+        <span>View Job</span>
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    );
+    ctaHelperText = 'Your extraction is active. Click to monitor execution logs in real time.';
+  } else if (isCompleted) {
+    ctaButton = (
+      <button
+        onClick={() => (onViewResults ? onViewResults() : onConfirm())}
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer"
+      >
+        <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+        <span>View Results</span>
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    );
+    ctaHelperText = 'Extraction completed & verified in PostgreSQL. Click to browse records.';
+  } else if (isFailed) {
+    ctaButton = (
+      <button
+        onClick={() => (onViewJob ? onViewJob((requirement as any).jobId) : onConfirm())}
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+      >
+        <AlertCircle className="w-4 h-4 text-rose-200" />
+        <span>Retry / View Details</span>
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    );
+    ctaHelperText = 'The extraction job encountered an error during execution.';
+  } else if (isReady) {
+    ctaButton = (
+      <button
+        onClick={onConfirm}
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-[#2D4351] text-white hover:bg-[#20313C] cursor-pointer"
+      >
+        <Sparkles className="w-4 h-4 text-emerald-400" />
+        <span>Confirm & Generate Data</span>
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    );
+    ctaHelperText = 'Specification complete. Click to launch autonomous scraper.';
+  } else {
+    ctaButton = (
+      <button
+        disabled
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-gray-100 text-gray-400 cursor-not-allowed"
+      >
+        <Sparkles className="w-4 h-4 text-gray-400" />
+        <span>Confirm & Generate Data</span>
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    );
+    ctaHelperText = 'Complete the chat cross-questions to unlock generation';
+  }
+
   return (
     <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 flex flex-col h-full shadow-card">
       {/* Header */}
@@ -54,14 +190,8 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">
             DATA REQUIREMENT
           </span>
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
-              isReady
-                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                : 'bg-amber-50 text-amber-700 border border-amber-200'
-            }`}
-          >
-            {isReady ? 'READY FOR CONFIRMATION' : 'Cross-questioning in progress'}
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${badgeClass}`}>
+            {badgeLabel}
           </span>
         </div>
         <h3 className="text-sm font-semibold text-gray-900 mt-1">
@@ -109,40 +239,26 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
         </div>
       </div>
 
-      {/* Progress & Confirmation CTA */}
+      {/* Progress & CTA */}
       <div className="border-t border-[#E5E7EB] pt-4 mt-4">
         <div className="flex items-center justify-between text-xs font-medium text-gray-700 mb-1.5">
           <span>Requirement Progress</span>
           <span className="font-semibold text-gray-900">
-            {requirement.completionPercentage}% complete
+            {progressText}
           </span>
         </div>
         <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden mb-4">
           <div
-            className={`h-full transition-all duration-500 rounded-full ${
-              isReady ? 'bg-emerald-500' : 'bg-[#2D4351]'
-            }`}
-            style={{ width: `${Math.min(100, requirement.completionPercentage)}%` }}
+            className={`h-full transition-all duration-500 rounded-full ${progressBarColor}`}
+            style={{ width: `${Math.min(100, Math.max(0, progressPercentage))}%` }}
           />
         </div>
 
-        <button
-          onClick={onConfirm}
-          disabled={!isReady}
-          className={`w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm ${
-            isReady
-              ? 'bg-[#2D4351] text-white hover:bg-[#20313C] cursor-pointer'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-          }`}
-        >
-          <Sparkles className="w-4 h-4 text-emerald-400" />
-          <span>Confirm & Generate Data</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </button>
+        {ctaButton}
 
-        {!isReady && (
+        {ctaHelperText && (
           <p className="text-[11px] text-gray-500 text-center mt-2">
-            Complete the chat cross-questions to unlock generation
+            {ctaHelperText}
           </p>
         )}
       </div>

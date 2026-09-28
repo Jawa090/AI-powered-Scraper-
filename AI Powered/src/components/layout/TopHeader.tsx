@@ -2,7 +2,8 @@ import React from 'react';
 import { useDataOps } from '../../context/DataOpsContext';
 import { NotificationsDropdown } from './NotificationsDropdown';
 import { RoleSwitcher } from './RoleSwitcher';
-import { Search, Menu, Sparkles, Building2 } from 'lucide-react';
+import { SystemHealthBadge } from '../common/SystemHealthBadge';
+import { Search, Menu, Building2 } from 'lucide-react';
 
 interface TopHeaderProps {
   onToggleSidebar: () => void;
@@ -22,7 +23,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <header className="h-14 bg-white border-b border-[#E5E7EB] px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
+    <header className="h-14 bg-white border-b border-[#E5E7EB] px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-subtle">
       {/* Left: Mobile Menu & Page Title */}
       <div className="flex items-center gap-3">
         <button
@@ -66,8 +67,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Actions, Notifications, Role Switcher */}
+      {/* Right: Actions, Health Badge, Notifications, Role Switcher */}
       <div className="flex items-center gap-2.5">
+        <SystemHealthBadge />
         <NotificationsDropdown />
         <RoleSwitcher />
 

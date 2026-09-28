@@ -1,0 +1,52 @@
+import uuid
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import JSON
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from database.base import Base
+
+if TYPE_CHECKING:
+    from database.models.session import AgentSession
+    from database.models.user import User
+    from database.models.source import Source
+    from database.models.scrape_run import ScrapeRun
+    from database.models.job import Job
+
+
+class Query(Base):
+    __tablename__ = "queries"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id: Mapped[Optional[str]] = mapped_column(
+        String(100), ForeignKey("agent_sessions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    user_id: Mapped[Optional[str]] = mapped_column(
+        String(100), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    source_id: Mapped[Optional[str]] = mapped_column(
+        String(100), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    query_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parameters: Mapped[Dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=dict, nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(50), default="pending", index=True
+    )  # pending, running, completed, failed
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
+    )
+
+    # Relationships
+    session: Mapped[Optional["AgentSession"]] = relationship("AgentSession", back_populates="queries")
+    user: Mapped[Optional["User"]] = relationship("User")
+    source: Mapped[Optional["Source"]] = relationship("Source")
+    scrape_runs: Mapped[List["ScrapeRun"]] = relationship("ScrapeRun", back_populates="query")
+    jobs: Mapped[List["Job"]] = relationship("Job", back_populates="query")
+
+    def __repr__(self) -> str:
+        return f"<Query(id='{self.id}', status='{self.status}', source_id='{self.source_id}')>"

@@ -103,7 +103,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Sessions
   const [sessions, setSessions] = useState<AgentSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string>('sess-bonfire');
+  const [activeSessionId, setActiveSessionId] = useState<string>('sess-live-init');
 
   // Notifications
   const [notifications, setNotifications] = useState([
@@ -114,12 +114,39 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   ]);
 
   useEffect(() => {
-    // Load initial sessions
+    // Load initial sessions with a clean active session to prevent mock contamination
     agentService.getSessions().then(sess => {
-      setSessions(sess);
-      if (sess.length > 0 && !activeSessionId) {
-        setActiveSessionId(sess[0].id);
-      }
+      const initialCleanSession: AgentSession = {
+        id: 'sess-live-init',
+        agentId: 'agent-sales-1',
+        departmentId: 'dept-sales-1',
+        title: 'New Autonomous Request',
+        createdAt: 'Just now',
+        updatedAt: 'Just now',
+        status: 'active',
+        requirement: {
+          id: 'req-live-init',
+          sessionId: 'sess-live-init',
+          departmentId: 'dept-sales-1',
+          industry: 'Not specified',
+          location: 'Not specified',
+          companySize: 'Not specified',
+          decisionMakers: [],
+          quantity: 0,
+          requiredFields: {
+            companyName: true,
+            contactName: true,
+            jobTitle: true,
+            email: true,
+            phone: true,
+            website: true,
+          },
+          completionPercentage: 0,
+          status: 'collecting',
+        },
+      };
+      setSessions([initialCleanSession, ...sess]);
+      setActiveSessionId('sess-live-init');
     });
 
     // Sync live datasets, jobs, and leads from FastAPI backend
@@ -127,36 +154,24 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (healthy) {
         apiService.getDatasets().then(ds => {
           if (ds && ds.length > 0) {
-            setDatasets(prev => {
-              const existingIds = new Set(prev.map(d => d.id));
-              const newItems = ds.filter(d => !existingIds.has(d.id));
-              return [...newItems, ...prev];
-            });
+            setDatasets(ds);
           }
         });
         apiService.getJobs().then(jb => {
           if (jb && jb.length > 0) {
-            setJobs(prev => {
-              const existingIds = new Set(prev.map(j => j.id));
-              const newItems = jb.filter(j => !existingIds.has(j.id));
-              return [...newItems, ...prev];
-            });
+            setJobs(jb);
           }
         });
         apiService.getLeads().then(ld => {
           if (ld && ld.length > 0) {
-            setLeads(prev => {
-              const existingIds = new Set(prev.map(l => l.id));
-              const newItems = ld.filter(l => !existingIds.has(l.id));
-              return [...newItems, ...prev];
-            });
+            setLeads(ld);
             setKpiDeltas(prev => ({
               ...prev,
-              generated: prev.generated + ld.length,
+              generated: ld.length,
             }));
             showToast(
               'FastAPI Connected',
-              `Loaded ${ld.length} live records from autonomous scrapers.`,
+              `Loaded ${ld.length} live records from PostgreSQL.`,
               'success'
             );
           }
@@ -365,6 +380,28 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   // AI Agent Chat Simulation & Dynamic Requirement Building
   // -------------------------------------------------------------
   const [messagesBySession, setMessagesBySession] = useState<Record<string, AgentMessage[]>>({
+    'sess-live-init': [
+      {
+        id: 'msg-init-live',
+        sessionId: 'sess-live-init',
+        sender: 'agent',
+        text: `Welcome! I am your Autonomous Data Operations Intelligence Bot. I am connected directly to 4 live production scraping engines:
+
+1. 🏛️ Dallas City Hall Bonfire Hub (City procurement bids, RFPs & commodity contracts)
+2. 🏢 DASNY RFP Opportunities (State of New York Dormitory Authority construction & architectural RFPs)
+3. 📒 JWiz Directory (Commercial contractors, electricians, plumbers & business contacts)
+4. 📜 NYSCR State Contract Reporter (New York open government & agency contracts)
+
+Which scraper engine would you like to target today, or what specific type of leads/bids do you need?`,
+        timestamp: 'Just now',
+        suggestions: [
+          'Dallas City Hall Bonfire',
+          'DASNY NY RFP Bids',
+          'JWiz Commercial Directory',
+          'NYSCR State Contracts',
+        ],
+      },
+    ],
     'sess-bonfire': [
       {
         id: 'msg-init-1',
@@ -409,10 +446,33 @@ Which scraper engine would you like to target today, or what specific type of le
 
     // Call FastAPI bot endpoint
     try {
-      const botRes = await apiService.sendBotMessage(sessionId, text, sess.requirement);
+      // Context hygiene:
+      // If the session requirement is already completed or confirmed, but user is asking for a new search
+      // ("I need...", "Find...", "Scrape..."), do not contaminate the new request with stale datasetId or completed status.
+      // For follow-up retrieval requests ("Show me...", "View...", "Give me..."), preserve datasetId and completed status.
+      const lowerText = text.toLowerCase();
+      const isRetrieval = /^(show|view|get|display|list|fetch|see|what are)\b/.test(lowerText) &&
+        !/\b(scrape|extract|harvest|crawl|run|new|another)\b/.test(lowerText);
+
+      let reqContext: Requirement | undefined = sess.requirement;
+      if (sess.requirement && (sess.requirement.status === 'completed' || sess.requirement.status === 'confirmed') && !isRetrieval) {
+        reqContext = {
+          ...sess.requirement,
+          status: 'collecting',
+          completionPercentage: 0,
+          datasetId: undefined,
+          jobId: undefined as any,
+          selectedScript: undefined,
+          selectedScriptName: undefined,
+          scriptId: undefined,
+          scriptName: undefined,
+        };
+      }
+
+      const botRes = await apiService.sendBotMessage(sessionId, text, reqContext);
       if (botRes && botRes.reply) {
         setSessions(prev =>
-          prev.map(s => (s.id === sessionId ? { ...s, requirement: botRes.updatedRequirement, updatedAt: 'Just now' } : s))
+          prev.map(s => (s.id === sessionId ? { ...s, requirement: botRes.updatedRequirement || s.requirement, updatedAt: 'Just now' } : s))
         );
 
         const agentMsg: AgentMessage = {
@@ -422,82 +482,242 @@ Which scraper engine would you like to target today, or what specific type of le
           text: botRes.reply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           suggestions: botRes.suggestions && botRes.suggestions.length > 0 ? botRes.suggestions : undefined,
+          agentCode: botRes.agentCode,
+          handledBy: botRes.handledBy,
+          decision: botRes.decision,
+          query: botRes.query,
+          agentResult: botRes.agentResult,
+          collaborationId: botRes.collaborationId,
+          collaborationStatus: botRes.collaborationStatus,
+          agentsInvolved: botRes.agentsInvolved,
+          agentSteps: botRes.agentSteps,
+          proposedActions: botRes.proposedActions,
         };
 
         setMessagesBySession(prev => ({
           ...prev,
           [sessionId]: [...(prev[sessionId] || []), agentMsg],
         }));
+
+        // If an autonomous scraper job was triggered directly by the command
+        if (botRes.jobId) {
+          const liveJobId = botRes.jobId;
+          const targetScript = botRes.recommendedScript || 'Scraper';
+          showToast('Extraction Started', `Autonomous workflow initiated using ${targetScript.toUpperCase()}.`, 'info');
+
+          // Ensure session requirement tracks the job in generating state
+          setSessions(prev =>
+            prev.map(s => {
+              if (s.id === sessionId) {
+                return {
+                  ...s,
+                  requirement: {
+                    ...(botRes.updatedRequirement || s.requirement),
+                    jobId: liveJobId,
+                    status: 'generating',
+                    completionPercentage: Math.max(25, Math.min(95, botRes.updatedRequirement?.completionPercentage || 30)),
+                  },
+                };
+              }
+              return s;
+            })
+          );
+
+          // Fetch job details and add to jobs state
+          apiService.getJob(liveJobId).then(liveJob => {
+            if (liveJob) {
+              setJobs(prev => [liveJob, ...prev.filter(j => j.id !== liveJobId)]);
+            }
+          });
+
+          // Poll job progress until completion
+          const pollTimer = setInterval(async () => {
+            const liveJob = await apiService.getJob(liveJobId);
+            if (liveJob) {
+              setJobs(prev => prev.map(j => (j.id === liveJobId ? liveJob : j)));
+
+              if (liveJob.status === 'Running' || liveJob.status === 'In Progress') {
+                const prog = Math.max(25, Math.min(95, liveJob.progress || 35));
+                setSessions(prev =>
+                  prev.map(s => {
+                    if (s.id === sessionId) {
+                      return {
+                        ...s,
+                        requirement: {
+                          ...s.requirement,
+                          jobId: liveJobId,
+                          status: 'generating',
+                          completionPercentage: prog,
+                        },
+                      };
+                    }
+                    return s;
+                  })
+                );
+              } else if (liveJob.status === 'Completed' || liveJob.status === 'Failed' || liveJob.status === 'Blocked') {
+                clearInterval(pollTimer);
+                if (liveJob.status === 'Completed') {
+                  const [updatedLeads, updatedDatasets] = await Promise.all([
+                    apiService.getLeads(),
+                    apiService.getDatasets(),
+                  ]);
+                  if (updatedLeads && updatedLeads.length > 0) {
+                    setLeads(updatedLeads);
+                  }
+                  if (updatedDatasets && updatedDatasets.length > 0) {
+                    setDatasets(updatedDatasets);
+                  }
+
+                  const verifiedCount = liveJob.recordsFound || (updatedLeads ? updatedLeads.length : 0);
+                  const scriptName = liveJob.name || targetScript.toUpperCase();
+
+                  setSessions(prev =>
+                    prev.map(s => {
+                      if (s.id === sessionId) {
+                        return {
+                          ...s,
+                          requirement: {
+                            ...s.requirement,
+                            jobId: liveJobId,
+                            status: 'completed',
+                            completionPercentage: 100,
+                            quantity: verifiedCount || s.requirement.quantity,
+                            verifiedRecords: verifiedCount,
+                          },
+                        };
+                      }
+                      return s;
+                    })
+                  );
+
+                  const compMsg: AgentMessage = {
+                    id: `msg-completed-${Date.now()}`,
+                    sessionId,
+                    sender: 'agent',
+                    text: `**${scriptName}** extraction completed.\n\nStatus: **COMPLETED**\nVerified Records: **${verifiedCount}**\n\nAll requested records have been verified and indexed.`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    agentCode: 'data',
+                    handledBy: 'ScraperExecutionEngine',
+                    proposedActions: [
+                      {
+                        actionType: 'view_results',
+                        label: 'View Results',
+                        parameters: { jobId: liveJobId, datasetId: liveJob.datasetId },
+                      },
+                    ],
+                    suggestions: ['View Harvested Leads', 'Export CSV', 'Filter by Contact Info'],
+                  };
+                  setMessagesBySession(prev => ({
+                    ...prev,
+                    [sessionId]: [...(prev[sessionId] || []), compMsg],
+                  }));
+
+                  showToast('Dataset Ready!', `${scriptName} finished with ${verifiedCount} verified records!`, 'success');
+                } else if (liveJob.status === 'Failed') {
+                  const scriptName = liveJob.name || targetScript.toUpperCase();
+                  setSessions(prev =>
+                    prev.map(s => {
+                      if (s.id === sessionId) {
+                        return {
+                          ...s,
+                          requirement: {
+                            ...s.requirement,
+                            jobId: liveJobId,
+                            status: 'failed',
+                            completionPercentage: 0,
+                          },
+                        };
+                      }
+                      return s;
+                    })
+                  );
+
+                  const failMsg: AgentMessage = {
+                    id: `msg-failed-${Date.now()}`,
+                    sessionId,
+                    sender: 'agent',
+                    text: `**${scriptName}** extraction could not be completed right now.\n\nStatus: **FAILED**\n\nThe extraction job encountered an error during execution.`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    agentCode: 'data',
+                    handledBy: 'ScraperExecutionEngine',
+                    proposedActions: [
+                      {
+                        actionType: 'retry_scraper',
+                        label: 'Retry / View Details',
+                        parameters: { jobId: liveJobId, scriptId: liveJob.scriptId },
+                      },
+                    ],
+                    suggestions: ['Retry Scraper', 'Show Recent Extraction Jobs'],
+                  };
+                  setMessagesBySession(prev => ({
+                    ...prev,
+                    [sessionId]: [...(prev[sessionId] || []), failMsg],
+                  }));
+
+                  showToast('Extraction Failed', `Job ${liveJobId} failed. Check execution logs.`, 'error');
+                } else if (liveJob.status === 'Blocked') {
+                  const scriptName = liveJob.name || targetScript.toUpperCase();
+                  setSessions(prev =>
+                    prev.map(s => {
+                      if (s.id === sessionId) {
+                        return {
+                          ...s,
+                          requirement: {
+                            ...s.requirement,
+                            jobId: liveJobId,
+                            status: 'blocked',
+                            completionPercentage: 0,
+                          },
+                        };
+                      }
+                      return s;
+                    })
+                  );
+
+                  const blockedMsg: AgentMessage = {
+                    id: `msg-blocked-${Date.now()}`,
+                    sessionId,
+                    sender: 'agent',
+                    text: `**${scriptName}** extraction is **BLOCKED**.\n\nRequired credentials or environment configurations are missing.`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    agentCode: 'data',
+                    handledBy: 'ScraperExecutionEngine',
+                    proposedActions: [],
+                    suggestions: ['Configure Credentials', 'Select Different Engine'],
+                  };
+                  setMessagesBySession(prev => ({
+                    ...prev,
+                    [sessionId]: [...(prev[sessionId] || []), blockedMsg],
+                  }));
+
+                  showToast('Extraction Blocked', `Job ${liveJobId} is blocked: Credentials required.`, 'warning');
+                }
+              }
+            }
+          }, 1500);
+        }
+
         return;
       }
     } catch (err) {
-      console.warn('Backend bot call error, using local fallback:', err);
+      console.warn('Backend bot call error:', err);
     }
 
-    // Local fallback
-    const lower = text.toLowerCase();
-    const req = { ...sess.requirement };
-    let botResponse = '';
-    let suggestions: string[] = [];
+    // Backend unavailable / connection error fallback:
+    // Preserve existing requirement without inventing category/location/industry/script decisions
+    const fallbackMsg: AgentMessage = {
+      id: `msg-${Date.now() + 1}`,
+      sessionId,
+      sender: 'agent',
+      text: 'The AI orchestrator service is currently unavailable or encountered a connection error. Your requirement has been preserved. Please verify that the backend server is running and try again.',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      suggestions: ['Retry Request', 'Check System Status'],
+    };
 
-    if (lower.includes('construction') || lower.includes('texas')) {
-      req.industry = 'Commercial Construction';
-      req.location = 'Texas, USA';
-      req.completionPercentage = 40;
-      botResponse = 'Got it. Commercial construction in Texas. What company size should we focus on?';
-      suggestions = ['10 to 50 employees', '50 to 500 employees', '500+ employees'];
-    } else if (lower.includes('saas') || lower.includes('software') || lower.includes('tech')) {
-      req.industry = 'B2B SaaS / Software';
-      req.location = lower.includes('usa') || lower.includes('us') ? 'United States' : 'North America';
-      req.completionPercentage = 40;
-      botResponse = 'Excellent. Targeting B2B SaaS companies. Which executive roles should we extract?';
-      suggestions = ['Founders & CEOs', 'VP of Sales & Marketing', 'CTO & VP Engineering'];
-    } else if (lower.includes('50') || lower.includes('size') || lower.includes('employees')) {
-      req.companySize = text;
-      req.completionPercentage = Math.max(req.completionPercentage, 60);
-      botResponse = `Understood. Company size bracket set to ${text}. Which specific decision makers should I target?`;
-      suggestions = ['Owners and CEOs', 'VP Operations', 'Managing Partners'];
-    } else if (lower.includes('ceo') || lower.includes('owner') || lower.includes('founder') || lower.includes('decision')) {
-      req.decisionMakers = [text];
-      req.completionPercentage = Math.max(req.completionPercentage, 80);
-      botResponse = 'Decision maker criteria locked in. How many verified lead records do you require?';
-      suggestions = ['500 leads', '1,000 leads', '2,000 leads'];
-    } else if (lower.match(/\d+/) || lower.includes('leads') || lower.includes('quantity')) {
-      const num = parseInt(text.replace(/[^0-9]/g, '')) || 1000;
-      req.quantity = num;
-      req.completionPercentage = 100;
-      req.status = 'ready_for_confirmation';
-      botResponse = `All requirements fulfilled! ${num.toLocaleString()} leads specification is complete. Please verify the requirement summary on the right and click "Confirm & Generate Data" to initiate the autonomous extraction pipeline.`;
-    } else {
-      req.completionPercentage = Math.min(100, req.completionPercentage + 25);
-      if (req.completionPercentage >= 100) {
-        req.status = 'ready_for_confirmation';
-        botResponse = 'Thank you. I have all necessary parameters. Your requirement is 100% complete and ready for confirmation.';
-      } else {
-        botResponse = `Understood. I have logged "${text}". How many records would you like generated?`;
-        suggestions = ['1,000 records', '2,000 records'];
-      }
-    }
-
-    setSessions(prev =>
-      prev.map(s => (s.id === sessionId ? { ...s, requirement: req, updatedAt: 'Just now' } : s))
-    );
-
-    setTimeout(() => {
-      const agentMsg: AgentMessage = {
-        id: `msg-${Date.now() + 1}`,
-        sessionId,
-        sender: 'agent',
-        text: botResponse,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        suggestions: suggestions.length > 0 ? suggestions : undefined,
-      };
-
-      setMessagesBySession(prev => ({
-        ...prev,
-        [sessionId]: [...(prev[sessionId] || []), agentMsg],
-      }));
-    }, 650);
+    setMessagesBySession(prev => ({
+      ...prev,
+      [sessionId]: [...(prev[sessionId] || []), fallbackMsg],
+    }));
   };
 
   const createSession = async (departmentId?: string, title?: string): Promise<AgentSession> => {
@@ -595,7 +815,24 @@ Which scraper engine would you like to target today, or what specific type of le
         if (liveJob) {
           setJobs(prev => prev.map(j => (j.id === liveJobId ? liveJob : j)));
 
-          if (liveJob.status === 'Completed' || liveJob.status === 'Failed') {
+          if (liveJob.status === 'Running' || liveJob.status === 'In Progress') {
+            const prog = Math.max(25, Math.min(95, liveJob.progress || 35));
+            setSessions(prev =>
+              prev.map(s =>
+                s.id === sessionId
+                  ? {
+                      ...s,
+                      requirement: {
+                        ...s.requirement,
+                        jobId: liveJobId,
+                        status: 'generating',
+                        completionPercentage: prog,
+                      },
+                    }
+                  : s
+              )
+            );
+          } else if (liveJob.status === 'Completed' || liveJob.status === 'Failed') {
             clearInterval(pollInterval);
             if (liveJob.status === 'Completed') {
               const [newLeads, newDatasets] = await Promise.all([
@@ -616,174 +853,106 @@ Which scraper engine would you like to target today, or what specific type of le
                   setDatasets(prev => [foundDs, ...prev.filter(d => d.id !== liveDatasetId)]);
                 }
               }
-              showToast('Dataset Ready!', `${sess.requirement.industry} scraper finished with ${liveJob.recordsFound} verified records!`, 'success');
+
+              const verifiedCount = liveJob.recordsFound || (newLeads ? newLeads.length : 0);
+              setSessions(prev =>
+                prev.map(s =>
+                  s.id === sessionId
+                    ? {
+                        ...s,
+                        status: 'completed',
+                        requirement: {
+                          ...s.requirement,
+                          jobId: liveJobId,
+                          status: 'completed',
+                          completionPercentage: 100,
+                          quantity: verifiedCount || s.requirement.quantity,
+                          verifiedRecords: verifiedCount,
+                        },
+                      }
+                    : s
+                )
+              );
+
+              showToast('Dataset Ready!', `${sess.requirement.industry} scraper finished with ${verifiedCount} verified records!`, 'success');
+            } else if (liveJob.status === 'Failed') {
+              setSessions(prev =>
+                prev.map(s =>
+                  s.id === sessionId
+                    ? {
+                        ...s,
+                        status: 'failed',
+                        requirement: {
+                          ...s.requirement,
+                          jobId: liveJobId,
+                          status: 'failed',
+                          completionPercentage: 0,
+                        },
+                      }
+                    : s
+                )
+              );
+              showToast('Extraction Failed', `Job ${liveJobId} encountered an error.`, 'error');
+            } else if (liveJob.status === 'Blocked') {
+              setSessions(prev =>
+                prev.map(s =>
+                  s.id === sessionId
+                    ? {
+                        ...s,
+                        status: 'blocked',
+                        requirement: {
+                          ...s.requirement,
+                          jobId: liveJobId,
+                          status: 'blocked',
+                          completionPercentage: 0,
+                        },
+                      }
+                    : s
+                )
+              );
+              showToast('Extraction Blocked', `Job ${liveJobId} is blocked: Credentials required.`, 'warning');
             }
           }
         }
       }, 1200);
     } else {
-      simulateJobProgression(jobId, datasetId, sess.requirement);
+      // No real backend job ID returned — do NOT simulate fake data.
+      // Mark the placeholder job as Failed and inform the user.
+      showBackendUnavailableWarning(jobId, sessionId);
     }
 
     return jobId;
   };
 
-  const simulateJobProgression = (jobId: string, datasetId: string, requirement: Requirement) => {
-    const steps = [
-      { step: 'Understanding requirement', progress: 15, found: 200, verified: 180 },
-      { step: 'Selecting workflow', progress: 28, found: 520, verified: 480 },
-      { step: 'Collecting companies', progress: 45, found: 890, verified: 810 },
-      { step: 'Finding contacts', progress: 62, found: 1320, verified: 1210 },
-      { step: 'Finding emails', progress: 80, found: 1680, verified: 1510 },
-      { step: 'Verifying data', progress: 92, found: 1842, verified: 1620 },
-      { step: 'Deduplicating', progress: 97, found: 1950, verified: 1720 },
-      { step: 'Preparing dataset', progress: 100, found: requirement.quantity || 1000, verified: Math.round((requirement.quantity || 1000) * 0.96) },
-    ];
-
-    let currentStepIdx = 0;
-    const interval = setInterval(() => {
-      currentStepIdx++;
-      if (currentStepIdx < steps.length) {
-        const s = steps[currentStepIdx];
-        setJobs(prev =>
-          prev.map(j =>
-            j.id === jobId
-              ? {
-                  ...j,
-                  progress: s.progress,
-                  currentStep: s.step,
-                  recordsFound: s.found,
-                  verifiedCount: s.verified,
-                  duplicatesCount: Math.round(s.found * 0.03),
-                  errorsCount: Math.round(s.found * 0.01),
-                  status: s.progress === 100 ? 'Completed' : 'Running',
-                  logs: [
-                    ...j.logs,
-                    {
-                      timestamp: `0${Math.floor(currentStepIdx / 2)}:${(currentStepIdx * 12) % 60}`,
-                      level: 'info',
-                      message: `Step "${s.step}" completed. ${s.found} records processed.`,
-                    },
-                  ],
-                }
-              : j
-          )
-        );
-      } else {
-        clearInterval(interval);
-        // Finalize Dataset
-        const targetQty = requirement.quantity || 1000;
-        const newDataset: Dataset = {
-          id: datasetId,
-          name: `${requirement.location} ${requirement.industry}`,
-          departmentId: requirement.departmentId,
-          departmentName: currentUser.departmentName,
-          createdBy: currentUser.id,
-          createdByName: currentUser.name,
-          recordsCount: targetQty,
-          verifiedCount: Math.round(targetQty * 0.96),
-          duplicatesCount: 28,
-          status: 'Completed',
-          createdAt: 'Just now',
-          tags: [requirement.industry, requirement.location, 'Generated Today'],
-          workflowId: 'wf-const-lead-gen',
-          workflowName: 'Autonomous Intelligence Flow',
-        };
-
-        setDatasets(prev => [newDataset, ...prev]);
-
-        // Add 5 fresh leads tied to this new dataset
-        const generatedLeads: Lead[] = [
-          {
-            id: `lead-gen-${Date.now()}-1`,
-            datasetId,
-            datasetName: newDataset.name,
-            name: 'Christopher Vance',
-            company: 'Vance & Associates Construction',
-            title: 'Chief Executive Officer',
-            email: 'cvance@vancebuilt.example.com',
-            phone: '+1 (512) 890-2109',
-            location: requirement.location || 'Austin, TX',
-            status: 'New',
-            assignedTo: currentUser.id,
-            assignedToName: currentUser.name,
-            departmentId: currentUser.departmentId,
-            departmentName: currentUser.departmentName,
-            lastActivity: 'Generated just now',
-            companySize: '180 employees',
-            website: 'https://vancebuilt.example.com',
-            industry: requirement.industry,
-            createdAt: 'Just now',
-          },
-          {
-            id: `lead-gen-${Date.now()}-2`,
-            datasetId,
-            datasetName: newDataset.name,
-            name: 'Patricia Morales',
-            company: 'Lone Star Commercial Works',
-            title: 'Owner & Managing Director',
-            email: 'pmorales@lonestarcommercial.example.com',
-            phone: '+1 (214) 773-1990',
-            location: requirement.location || 'Dallas, TX',
-            status: 'New',
-            assignedTo: currentUser.id,
-            assignedToName: currentUser.name,
-            departmentId: currentUser.departmentId,
-            departmentName: currentUser.departmentName,
-            lastActivity: 'Generated just now',
-            companySize: '95 employees',
-            website: 'https://lonestarcommercial.example.com',
-            industry: requirement.industry,
-            createdAt: 'Just now',
-          },
-          {
-            id: `lead-gen-${Date.now()}-3`,
-            datasetId,
-            datasetName: newDataset.name,
-            name: 'Jonathan Sterling',
-            company: 'Apex Industrial Structures',
-            title: 'President & Founder',
-            email: 'jsterling@apexstructures.example.com',
-            phone: '+1 (713) 440-8812',
-            location: requirement.location || 'Houston, TX',
-            status: 'New',
-            assignedTo: currentUser.id,
-            assignedToName: currentUser.name,
-            departmentId: currentUser.departmentId,
-            departmentName: currentUser.departmentName,
-            lastActivity: 'Generated just now',
-            companySize: '310 employees',
-            website: 'https://apexstructures.example.com',
-            industry: requirement.industry,
-            createdAt: 'Just now',
-          },
-        ];
-
-        setLeads(prev => [...generatedLeads, ...prev]);
-
-        // Update KPIs
-        setKpiDeltas(prev => ({
-          ...prev,
-          generated: prev.generated + targetQty,
-        }));
-
-        // Add Activity
-        const newAct: Activity = {
-          id: `act-${Date.now()}`,
-          type: 'generation',
-          title: `${currentUser.departmentName} generated ${targetQty} leads`,
-          description: `Dataset "${newDataset.name}" generated with ${Math.round(targetQty * 0.96)} verified records.`,
-          user: currentUser.name,
-          department: currentUser.departmentName,
-          timestamp: 'Just now',
-          datasetId,
-          badgeColor: '#2D4351',
-        };
-        setActivities(prev => [newAct, ...prev]);
-
-        showToast('Dataset Ready!', `${newDataset.name} generated ${targetQty} leads successfully.`, 'success');
-      }
-    }, 1200);
+  /**
+   * Called when backend returns no live job ID (backend unreachable or confirm failed).
+   * Updates job state to Failed and shows a clear error — does NOT generate fake data.
+   */
+  const showBackendUnavailableWarning = (jobId: string, sessionId: string) => {
+    setJobs(prev =>
+      prev.map(j =>
+        j.id === jobId
+          ? {
+              ...j,
+              status: 'Failed',
+              progress: 0,
+              currentStep: 'Backend unavailable — could not start extraction job',
+            }
+          : j
+      )
+    );
+    setSessions(prev =>
+      prev.map(s =>
+        s.id === sessionId
+          ? { ...s, requirement: { ...s.requirement, status: 'failed', completionPercentage: 0 } }
+          : s
+      )
+    );
+    showToast(
+      'Backend Unavailable',
+      'Could not reach the FastAPI backend to start extraction. No data was generated.',
+      'error'
+    );
   };
 
   const getLiveJob = (jobId: string) => {

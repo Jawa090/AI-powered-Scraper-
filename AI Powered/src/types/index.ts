@@ -39,6 +39,25 @@ export interface Agent {
   capabilities: string[];
 }
 
+export interface ProposedAction {
+  actionType: string;
+  label: string;
+  parameters?: Record<string, any>;
+  requiresConfirmation?: boolean;
+  safeToAutoExecute?: boolean;
+}
+
+export interface AgentTaskStep {
+  taskId: string;
+  agentCode: string;
+  purpose: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'BLOCKED' | string;
+  result?: any;
+  error?: string | null;
+  dependencies?: string[];
+  executionOrder?: number;
+}
+
 export interface AgentMessage {
   id: string;
   sessionId: string;
@@ -46,6 +65,17 @@ export interface AgentMessage {
   text: string;
   timestamp: string;
   suggestions?: string[];
+  // Layer 6 / 12 / 13 metadata
+  agentCode?: string;
+  handledBy?: string;
+  decision?: string;
+  query?: any;
+  agentResult?: any;
+  collaborationId?: string | null;
+  collaborationStatus?: string | null;
+  agentsInvolved?: string[];
+  agentSteps?: AgentTaskStep[];
+  proposedActions?: ProposedAction[];
 }
 
 export interface RequirementFields {
@@ -67,9 +97,15 @@ export interface Requirement {
   quantity: number;
   requiredFields: RequirementFields;
   completionPercentage: number;
-  status: 'collecting' | 'ready_for_confirmation' | 'confirmed' | 'generating' | 'completed';
+  status: 'collecting' | 'ready_for_confirmation' | 'confirmed' | 'generating' | 'completed' | string;
   datasetId?: string;
-  departmentId: string;
+  departmentId?: string;
+  selectedScript?: string;
+  selectedScriptName?: string;
+  scriptId?: string;
+  scriptName?: string;
+  jobId?: string;
+  verifiedRecords?: number;
 }
 
 export interface AgentSession {
@@ -79,7 +115,7 @@ export interface AgentSession {
   title: string;
   createdAt: string;
   updatedAt: string;
-  status: 'active' | 'completed' | 'generating';
+  status: 'active' | 'completed' | 'generating' | string;
   requirement: Requirement;
 }
 
@@ -90,7 +126,10 @@ export type LeadStatus =
   | 'Interested'
   | 'Follow Up'
   | 'Not Interested'
-  | 'Qualified';
+  | 'Qualified'
+  | 'Contacted'
+  | 'Meeting Set'
+  | 'Converted';
 
 export interface Lead {
   id: string;
@@ -98,12 +137,16 @@ export interface Lead {
   datasetName: string;
   name: string;
   company: string;
+  organizationName?: string;
   title: string;
   email: string;
   phone: string;
   location: string;
+  city?: string;
+  state?: string;
   status: LeadStatus;
   assignedTo: string;
+  assignedToId?: string;
   assignedToName: string;
   departmentId: string;
   departmentName: string;
@@ -115,6 +158,12 @@ export interface Lead {
   industry?: string;
   linkedin?: string;
   createdAt: string;
+  score?: number;
+  priority?: string;
+  sourceCode?: string;
+  qualityScore?: number;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
 }
 
 export interface Dataset {
@@ -127,7 +176,7 @@ export interface Dataset {
   recordsCount: number;
   verifiedCount: number;
   duplicatesCount: number;
-  status: 'Completed' | 'Running' | 'Queued' | 'Failed';
+  status: 'Completed' | 'Running' | 'Queued' | 'Failed' | string;
   createdAt: string;
   tags: string[];
   workflowId: string;
@@ -177,10 +226,10 @@ export interface Job {
   id: string;
   name: string;
   type: string;
-  departmentId: string;
-  departmentName: string;
+  departmentId?: string;
+  departmentName?: string;
   progress: number;
-  status: 'Queued' | 'Running' | 'Completed' | 'Partial' | 'Failed';
+  status: 'Queued' | 'Running' | 'Completed' | 'Partial' | 'Failed' | string;
   currentStep: string;
   startedAt: string;
   duration: string;
@@ -200,12 +249,12 @@ export interface Script {
   id: string;
   name: string;
   version: string;
-  status: 'Active' | 'Beta' | 'Deprecated';
-  usedBy: string[];
+  status: 'Active' | 'Beta' | 'Deprecated' | string;
+  usedBy?: string[];
   capabilities: string[];
   description: string;
-  lastRun: string;
-  successRate: string;
+  lastRun?: string;
+  successRate?: string;
 }
 
 export interface WorkflowStep {
@@ -256,4 +305,40 @@ export interface Employee {
   completionRate: number;
   avatar: string;
   status: 'Active' | 'Away' | 'In Call';
+}
+
+export interface SystemStatus {
+  backend: boolean;
+  database: boolean;
+  api: boolean;
+  timestamp: number;
+  registeredScripts: number;
+  error?: string | null;
+}
+
+export interface BotChatResponse {
+  reply: string;
+  suggestions: string[];
+  updatedRequirement: Requirement;
+  recommendedScript?: string | null;
+  sessionId?: string;
+  decision?: string;
+  query?: any;
+  agentCode?: string;
+  handledBy?: string;
+  agentResult?: any;
+  collaborationId?: string | null;
+  collaborationStatus?: string | null;
+  agentsInvolved?: string[];
+  agentSteps?: AgentTaskStep[];
+  proposedActions?: ProposedAction[];
+  jobId?: string;
+}
+
+export interface BotConfirmResponse {
+  success: boolean;
+  jobId: string;
+  scriptId: string;
+  datasetId: string;
+  message: string;
 }

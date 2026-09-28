@@ -1,0 +1,28 @@
+# ============================================================
+# DataOps Autonomous Intelligence Platform - Backend Dependencies
+# ============================================================
+
+# --- Web Framework & API Server ---
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+
+# --- Database (PostgreSQL) ---
+# SQLAlchemy 2.x ORM + psycopg3 driver + Alembic migrations
+sqlalchemy>=2.0.0
+psycopg[binary]>=3.1.0
+alembic>=1.13.0
+
+# --- Web Scraping & Browser Automation ---
+# Used in: dasny_scraper.py, dallas_bonfire_scraper.py, final_scraper.py (NYSCR)
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+
+# --- HTTP Client & HTML Parsing ---
+# Used in: jwiz.py, scraper_manager.py
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+urllib3>=2.0.0
+
+# --- Utilities & Configuration ---
+python-dotenv>=1.0.0

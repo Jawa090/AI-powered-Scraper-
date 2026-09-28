@@ -1,0 +1,359 @@
+{
+  "info": {
+    "_postman_id": "b8a91c23-74e1-4567-9abc-dataops-collection",
+    "name": "DataOps AI Backend API",
+    "description": "Comprehensive Postman collection for DataOps Autonomous Intelligence Platform (FastAPI, Layers 1-13).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health & Readiness",
+      "item": [
+        {
+          "name": "1. Liveness Probe",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "2. Readiness Probe (Database Check)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/ready",
+              "host": ["{{base_url}}"],
+              "path": ["health", "ready"]
+            }
+          }
+        },
+        {
+          "name": "3. Legacy Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scripts & Scraper Management",
+      "item": [
+        {
+          "name": "4. List All Scripts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/scripts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "scripts"]
+            }
+          }
+        },
+        {
+          "name": "5. Get Script Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/scripts/bonfire",
+              "host": ["{{base_url}}"],
+              "path": ["api", "scripts", "bonfire"]
+            }
+          }
+        },
+        {
+          "name": "6. Run Scraper Script",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scriptId\": \"bonfire\",\n  \"parameters\": {\n    \"limit\": 10,\n    \"keyword\": \"contractor\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/scripts/run",
+              "host": ["{{base_url}}"],
+              "path": ["api", "scripts", "run"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Jobs & Datasets",
+      "item": [
+        {
+          "name": "7. List Scraper Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/jobs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs"]
+            }
+          }
+        },
+        {
+          "name": "8. List Datasets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets"]
+            }
+          }
+        },
+        {
+          "name": "9. Query Leads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/leads?query=contractor",
+              "host": ["{{base_url}}"],
+              "path": ["api", "leads"],
+              "query": [
+                {
+                  "key": "query",
+                  "value": "contractor"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI Agent Bot & Specialized Agents",
+      "item": [
+        {
+          "name": "10. Data Agent - Lead Discovery",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"message\": \"Find 25 general contractors in Dallas\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "chat"]
+            }
+          }
+        },
+        {
+          "name": "11. Research Agent - Market Intelligence",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"message\": \"Analyze market opportunities and competitive landscape in Texas\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "chat"]
+            }
+          }
+        },
+        {
+          "name": "12. Sales Agent - Lead Prioritization",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"message\": \"Prioritize high quality leads and evaluate sales readiness in Dallas\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "chat"]
+            }
+          }
+        },
+        {
+          "name": "13. Email Agent - Outreach Drafting",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"message\": \"Draft personalized cold email outreach templates for commercial contractors\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "chat"]
+            }
+          }
+        },
+        {
+          "name": "14. Growth Agent - Expansion Strategy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"message\": \"Formulate Q4 market expansion and growth strategy for contractors\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "chat"]
+            }
+          }
+        },
+        {
+          "name": "15. Multi-Agent Collaboration Pipeline (Layer 12)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"message\": \"Find construction companies in Dallas, analyze their market coverage, identify the strongest prospects, and prepare personalized outreach\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "chat"]
+            }
+          }
+        },
+        {
+          "name": "16. Multi-turn Session Continuation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"message\": \"Now qualify the strongest prospects and prepare outreach drafts\",\n  \"currentRequirement\": {\n    \"industry\": \"Contractor\",\n    \"location\": \"Dallas\",\n    \"quantity\": 20\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "chat"]
+            }
+          }
+        },
+        {
+          "name": "17. Confirm & Generate Autonomous Pipeline",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{session_id}}\",\n  \"requirement\": {\n    \"industry\": \"Contractor\",\n    \"location\": \"Dallas\",\n    \"quantity\": 20,\n    \"selectedScript\": \"bonfire\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/confirm-and-generate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "confirm-and-generate"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Handling & Edge Cases",
+      "item": [
+        {
+          "name": "18. Validation Error - Missing Fields (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"No session ID provided\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "chat"]
+            }
+          }
+        },
+        {
+          "name": "19. Not Found Handling (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/scripts/nonexistent_script_id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "scripts", "nonexistent_script_id"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
