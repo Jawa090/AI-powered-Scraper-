@@ -149,11 +149,10 @@ def execute_jwiz(params: Dict[str, Any], telemetry: TelemetryCallback) -> List[D
                 phone = extract_phone(card)
                 email = extract_email(card)
                 loc_line = extract_location_line(card)
+                # Real location only: JWiz ignores unknown search locations and
+                # returns its default (mostly NY) listings, so never stamp the
+                # requested city onto a card that doesn't state one.
                 city, state = extract_city_state(loc_line)
-                if not city:
-                    city = location.replace("-", " ").title()
-                if not state:
-                    state = "NY" if "new-york" in location.lower() else "USA"
 
                 profile_link = extract_profile_url(card)
 
@@ -326,11 +325,11 @@ def standardize_records(
 
         elif clean_id == "jwiz":
             company = item.get("company_name", f"Commercial Contractor #{i+1}")
-            contact_person = f"Principal at {company[:25]}"
+            # JWiz cards carry no named contact; don't invent one
+            contact_person = None
             email = item.get("email")
             phone = item.get("phone")
-            city = item.get("city", "New York")
-            state = item.get("state", "NY")
+            location_parts = [p for p in (item.get("city"), item.get("state")) if p]
 
             standardized.append({
                 "id": lead_id,
@@ -340,7 +339,7 @@ def standardize_records(
                 "title": f"{item.get('category', 'Contractor')} Owner / Manager",
                 "email": email,
                 "phone": phone,
-                "location": f"{city}, {state}, USA",
+                "location": ", ".join(location_parts + ["USA"]) if location_parts else None,
                 "website": item.get("profile_url") or "https://jwiz.com",
                 "industry": f"Commercial Services ({item.get('category', 'General')})",
                 "status": "New",

@@ -37,47 +37,32 @@ export const Agent: React.FC<AgentPageProps> = ({ onNavigate }) => {
 
   const handleInstantTrigger = async (scriptId: string) => {
     if (!activeSession) return;
+    // Defaults only fill gaps: what the user asked for in chat (industry,
+    // location, quantity) must reach the scraper unchanged. Locations here are
+    // plain place names because the backend turns them into search slugs.
     const scriptMeta: Record<string, { name: string; industry: string; location: string; qty: number }> = {
-      bonfire: {
-        name: 'Dallas City Hall Bonfire Scraper',
-        industry: 'Dallas Municipal Procurement Bids',
-        location: 'City of Dallas, TX',
-        qty: 20,
-      },
-      dasny: {
-        name: 'DASNY RFP & Bid Opportunities Scraper',
-        industry: 'DASNY NY Construction & Architectural RFPs',
-        location: 'New York State',
-        qty: 6,
-      },
-      jwiz: {
-        name: 'JWiz Commercial & Services Directory Scraper',
-        industry: 'Commercial Contractors & Trade Services',
-        location: 'New York & Tri-State Area',
-        qty: 25,
-      },
-      nyscr: {
-        name: 'NYSCR State Contract Reporter Scraper',
-        industry: 'New York State Agency Contracts',
-        location: 'Albany & Statewide NY',
-        qty: 5,
-      },
+      bonfire: { name: 'Dallas City Hall Bonfire Scraper', industry: 'All Open Opportunities', location: 'Dallas', qty: 20 },
+      dasny: { name: 'DASNY RFP & Bid Opportunities Scraper', industry: 'All Open Opportunities', location: 'New York', qty: 20 },
+      jwiz: { name: 'JWiz Commercial & Services Directory Scraper', industry: 'Contractor', location: 'New York', qty: 25 },
+      nyscr: { name: 'NYSCR State Contract Reporter Scraper', industry: 'All Open Opportunities', location: 'New York', qty: 25 },
     };
 
     const meta = scriptMeta[scriptId] || {
       name: scriptId,
-      industry: 'Public Procurement Opportunities',
-      location: 'United States',
+      industry: 'All Open Opportunities',
+      location: 'New York',
       qty: 20,
     };
 
-    activeSession.requirement.scriptId = scriptId;
-    activeSession.requirement.scriptName = meta.name;
-    activeSession.requirement.industry = meta.industry;
-    activeSession.requirement.location = meta.location;
-    activeSession.requirement.quantity = meta.qty;
-    activeSession.requirement.completionPercentage = 100;
-    activeSession.requirement.status = 'confirmed';
+    const req = activeSession.requirement;
+    const isBlank = (v?: string) => !v || v === 'Not specified';
+    req.scriptId = scriptId;
+    req.scriptName = meta.name;
+    if (isBlank(req.industry)) req.industry = meta.industry;
+    if (isBlank(req.location)) req.location = meta.location;
+    if (!req.quantity || req.quantity <= 0) req.quantity = meta.qty;
+    req.completionPercentage = 100;
+    req.status = 'confirmed';
 
     const jobId = await confirmRequirementAndGenerate(activeSession.id);
     onNavigate(`/data-requests/${jobId}`);

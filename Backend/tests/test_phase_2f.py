@@ -161,7 +161,7 @@ class TestPhase2F(unittest.TestCase):
             ],
         )
         # Mock database failure on step_1
-        with patch("agents.specialized.database_agent.database_agent.search_leads") as mock_db:
+        with patch.object(sys.modules["agents.specialized.database_agent"].database_agent, "search_leads") as mock_db:
             mock_db.return_value = {"success": False, "records": [], "count": 0, "errors": ["DB connection dropped"]}
             with patch("scraper_manager.scraper_manager.create_job") as mock_create:
                 res, ctx = workflow_collaboration_engine.execute(plan)
@@ -283,7 +283,7 @@ class TestPhase2F(unittest.TestCase):
     # L. no fabricated results
     def test_12_no_fabricated_results(self):
         # When DB has zero records, count is 0 and no synthetic leads are injected
-        with patch("agents.specialized.database_agent.database_agent.search_leads") as mock_db:
+        with patch.object(sys.modules["agents.specialized.database_agent"].database_agent, "search_leads") as mock_db:
             mock_db.return_value = {"success": True, "records": [], "count": 0, "errors": []}
             plan = WorkflowPlan(
                 plan_id="plan-zero",

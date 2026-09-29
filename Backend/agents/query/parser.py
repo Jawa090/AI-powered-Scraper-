@@ -14,6 +14,7 @@ from agents.query.models import NormalizedQuery
 
 # Known category patterns (trades, procurement items, public works)
 CATEGORY_PATTERNS = [
+    # Compound "<qualifier> contractor" phrases first (most specific wins)
     (r"\b(commercial\s+general\s+contractors?)\b", "Commercial General Contractor"),
     (r"\b(commercial\s+contractors?)\b", "Commercial Contractor"),
     (r"\b(residential\s+contractors?)\b", "Residential Contractor"),
@@ -22,15 +23,16 @@ CATEGORY_PATTERNS = [
     (r"\b(roofing\s+contractors?)\b", "Roofing Contractors"),
     (r"\b(electrical\s+(?:sub)?contractors?)\b", "Electrical Contractors"),
     (r"\b(drywall(?:\s+(?:and|&)\s+sheetrock)?(?:\s+(?:sub)?contractors?)?|sheetrock\s+(?:sub)?contractors?)\b", "Drywall & Sheetrock Contractors"),
-    (r"\b(general\s+contractors?)\b", "General Contractor"),
-    (r"\b(subcontractors?)\b", "Subcontractor"),
-    (r"\b(contractors?)\b", "Contractor"),
-    (r"\b(construction)\b", "Construction"),
+    (r"\b(general\s+contractors?|gcs?)\b", "General Contractor"),
+    # Specific trades before the generic "contractor" catch-all, so that
+    # "plumbing contractors" resolves to Plumber rather than Contractor
     (r"\b(plumbers?|plumbing)\b", "Plumber"),
     (r"\b(electricians?|electrical)\b", "Electrician"),
     (r"\b(carpenters?|carpentry)\b", "Carpenter"),
     (r"\b(roofers?|roofing)\b", "Roofing"),
     (r"\b(hvac|heating|air conditioning)\b", "HVAC"),
+    (r"\b(landscap(?:ing|ers?)|lawn care)\b", "Landscaping"),
+    (r"\b(painters?|painting)\b", "Painter"),
     (r"\b(street sweep(?:ing)?|sweeping)\b", "Street Sweeping"),
     (r"\b(paving|pavement|road repairs?|civil works?)\b", "Paving & Road Repairs"),
     (r"\b(stagehands?|labor|temporary labor)\b", "Stagehand & Labor"),
@@ -40,23 +42,32 @@ CATEGORY_PATTERNS = [
     (r"\b(transportation|highway)\b", "Transportation"),
     (r"\b(flags?|pennants?)\b", "City Flags & Banners"),
     (r"\b(water works?|utilities)\b", "Water & Utilities"),
+    # Generic catch-alls last
+    (r"\b(subcontractors?)\b", "Subcontractor"),
+    (r"\b(contractors?)\b", "Contractor"),
+    (r"\b(construction)\b", "Construction"),
 ]
 
 # Known location patterns
 LOCATION_PATTERNS = [
-    (r"\b(new york|newyork|nyc|ny|new-york)\b", "New York"),
-    (r"\b(dallas|texas|tx)\b", "Dallas"),
+    # Cities / boroughs before states, so "Albany NY" resolves to Albany
+    (r"\b(dallas)\b", "Dallas"),
+    (r"\b(houston)\b", "Houston"),
+    (r"\b(austin)\b", "Austin"),
     (r"\b(albany)\b", "Albany"),
     (r"\b(buffalo)\b", "Buffalo"),
     (r"\b(brooklyn)\b", "Brooklyn"),
     (r"\b(queens)\b", "Queens"),
     (r"\b(bronx)\b", "Bronx"),
     (r"\b(manhattan)\b", "Manhattan"),
+    (r"\b(staten island)\b", "Staten Island"),
     (r"\b(lakewood)\b", "Lakewood"),
-    (r"\b(new jersey|jersey)\b", "New Jersey"),
-    (r"\b(austin)\b", "Austin"),
-    (r"\b(houston)\b", "Houston"),
-    (r"\b(united states|usa|u\.s\.a\.|us)\b", "United States"),
+    (r"\b(new york|newyork|nyc|ny|new-york)\b", "New York"),
+    (r"\b(new jersey|jersey|nj)\b", "New Jersey"),
+    # Bonfire (the only Texas source) covers the City of Dallas
+    (r"\b(texas|tx)\b", "Dallas"),
+    # Bare "us" is excluded: it matches the pronoun ("give us 10 ...")
+    (r"\b(united states|usa|u\.s\.a\.)", "United States"),
 ]
 
 # Freshness keywords
@@ -129,6 +140,11 @@ class QueryParser:
             if re.search(pattern, lower):
                 loc = standard_loc
                 break
+        else:
+            # Unlisted city: take a capitalised place name after "in/near/around"
+            m = re.search(r"\b(?:in|near|around)\s+((?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+)?)\b", raw)
+            if m and m.group(1).split()[0] not in {"The", "Our", "My", "This", "That", "Database"}:
+                loc = m.group(1)
 
         # 5. Extract Quantity
         # Matches formats: "500 contractors", "quantity: 50", "need 100", or standalone numbers
@@ -147,12 +163,13 @@ class QueryParser:
                 except ValueError:
                     pass
 
-        # 6. Extract Source Preference
-        if any(k in lower for k in ["dallas", "bonfire"]):
+        # 6. Extract Source Preference (explicit scraper / portal names only;
+        #    location-based routing happens after intent is known, below)
+        if any(k in lower for k in ["bonfire", "city hall"]):
             src = "bonfire"
         elif any(k in lower for k in ["dasny", "dormitory"]):
             src = "dasny"
-        elif any(k in lower for k in ["jwiz", "jewish", "directory"]):
+        elif any(k in lower for k in ["jwiz", "jewish", "directory", "yellow page"]):
             src = "jwiz"
         elif any(k in lower for k in ["nyscr", "contract reporter"]):
             src = "nyscr"
@@ -172,18 +189,29 @@ class QueryParser:
         # 8. Extract Freshness
         freshness_requested = any(re.search(r"\b" + re.escape(w) + r"\b", lower) for w in FRESHNESS_KEYWORDS)
 
-        # 9. Determine Intent
+        # 9. Determine Intent (word-boundary matches: "contract" must not
+        #    match "contractor", "hi" must not match "which")
         intent = "lead_search"
-        if any(k in lower for k in ["contract", "bid", "rfp", "procurement"]):
+        if re.search(r"\b(contracts?|bids?|rfps?|rfqs?|procurements?|tenders?|solicitations?)\b", lower) or src in ("bonfire", "dasny", "nyscr"):
             intent = "contract_search"
-        elif any(k in lower for k in ["directory", "yellow page", "listing"]):
+        elif re.search(r"\b(directory|yellow pages?|listings?)\b", lower):
             intent = "directory_search"
         elif any(k in lower for k in ["research", "analyze the market", "analyze market", "market research", "competitor analysis", "domain analysis", "market overview", "industry research"]):
             intent = "research_request"
-        elif any(k in lower for k in ["growth", "scale", "expand", "market comparison", "acquisition"]):
+        elif re.search(r"\b(growth|scale|expand|market comparison|acquisition)\b", lower):
             intent = "growth_strategy"
-        elif any(k in lower for k in ["hello", "hi", "help", "who are you", "what can you do"]):
+        elif re.search(r"\b(hello|hi|hey|help|who are you|what can you do)\b", lower) and not (cat or loc or qty):
             intent = "general_inquiry"
+
+        # Procurement requests with no specific trade cover all open opportunities
+        if intent == "contract_search" and not cat:
+            cat = "All Open Opportunities"
+
+        # Scrapers imply their coverage region when no location was given
+        if not loc and src == "bonfire":
+            loc = "Dallas"
+        elif not loc and src in ("dasny", "nyscr"):
+            loc = "New York"
 
         # 10. Evaluate Completeness (Only truly missing essential fields are flagged)
         missing_fields: List[str] = []

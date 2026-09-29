@@ -526,7 +526,7 @@ class TestStructuredIntentValidation(unittest.TestCase):
         }
         # Remove GEMINI_API_KEY so the legacy path is taken
         env_clean = {k: v for k, v in os.environ.items()
-                     if k not in ("GEMINI_API_KEY", "LLM_PRIMARY_PROVIDER")}
+                     if not k.startswith("GEMINI_") and k != "LLM_PRIMARY_PROVIDER"}
         env_clean.update(env)
         with patch.dict(os.environ, env_clean, clear=True):
             cfg = get_provider_config("gemini")

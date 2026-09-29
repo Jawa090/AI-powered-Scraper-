@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from database.connection import SessionLocal
 from database.models.agent import Agent
+from database.models.dataset import Dataset
 from database.models.message import AgentMessage
 from database.models.requirement import Requirement
 from database.models.query import Query
@@ -192,8 +193,12 @@ class AgentOrchestrator:
 
                 if existing_req:
                     # Merge in dataset_id if present in current_requirement
+                    # (only if it still exists; a stale id from the client would
+                    # violate the FK and turn the whole turn into an internal error)
                     if not existing_req.dataset_id and current_requirement:
-                        existing_req.dataset_id = current_requirement.get("datasetId") or current_requirement.get("dataset_id")
+                        ctx_ds_id = current_requirement.get("datasetId") or current_requirement.get("dataset_id")
+                        if ctx_ds_id and db.get(Dataset, ctx_ds_id) is not None:
+                            existing_req.dataset_id = ctx_ds_id
 
                     # Merge in whatever was resolved this turn
                     if norm_query.category:
@@ -402,7 +407,8 @@ class AgentOrchestrator:
                         if lead_count > 0:
                             req_record.status = "completed"
                             req_record.completion_percentage = 100
-                            req_record.dataset_id = ds_id
+                            if db.get(Dataset, ds_id) is not None:
+                                req_record.dataset_id = ds_id
                             req_record.quantity = lead_count
 
                             sample_lines = []
@@ -572,8 +578,11 @@ class AgentOrchestrator:
                     }
 
                 # --- GENERAL CONVERSATIONAL INQUIRY ROUTING ---
-                if structured_intent.intent == IntentType.GENERAL_INFORMATION or any(
-                    k in text.lower() for k in ["hello", "hi", "who are you", "what can you do", "help me understand", "scraping engines are supported", "supported engines", "what scrapers", "supported scrapers"]
+                # Word-boundary match: a bare substring "hi" would also catch
+                # "which", "this", "Philadelphia", ... and hijack real requests.
+                if structured_intent.intent == IntentType.GENERAL_INFORMATION or re.search(
+                    r"\b(hello|hi|who are you|what can you do|help me understand|scraping engines are supported|supported engines|what scrapers|supported scrapers)\b",
+                    text.lower(),
                 ):
                     reply_text = (
                         "I am the **DataOps Intelligence Assistant**, an enterprise multi-agent platform for lead discovery and procurement harvesting.\n\n"
@@ -688,10 +697,23 @@ class AgentOrchestrator:
                         # Lead discovery where database does not have full quantity
                         suggested_script = structured_intent.scraper_id or result.suggested_script or WorkflowPlanner._resolve_scraper_id(structured_intent) or "bonfire"
                         script_name = self._script_display_name(suggested_script) or suggested_script.upper()
+                        # JWiz (the only business-directory source) is NY/NJ-centric;
+                        # say so rather than implying local results elsewhere.
+                        coverage_note = ""
+                        if suggested_script == "jwiz" and not any(
+                            r in loc_label.lower()
+                            for r in ["new york", "jersey", "brooklyn", "queens", "bronx", "manhattan",
+                                      "staten island", "lakewood", "albany", "buffalo", "database"]
+                        ):
+                            coverage_note = (
+                                f"**Note:** the JWiz directory mainly lists New York / New Jersey businesses, "
+                                f"so it may return few or no results for **{loc_label}**.\n\n"
+                            )
                         reply_text = (
                             f"Found **{avail_count} records** matching **{cat_label}** in **{loc_label}**, "
                             f"but you requested **{target_qty}**.\n\n"
                             f"Trigger the **{script_name}** to collect fresh records.\n\n"
+                            f"{coverage_note}"
                             f"Click **Confirm & Generate Data** to start live extraction."
                         )
                         suggestions = ["Confirm & Generate Data", "Use Available Records Only", "Change Requirements"]
@@ -1528,34 +1550,29 @@ class AgentOrchestrator:
             # Determine script
             script_id = preferred_script_id or requirement_data.get("selectedScript")
             if not script_id:
-                industry = (requirement_data.get("industry") or "").lower()
-                location = (requirement_data.get("location") or "").lower()
-                if "dallas" in location or "texas" in location or "bonfire" in industry:
-                    script_id = "bonfire"
-                elif "dasny" in industry or "dormitory" in industry:
-                    script_id = "dasny"
-                elif "directory" in industry or "contractor" in industry:
-                    script_id = "jwiz"
-                elif "nyscr" in industry or "state contract" in industry:
-                    script_id = "nyscr"
-                else:
-                    script_id = "jwiz"
+                from execution.registry import recommend_scraper  # noqa: PLC0415
+
+                script_id = recommend_scraper(
+                    requirement_data.get("industry"), requirement_data.get("location")
+                )
 
             quantity = requirement_data.get("quantity") or 20
             location_str = (requirement_data.get("location") or "new-york").lower().replace(" ", "-")
             industry_str = (requirement_data.get("industry") or "contractor").lower()
 
-            # Derive keyword for JWiz-style scrapers
+            # Derive keyword for JWiz-style scrapers (specific trades before
+            # the generic "contractor", so "Roofing Contractors" searches roofing)
             kw = "contractor"
-            for candidate in ["plumber", "electrician", "contractor", "carpenter", "roofing", "hvac"]:
-                if candidate in industry_str or candidate in location_str:
+            for candidate in ["general contractor", "plumber", "electrician", "carpenter", "roofing", "hvac",
+                              "landscaping", "painter", "drywall", "contractor"]:
+                if candidate in industry_str:
                     kw = candidate
                     break
 
             dataset_id = f"ds-{uuid.uuid4().hex[:6]}"
 
             parameters = {
-                "limit": min(quantity, 500),
+                "limit": min(quantity, 1000),
                 "location": location_str,
                 "keyword": kw,
             }

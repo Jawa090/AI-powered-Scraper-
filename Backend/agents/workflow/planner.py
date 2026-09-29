@@ -207,21 +207,9 @@ class WorkflowPlanner:
         if intent.scraper_id:
             return intent.scraper_id
 
-        loc = (intent.location or "").lower()
-        cat = (intent.category or "").lower()
-        text = (intent.user_request or "").lower()
+        from execution.registry import recommend_scraper  # noqa: PLC0415
 
-        if "bonfire" in text or "dallas" in loc:
-            return "bonfire"
-        if "dasny" in text or "dormitory" in text or "dasny" in cat:
-            return "dasny"
-        if "jwiz" in text or "directory" in text:
-            return "jwiz"
-        if "nyscr" in text or "contract reporter" in text:
-            return "nyscr"
-
-        # Default fallback to jwiz for generic directory requests
-        return "jwiz"
+        return recommend_scraper(intent.category, intent.location, intent.user_request)
 
     @classmethod
     def validate_plan(cls, plan: WorkflowPlan) -> Tuple[bool, List[str]]:

@@ -13,11 +13,7 @@ import {
   Job,
 } from '../types';
 import { MOCK_USERS } from '../mock/users';
-import { MOCK_LEADS } from '../mock/leads';
-import { MOCK_DATASETS } from '../mock/datasets';
-import { MOCK_ACTIVITIES } from '../mock/activities';
 import { MOCK_DEPARTMENTS } from '../mock/departments';
-import { MOCK_JOBS } from '../mock/jobs';
 import { agentService } from '../services/agent.service';
 import { apiService } from '../services/api.service';
 
@@ -85,11 +81,11 @@ const DataOpsContext = createContext<DataOpsContextType | undefined>(undefined);
 
 export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Ahmed (Sales)
-  const [leads, setLeads] = useState<Lead[]>(MOCK_LEADS);
-  const [datasets, setDatasets] = useState<Dataset[]>(MOCK_DATASETS);
-  const [activities, setActivities] = useState<Activity[]>(MOCK_ACTIVITIES);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
-  const [jobs, setJobs] = useState<Job[]>(MOCK_JOBS);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [globalSearch, setGlobalSearch] = useState('');
 
@@ -106,12 +102,9 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [activeSessionId, setActiveSessionId] = useState<string>('sess-live-init');
 
   // Notifications
-  const [notifications, setNotifications] = useState([
-    { id: 'notif-1', title: 'Dallas Bonfire Harvested', desc: 'Dallas Bonfire Hub scraper extracted 22 open municipal procurement opportunities.', time: '10m ago', read: false },
-    { id: 'notif-2', title: 'JWiz Verified Leads Ready', desc: 'Extracted commercial contractors with phone numbers and validated emails.', time: '40m ago', read: false },
-    { id: 'notif-3', title: 'DASNY RFP Bids Synced', desc: '6 architectural and construction bid opportunities captured.', time: '1h ago', read: false },
-    { id: 'notif-4', title: 'NYSCR State Contract Reporter', desc: '5 open state agency contracts harvested with contact emails.', time: '2h ago', read: true },
-  ]);
+  const [notifications, setNotifications] = useState<
+    { id: string; title: string; desc: string; time: string; read: boolean }[]
+  >([]);
 
   useEffect(() => {
     // Load initial sessions with a clean active session to prevent mock contamination
@@ -145,7 +138,8 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
           status: 'collecting',
         },
       };
-      setSessions([initialCleanSession, ...sess]);
+      void sess; // demo fixtures only; real history isn't served by the API yet
+      setSessions([initialCleanSession]);
       setActiveSessionId('sess-live-init');
     });
 
@@ -153,18 +147,14 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
     apiService.getHealth().then(healthy => {
       if (healthy) {
         apiService.getDatasets().then(ds => {
-          if (ds && ds.length > 0) {
-            setDatasets(ds);
-          }
+          if (ds) setDatasets(ds);
         });
         apiService.getJobs().then(jb => {
-          if (jb && jb.length > 0) {
-            setJobs(jb);
-          }
+          if (jb) setJobs(jb);
         });
         apiService.getLeads().then(ld => {
+          if (ld) setLeads(ld);
           if (ld && ld.length > 0) {
-            setLeads(ld);
             setKpiDeltas(prev => ({
               ...prev,
               generated: ld.length,
@@ -757,7 +747,11 @@ Which scraper engine would you like to target today, or what specific type of le
 
     // Trigger real scraper in FastAPI backend
     try {
-      const confirmRes = await apiService.confirmBotRequirement(sessionId, sess.requirement);
+      const confirmRes = await apiService.confirmBotRequirement(
+        sessionId,
+        sess.requirement,
+        sess.requirement.scriptId || (sess.requirement as any).selectedScript
+      );
       if (confirmRes && confirmRes.success && confirmRes.jobId) {
         liveJobId = confirmRes.jobId;
         liveDatasetId = confirmRes.datasetId;
@@ -955,8 +949,9 @@ Which scraper engine would you like to target today, or what specific type of le
     );
   };
 
+  // Exact match only: falling back to jobs[0] showed an unrelated job's details
   const getLiveJob = (jobId: string) => {
-    return jobs.find(j => j.id === jobId) || jobs[0];
+    return jobs.find(j => j.id === jobId);
   };
 
   // Dynamically compute department stats from actual leads

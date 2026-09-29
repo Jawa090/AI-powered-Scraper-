@@ -8,6 +8,7 @@ Rejects arbitrary filepaths or unapproved script identifiers.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 # Verified Scraper Engine Registry
@@ -115,3 +116,46 @@ def get_registered_script(script_id: str) -> Dict[str, Any]:
 def list_registered_scripts() -> List[Dict[str, Any]]:
     """Return list of all registered scraper definitions."""
     return list(SCRIPTS_REGISTRY)
+
+
+# Procurement categories that only exist as municipal bids (Bonfire)
+_BONFIRE_CATEGORIES = ("sweep", "paving", "flags", "stagehand")
+_PROCUREMENT_WORDS = re.compile(
+    r"\b(contracts?|bids?|rfps?|rfqs?|procurements?|tenders?|solicitations?)\b"
+)
+
+
+def recommend_scraper(
+    category: Optional[str] = None,
+    location: Optional[str] = None,
+    text: Optional[str] = None,
+) -> str:
+    """
+    Pick the registered scraper that can actually serve a request.
+
+    - An explicitly named source always wins.
+    - Procurement requests (bids / RFPs / contracts) go to Bonfire for Dallas
+      and DASNY for New York; the other scrapers carry no such data.
+    - Everything else is a business-directory lookup, which only JWiz serves.
+    """
+    cat = (category or "").lower()
+    loc = (location or "").lower()
+    txt = (text or "").lower()
+
+    if "bonfire" in txt or "city hall" in txt:
+        return "bonfire"
+    if "dasny" in txt or "dormitory" in txt:
+        return "dasny"
+    if "nyscr" in txt or "contract reporter" in txt:
+        return "nyscr"
+    if "jwiz" in txt or "directory" in txt or "yellow page" in txt:
+        return "jwiz"
+
+    is_procurement = (
+        bool(_PROCUREMENT_WORDS.search(txt))
+        or cat == "all open opportunities"
+        or any(c in cat for c in _BONFIRE_CATEGORIES)
+    )
+    if is_procurement:
+        return "bonfire" if ("dallas" in loc or "texas" in loc) else "dasny"
+    return "jwiz"

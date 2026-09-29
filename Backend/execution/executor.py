@@ -227,8 +227,9 @@ class JobExecutor:
                     except Exception as le:
                         logger.warning("Error ingesting lead: %s", le)
 
-                # Recalculate dataset counts
+                # Recalculate dataset counts and close out the dataset
                 ds_service.update_counts(dataset_id, commit=True)
+                ds_service.update(dataset_id, {"status": "Completed"}, commit=True)
 
             # 4. Mark Job & ScrapeRun as Completed
             with SessionLocal() as session:
@@ -277,6 +278,7 @@ class JobExecutor:
 
                     job_service.fail(job_id, error_message=error_msg, commit=True)
                     scrape_run_service.fail(run_id, error_message=error_msg, commit=True)
+                    DatasetService(session).update(dataset_id, {"status": "Failed"}, commit=True)
                     job_service.append_log(job_id, f"Scraper execution error: {error_msg}", level="ERROR", commit=True)
             except Exception as fe:
                 logger.error(f"Failed to record execution failure to database: {fe}")

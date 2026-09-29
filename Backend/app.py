@@ -57,6 +57,34 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def fail_interrupted_jobs() -> None:
+    """
+    Jobs run on in-process threads, so anything still Queued/Running when the
+    server starts was killed by the previous shutdown. Close those out as
+    Failed instead of leaving them "Running" forever.
+    """
+    from database.models.dataset import Dataset  # noqa: PLC0415
+    from database.models.job import Job  # noqa: PLC0415
+    from services.job_service import JobService  # noqa: PLC0415
+
+    try:
+        with SessionLocal() as db:
+            stale = db.query(Job).filter(Job.status.in_(["Queued", "Running"])).all()
+            service = JobService(db)
+            for job in stale:
+                service.fail(job.id, "Interrupted: server restarted before the job finished", commit=False)
+                if job.dataset_id:
+                    ds = db.get(Dataset, job.dataset_id)
+                    if ds is not None and ds.status == "Running":
+                        ds.status = "Failed"
+            db.commit()
+            if stale:
+                logger.info("Marked %d interrupted job(s) as Failed", len(stale))
+    except Exception as exc:  # never block startup on housekeeping
+        logger.warning("Could not reconcile interrupted jobs: %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # Global Exception Handlers
 # ---------------------------------------------------------------------------

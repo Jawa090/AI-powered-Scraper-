@@ -117,7 +117,9 @@ class TestPhase2C(unittest.TestCase):
         self.assertEqual(len(res["records"]), 0)
 
     # 12. Database unavailable handled gracefully
-    @patch("agents.specialized.database_agent.SessionLocal")
+    # Patch via sys.modules: `agents.specialized.database_agent` as a dotted
+    # attribute resolves to the DatabaseAgent instance re-exported by the package.
+    @patch.object(sys.modules["agents.specialized.database_agent"], "SessionLocal")
     def test_12_database_unavailable_handled(self, mock_session):
         mock_session.side_effect = ConnectionError("PostgreSQL connection refused")
         res = self.agent.search_leads(limit=5)

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from agents.query.models import NormalizedQuery
 from database.models.lead import Lead
 from database.models.organization import Organization
+from execution.registry import recommend_scraper
 from repositories.leads import LeadRepository
 from repositories.organizations import OrganizationRepository
 from repositories.scrape_runs import ScrapeRunRepository
@@ -108,20 +109,9 @@ class DataAvailabilityChecker:
         available_count = len(matching_leads)
 
         # 3. Determine recommended scraper engine
-        suggested_script = query.source_preference
-        if not suggested_script:
-            cat_str = (query.category or "").lower()
-            loc_str = (query.location or "").lower()
-            if "dallas" in loc_str or "bonfire" in cat_str or "sweep" in cat_str or "paving" in cat_str:
-                suggested_script = "bonfire"
-            elif "dasny" in cat_str or "dormitory" in cat_str or "architectural" in cat_str:
-                suggested_script = "dasny"
-            elif "jwiz" in cat_str or "directory" in cat_str or any(t in cat_str for t in ["plumber", "electrician", "contractor", "carpenter"]):
-                suggested_script = "jwiz"
-            elif "nyscr" in cat_str or "contract reporter" in cat_str or "state contract" in cat_str:
-                suggested_script = "nyscr"
-            else:
-                suggested_script = "jwiz" if "new york" in loc_str else "bonfire"
+        suggested_script = query.source_preference or recommend_scraper(
+            query.category, query.location, query.original_text
+        )
 
         # 4. Freshness evaluation
         if query.freshness_requested:
