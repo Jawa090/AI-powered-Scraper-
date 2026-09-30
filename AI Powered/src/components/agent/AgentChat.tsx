@@ -28,10 +28,12 @@ interface AgentChatProps {
 
 const AGENT_BADGE_STYLES: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; bg: string; text: string }> = {
   data: { label: 'Data Agent', icon: Database, bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700' },
+  database: { label: 'Database Agent', icon: Database, bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700' },
   research: { label: 'Research Agent', icon: Search, bg: 'bg-purple-50 border-purple-200', text: 'text-purple-700' },
   sales: { label: 'Sales Agent', icon: Target, bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700' },
   email: { label: 'Email Agent', icon: Mail, bg: 'bg-rose-50 border-rose-200', text: 'text-rose-700' },
   growth: { label: 'Growth Agent', icon: TrendingUp, bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
+  scraper: { label: 'Scraper Engine', icon: Bot, bg: 'bg-cyan-50 border-cyan-200', text: 'text-cyan-700' },
   orchestrator: { label: 'AI Orchestrator', icon: Bot, bg: 'bg-indigo-50 border-indigo-200', text: 'text-indigo-700' },
 };
 
@@ -207,7 +209,14 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                       : 'bg-white border border-[#E5E7EB] text-gray-900 rounded-tl-none shadow-subtle'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{msg.text}</div>
+                  <div className="whitespace-pre-wrap">
+                    {msg.text
+                      ? msg.text
+                          .replace(/\*\*([^*]+)\*\*/g, '$1')
+                          .replace(/^#+\s*/gm, '')
+                          .replace(/`([^`]+)`/g, '$1')
+                      : ''}
+                  </div>
                 </div>
 
                 {/* Layer 12 Multi-Agent Collaboration DAG Visualizer */}

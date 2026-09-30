@@ -146,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 bg-white border-r border-[#E5E7EB] flex flex-col transition-all duration-200 ${isCollapsed ? 'w-16' : 'w-60'
+        className={`fixed top-0 bottom-0 left-0 z-40 bg-white/90 backdrop-blur-md border-r border-[#E5E7EB]/80 flex flex-col transition-all duration-200 ${isCollapsed ? 'w-16' : 'w-60'
           } ${isOpenMobile ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         {/* Brand Header */}

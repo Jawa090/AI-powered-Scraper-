@@ -11,4 +11,4 @@ if __name__ == "__main__":
     print("  Starting DataOps AI FastAPI Backend on http://127.0.0.1:8000")
     print("  Docs: http://127.0.0.1:8000/docs")
     print("=" * 60)
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

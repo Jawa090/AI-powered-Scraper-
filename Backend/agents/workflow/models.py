@@ -64,6 +64,9 @@ class PlanStep:
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["status"] = self.status.value
+        d["taskId"] = self.step_id
+        d["agentCode"] = self.agent
+        d["purpose"] = self.action
         return d
 
 

@@ -12,10 +12,129 @@ import {
   Requirement,
   Job,
 } from '../types';
-import { MOCK_USERS } from '../mock/users';
-import { MOCK_DEPARTMENTS } from '../mock/departments';
 import { agentService } from '../services/agent.service';
 import { apiService } from '../services/api.service';
+
+export const SYSTEM_USERS: User[] = [
+  {
+    id: 'usr-ahmed',
+    email: 'ahmed.khan@company.internal',
+    name: 'Ahmed Khan',
+    role: 'sales',
+    roleTitle: 'Senior Outbound Sales Specialist',
+    departmentId: 'dept-sales-1',
+    departmentName: 'Procurement & Municipal Bids',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'usr-sara',
+    email: 'sara.j@company.internal',
+    name: 'Sara Jenkins',
+    role: 'email',
+    roleTitle: 'Email Growth & Campaigns Lead',
+    departmentId: 'dept-email-mktg',
+    departmentName: 'Commercial Directory Outreach',
+    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'usr-marcus',
+    email: 'marcus.v@company.internal',
+    name: 'Marcus Vance',
+    role: 'manager',
+    roleTitle: 'Director of State RFPs & Infrastructure',
+    departmentId: 'dept-sales-2',
+    departmentName: 'State Infrastructure & Construction',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'usr-elena',
+    email: 'elena.r@company.internal',
+    name: 'Elena Rostova',
+    role: 'admin',
+    roleTitle: 'Head of Enterprise Intelligence (Admin)',
+    departmentId: 'dept-research',
+    departmentName: 'State Contracts & Regulatory',
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+  },
+];
+
+export const INITIAL_DEPARTMENTS: Department[] = [
+  {
+    id: 'dept-sales-1',
+    name: 'Procurement & Municipal Bids',
+    code: 'PB',
+    description: 'City of Dallas Bonfire Hub procurement, municipal RFP bids, and public sector opportunities',
+    leadsCount: 0,
+    assignedCount: 0,
+    calledCount: 0,
+    emailedCount: 0,
+    interestedCount: 0,
+    pendingCount: 0,
+    completionRate: 0,
+    agentId: 'agent-sales-1',
+    managerName: 'Ahmed Khan',
+  },
+  {
+    id: 'dept-sales-2',
+    name: 'State Infrastructure & Construction',
+    code: 'IC',
+    description: 'State of New York Dormitory Authority (DASNY) construction, engineering, and architectural RFPs',
+    leadsCount: 0,
+    assignedCount: 0,
+    calledCount: 0,
+    emailedCount: 0,
+    interestedCount: 0,
+    pendingCount: 0,
+    completionRate: 0,
+    agentId: 'agent-sales-2',
+    managerName: 'Marcus Vance',
+  },
+  {
+    id: 'dept-email-mktg',
+    name: 'Commercial Directory Outreach',
+    code: 'CD',
+    description: 'JWiz commercial contractors, plumbers, electricians, and trade service direct dials & email outreach',
+    leadsCount: 0,
+    assignedCount: 0,
+    calledCount: 0,
+    emailedCount: 0,
+    interestedCount: 0,
+    pendingCount: 0,
+    completionRate: 0,
+    agentId: 'agent-email-mktg',
+    managerName: 'Sara Jenkins',
+  },
+  {
+    id: 'dept-research',
+    name: 'State Contracts & Regulatory',
+    code: 'SC',
+    description: 'Official New York State Contract Reporter (NYSCR) open public ads, state agency contracts, and notices',
+    leadsCount: 0,
+    assignedCount: 0,
+    calledCount: 0,
+    emailedCount: 0,
+    interestedCount: 0,
+    pendingCount: 0,
+    completionRate: 0,
+    agentId: 'agent-research',
+    managerName: 'Dr. Arthur Sterling',
+  },
+  {
+    id: 'dept-biz-dev',
+    name: 'Business Development & Operations',
+    code: 'BD',
+    description: 'Cross-platform pipeline orchestration, quality scoring, and enterprise strategic partnerships',
+    leadsCount: 0,
+    assignedCount: 0,
+    calledCount: 0,
+    emailedCount: 0,
+    interestedCount: 0,
+    pendingCount: 0,
+    completionRate: 0,
+    agentId: 'agent-master',
+    managerName: 'Rachel Green',
+  },
+];
 
 export interface ToastMessage {
   id: string;
@@ -80,11 +199,11 @@ interface DataOpsContextType {
 const DataOpsContext = createContext<DataOpsContextType | undefined>(undefined);
 
 export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Ahmed (Sales)
+  const [currentUser, setCurrentUser] = useState<User>(SYSTEM_USERS[0]); // Ahmed (Sales)
   const [leads, setLeads] = useState<Lead[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
+  const [departments, setDepartments] = useState<Department[]>(INITIAL_DEPARTMENTS);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [globalSearch, setGlobalSearch] = useState('');
@@ -191,7 +310,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const switchUser = (userId: string) => {
-    const user = MOCK_USERS.find(u => u.id === userId);
+    const user = SYSTEM_USERS.find(u => u.id === userId);
     if (user) {
       setCurrentUser(user);
       showToast('Switched Profile', `Active user is now ${user.name} (${user.roleTitle})`, 'info');
@@ -199,7 +318,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const switchRole = (role: UserRole) => {
-    const user = MOCK_USERS.find(u => u.role === role) || MOCK_USERS[0];
+    const user = SYSTEM_USERS.find(u => u.role === role) || SYSTEM_USERS[0];
     setCurrentUser(user);
     showToast('Role Switched', `Now operating as ${user.role.toUpperCase()}: ${user.name}`, 'info');
   };
@@ -462,7 +581,25 @@ Which scraper engine would you like to target today, or what specific type of le
       const botRes = await apiService.sendBotMessage(sessionId, text, reqContext);
       if (botRes && botRes.reply) {
         setSessions(prev =>
-          prev.map(s => (s.id === sessionId ? { ...s, requirement: botRes.updatedRequirement || s.requirement, updatedAt: 'Just now' } : s))
+          prev.map(s => {
+            if (s.id !== sessionId) return s;
+            const updated = botRes.updatedRequirement || {};
+            const mergedReq = {
+              ...s.requirement,
+              ...updated,
+              selectedScript: botRes.recommendedScript || updated.selectedScript || s.requirement.selectedScript,
+              industry: (updated.industry && updated.industry !== 'Not specified') ? updated.industry : s.requirement.industry,
+              location: (updated.location && updated.location !== 'Not specified') ? updated.location : s.requirement.location,
+              quantity: updated.quantity || s.requirement.quantity,
+              completionPercentage: updated.completionPercentage !== undefined ? updated.completionPercentage : s.requirement.completionPercentage,
+              status: updated.status || s.requirement.status,
+            };
+            return {
+              ...s,
+              requirement: mergedReq,
+              updatedAt: 'Just now',
+            };
+          })
         );
 
         const agentMsg: AgentMessage = {
@@ -958,13 +1095,13 @@ Which scraper engine would you like to target today, or what specific type of le
   const dynamicDepartments = React.useMemo(() => {
     return departments.map(d => {
       const deptLeads = leads.filter(l => l.departmentId === d.id);
+      const count = deptLeads.length;
       const called = deptLeads.filter(l => l.status === 'Called').length;
       const emailed = deptLeads.filter(l => l.status === 'Emailed').length;
       const interested = deptLeads.filter(l => l.status === 'Interested' || l.status === 'Qualified').length;
-      const count = deptLeads.length > 0 ? deptLeads.length : d.leadsCount;
-      const assigned = deptLeads.filter(l => l.assignedToId).length || count;
+      const assigned = deptLeads.filter(l => l.assignedTo || l.assignedToName).length;
       const pending = Math.max(0, count - called - emailed - interested);
-      const completionRate = count > 0 ? Math.min(100, Math.round(((called + emailed) / count) * 100)) : d.completionRate;
+      const completionRate = count > 0 ? Math.min(100, Math.round(((called + emailed) / count) * 100)) : 0;
       return {
         ...d,
         leadsCount: count,
@@ -994,7 +1131,7 @@ Which scraper engine would you like to target today, or what specific type of le
         currentUser,
         switchUser,
         switchRole,
-        allUsers: MOCK_USERS,
+        allUsers: SYSTEM_USERS,
         leads,
         datasets,
         activities,

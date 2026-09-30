@@ -23,7 +23,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <header className="h-14 bg-white border-b border-[#E5E7EB] px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-subtle">
+    <header className="h-14 bg-white/85 backdrop-blur-md border-b border-[#E5E7EB]/80 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-subtle">
       {/* Left: Mobile Menu & Page Title */}
       <div className="flex items-center gap-3">
         <button

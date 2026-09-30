@@ -206,7 +206,7 @@ class IntentEngine:
             intent_type = IntentType.DATABASE_SEARCH
             needs_db = True
             needs_scrape = False
-        elif norm_query.intent == "general_inquiry":
+        elif norm_query.intent == "general_inquiry" or (not norm_query.category and not norm_query.location and not explicit_scraper and not norm_query.source_preference):
             intent_type = IntentType.GENERAL_INFORMATION
             needs_db = False
             needs_scrape = False

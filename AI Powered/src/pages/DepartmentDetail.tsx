@@ -1,8 +1,7 @@
 import React from 'react';
 import { useDataOps } from '../context/DataOpsContext';
-import { MOCK_AGENTS } from '../mock/agents';
-import { MOCK_EMPLOYEES } from '../mock/employees';
-import { MOCK_CAMPAIGNS } from '../mock/campaigns';
+import { SYSTEM_AGENTS } from '../services/agent.service';
+import { Employee, Campaign } from '../types';
 import { ArrowLeft, Bot, Users2, Database, Megaphone, Sparkles, CheckCircle2 } from 'lucide-react';
 
 interface DepartmentDetailProps {
@@ -14,10 +13,10 @@ export const DepartmentDetail: React.FC<DepartmentDetailProps> = ({ id, onNaviga
   const { departments, datasets, leads } = useDataOps();
   const dept = departments.find(d => d.id === id) || departments[0];
 
-  const agent = MOCK_AGENTS.find(a => a.departmentId === dept?.id);
-  const deptEmployees = MOCK_EMPLOYEES.filter(e => e.departmentId === dept?.id);
+  const agent = SYSTEM_AGENTS.find(a => a.departmentId === dept?.id);
+  const deptEmployees: Employee[] = [];
   const deptDatasets = datasets.filter(d => d.departmentId === dept?.id);
-  const deptCampaigns = MOCK_CAMPAIGNS.filter(c => c.departmentId === dept?.id);
+  const deptCampaigns: Campaign[] = [];
 
   if (!dept) return <div className="p-8 text-center text-xs text-gray-500">Department not found</div>;
 

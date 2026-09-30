@@ -35,6 +35,13 @@ const AGENT_CONFIGS: Record<
     color: 'text-blue-600',
     bg: 'bg-blue-50 border-blue-200',
   },
+  database: {
+    name: 'Database Agent',
+    title: 'Local Repository & Index Query',
+    icon: Database,
+    color: 'text-blue-600',
+    bg: 'bg-blue-50 border-blue-200',
+  },
   research: {
     name: 'Research Agent',
     title: 'Market Intelligence & Sources',
@@ -62,6 +69,41 @@ const AGENT_CONFIGS: Record<
     icon: TrendingUp,
     color: 'text-emerald-600',
     bg: 'bg-emerald-50 border-emerald-200',
+  },
+  scraper: {
+    name: 'Scraper Engine',
+    title: 'Autonomous Web Extraction',
+    icon: Bot,
+    color: 'text-cyan-600',
+    bg: 'bg-cyan-50 border-cyan-200',
+  },
+  bonfire: {
+    name: 'Bonfire Agent',
+    title: 'Dallas City Hall Portal',
+    icon: Bot,
+    color: 'text-orange-600',
+    bg: 'bg-orange-50 border-orange-200',
+  },
+  dasny: {
+    name: 'DASNY Agent',
+    title: 'NY Construction Portal',
+    icon: Bot,
+    color: 'text-indigo-600',
+    bg: 'bg-indigo-50 border-indigo-200',
+  },
+  jwiz: {
+    name: 'JWiz Agent',
+    title: 'Jewish Business Directory',
+    icon: Bot,
+    color: 'text-sky-600',
+    bg: 'bg-sky-50 border-sky-200',
+  },
+  nyscr: {
+    name: 'NYSCR Agent',
+    title: 'NY State Contract Reporter',
+    icon: Bot,
+    color: 'text-teal-600',
+    bg: 'bg-teal-50 border-teal-200',
   },
   orchestrator: {
     name: 'Orchestrator',
@@ -141,16 +183,41 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
       {/* DAG Step Chain */}
       <div className="space-y-2">
         {agentSteps.map((step, idx) => {
-          const cfg = AGENT_CONFIGS[step.agentCode.toLowerCase()] || AGENT_CONFIGS.orchestrator;
+          if (!step) return null;
+
+          const rawCode =
+            step.agentCode ||
+            (step as any).agent_code ||
+            (step as any).agent ||
+            (step as any).agentName ||
+            'orchestrator';
+          const agentKey = String(rawCode).toLowerCase().trim();
+          const cfg = AGENT_CONFIGS[agentKey] || AGENT_CONFIGS.orchestrator;
           const Icon = cfg.icon;
-          const isCompleted = step.status === 'COMPLETED';
-          const isFailed = step.status === 'FAILED';
-          const isBlocked = step.status === 'BLOCKED';
-          const isExpanded = expandedStep === step.taskId;
+
+          const stepId =
+            step.taskId ||
+            (step as any).task_id ||
+            (step as any).step_id ||
+            (step as any).id ||
+            `step-${idx}`;
+
+          const purpose =
+            step.purpose ||
+            (step as any).action ||
+            (step as any).title ||
+            (step as any).description ||
+            'Automated Pipeline Step';
+
+          const rawStatus = (step.status || (step as any).status || 'PENDING').toString().toUpperCase();
+          const isCompleted = rawStatus === 'COMPLETED' || rawStatus === 'SUCCESS';
+          const isFailed = rawStatus === 'FAILED' || rawStatus === 'ERROR';
+          const isBlocked = rawStatus === 'BLOCKED';
+          const isExpanded = expandedStep === stepId;
 
           return (
             <div
-              key={step.taskId || idx}
+              key={stepId}
               className={`rounded-lg border transition-all text-xs ${
                 isCompleted
                   ? 'border-gray-200 bg-white hover:border-gray-300'
@@ -163,7 +230,7 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
             >
               <div
                 className="p-2.5 flex items-center justify-between cursor-pointer select-none"
-                onClick={() => setExpandedStep(isExpanded ? null : step.taskId)}
+                onClick={() => setExpandedStep(isExpanded ? null : stepId)}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   {/* Step Order Circle */}
@@ -184,7 +251,7 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
                       <span className="font-semibold text-gray-900">{cfg.name}</span>
                       <span className="text-[10px] text-gray-400">({cfg.title})</span>
                     </div>
-                    <p className="text-[11px] text-gray-600 truncate">{step.purpose}</p>
+                    <p className="text-[11px] text-gray-600 truncate">{purpose}</p>
                   </div>
                 </div>
 
@@ -217,17 +284,19 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
               {/* Accordion Detail View */}
               {isExpanded && (
                 <div className="px-3 pb-3 pt-1 border-t border-gray-100 text-[11px] space-y-1.5 bg-gray-50/50 rounded-b-lg">
-                  {step.result?.message && (
-                    <div className="p-2 rounded bg-white border border-gray-200 font-mono text-[10px] text-gray-700 whitespace-pre-wrap">
-                      {step.result.message}
+                  {step.result && (
+                    <div className="p-2 rounded bg-white border border-gray-200 font-mono text-[10px] text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                      {typeof step.result === 'string'
+                        ? step.result
+                        : step.result.message || JSON.stringify(step.result, null, 2)}
                     </div>
                   )}
                   {step.error && (
                     <div className="p-2 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10px]">
-                      <strong>Error:</strong> {step.error}
+                      <strong>Error:</strong> {typeof step.error === 'string' ? step.error : JSON.stringify(step.error)}
                     </div>
                   )}
-                  {step.dependencies && step.dependencies.length > 0 && (
+                  {Array.isArray(step.dependencies) && step.dependencies.length > 0 && (
                     <p className="text-gray-400 text-[10px]">
                       <strong>Prerequisites:</strong> {step.dependencies.join(', ')}
                     </p>

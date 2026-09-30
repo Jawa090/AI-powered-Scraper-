@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { GanttTask } from '../../types';
-import { MOCK_GANTT_TASKS } from '../../mock/gantt';
 import { Calendar, Filter, User, CheckCircle2, Clock, ChevronRight } from 'lucide-react';
 import { Modal } from '../common/Modal';
 
 export const GanttTimeline: React.FC = () => {
-  const [tasks, setTasks] = useState<GanttTask[]>(MOCK_GANTT_TASKS);
+  const [tasks, setTasks] = useState<GanttTask[]>([]);
   const [deptFilter, setDeptFilter] = useState('all');
   const [viewMode, setViewMode] = useState<'week' | 'month' | 'quarter'>('month');
   const [selectedTask, setSelectedTask] = useState<GanttTask | null>(null);
@@ -86,7 +85,12 @@ export const GanttTimeline: React.FC = () => {
 
             {/* Task Rows */}
             <div className="divide-y divide-gray-100">
-              {filteredTasks.map(task => {
+              {filteredTasks.length === 0 ? (
+                <div className="py-12 text-center text-xs text-gray-400">
+                  No operational tasks scheduled on timeline.
+                </div>
+              ) : (
+                filteredTasks.map(task => {
                 const { leftPercent, widthPercent } = getTaskCoordinates(task.startDate, task.endDate);
 
                 return (
@@ -133,7 +137,7 @@ export const GanttTimeline: React.FC = () => {
                     </div>
                   </div>
                 );
-              })}
+              }))}
             </div>
           </div>
         </div>

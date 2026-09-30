@@ -38,14 +38,19 @@ CATEGORY_PATTERNS = [
     (r"\b(stagehands?|labor|temporary labor)\b", "Stagehand & Labor"),
     (r"\b(architectural|architecture)\b", "Architectural Services"),
     (r"\b(engineering|civil engineering)\b", "Engineering Services"),
-    (r"\b(facility maintenance|security)\b", "Facility Maintenance"),
+    (r"\b(cleaning|janitorial)\b", "Cleaning & Janitorial"),
+    (r"\b(security(?:\s+services)?)\b", "Security Services"),
+    (r"\b(facility maintenance)\b", "Facility Maintenance"),
     (r"\b(transportation|highway)\b", "Transportation"),
     (r"\b(flags?|pennants?)\b", "City Flags & Banners"),
     (r"\b(water works?|utilities)\b", "Water & Utilities"),
+    # Bids and Contracts
+    (r"\b(?:dallas\s+)?(?:city\s+)?bids?\b", "Municipal Bids & RFPs"),
+    (r"\b(?:state\s+)?contracts?\b", "State Contracts & Bids"),
     # Generic catch-alls last
     (r"\b(subcontractors?)\b", "Subcontractor"),
     (r"\b(contractors?)\b", "Contractor"),
-    (r"\b(construction)\b", "Construction"),
+    (r"\b(construction|tamirat)\b", "Construction"),
 ]
 
 # Known location patterns
@@ -200,7 +205,9 @@ class QueryParser:
             intent = "research_request"
         elif re.search(r"\b(growth|scale|expand|market comparison|acquisition)\b", lower):
             intent = "growth_strategy"
-        elif re.search(r"\b(hello|hi|hey|help|who are you|what can you do)\b", lower) and not (cat or loc or qty):
+        elif re.search(r"\b(hello|hi|hey|help|who are you|what can you do|lo|salam|assalam|aoa|bhai|sun|kese|start|kya|kia|hola)\b", lower) and not (cat or loc or qty):
+            intent = "general_inquiry"
+        elif not (cat or loc or qty or src):
             intent = "general_inquiry"
 
         # Procurement requests with no specific trade cover all open opportunities

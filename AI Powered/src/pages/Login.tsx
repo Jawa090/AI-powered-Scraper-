@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useDataOps } from '../context/DataOpsContext';
 import { Sparkles, Shield, ArrowRight, CheckCircle2, Lock, Mail } from 'lucide-react';
 import { UserRole } from '../types';
+import { InteractiveBackground } from '../components/common/InteractiveBackground';
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -23,12 +24,18 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] flex flex-col md:flex-row">
+    <div className="min-h-screen bg-[#F8F9FA] flex flex-col md:flex-row relative">
+      {/* Dynamic Background FX for Login */}
+      <InteractiveBackground variant="adaptive" showControls={false} />
+
       {/* Left Column: Product Branding & Overview */}
-      <div className="md:w-1/2 bg-[#2D4351] text-white p-8 md:p-16 flex flex-col justify-between relative overflow-hidden">
+      <div className="md:w-1/2 bg-[#2D4351] text-white p-8 md:p-16 flex flex-col justify-between relative overflow-hidden shadow-2xl">
+        {/* Dedicated Dark Mode Interactive Particle Canvas */}
+        <InteractiveBackground variant="dark" showControls={false} className="!absolute" />
+        
         {/* Subtle geometric pattern */}
         <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-white/5 blur-2xl pointer-events-none" />
-        <div className="absolute -bottom-24 -right-24 w-96 h-96 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-96 h-96 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
 
         <div className="relative z-10">
           <div className="flex items-center gap-2.5 mb-8">

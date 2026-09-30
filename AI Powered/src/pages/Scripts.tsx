@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { MOCK_SCRIPTS } from '../mock/scripts';
 import { Code2, Play, CheckCircle2, Loader2, Sparkles, Sliders, ExternalLink, Terminal } from 'lucide-react';
 import { StatusBadge } from '../components/common/StatusBadge';
 import { apiService } from '../services/api.service';
@@ -40,9 +39,9 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
         }
       }
     } catch (e) {
-      console.warn('Backend unavailable, using fallback mock scripts:', e);
+      console.warn('Backend unavailable:', e);
     }
-    setScripts(MOCK_SCRIPTS);
+    setScripts([]);
     setLoading(false);
   };
 

@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { MOCK_EMPLOYEES } from '../mock/employees';
 import { UserCheck, Search, Filter } from 'lucide-react';
 import { Employee } from '../types';
 
@@ -7,11 +6,13 @@ interface EmployeesProps {
   onNavigate: (path: string) => void;
 }
 
+const employees: Employee[] = [];
+
 export const Employees: React.FC<EmployeesProps> = ({ onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
 
-  const filteredEmployees = MOCK_EMPLOYEES.filter(emp => {
+  const filteredEmployees = employees.filter(emp => {
     if (deptFilter !== 'all' && emp.departmentId !== deptFilter) return false;
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
@@ -79,33 +80,41 @@ export const Employees: React.FC<EmployeesProps> = ({ onNavigate }) => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {filteredEmployees.map(emp => (
-              <tr
-                key={emp.id}
-                onClick={() => onNavigate(`/employees/${emp.id}`)}
-                className="hover:bg-gray-50/80 cursor-pointer transition-colors"
-              >
-                <td className="py-3 px-4">
-                  <div className="flex items-center gap-2.5">
-                    <img src={emp.avatar} alt={emp.name} className="w-7 h-7 rounded-full object-cover ring-1 ring-gray-200" />
-                    <div>
-                      <span className="font-semibold text-gray-900 block">{emp.name}</span>
-                      <span className="text-[11px] text-gray-400">{emp.role}</span>
-                    </div>
-                  </div>
-                </td>
-                <td className="py-3 px-3 font-medium text-gray-700">{emp.departmentName}</td>
-                <td className="py-3 px-3 text-right font-mono text-gray-900">{emp.assignedCount}</td>
-                <td className="py-3 px-3 text-right font-mono text-gray-700">{emp.completedCount}</td>
-                <td className="py-3 px-3 text-right font-mono text-blue-700 font-medium">{emp.callsCount}</td>
-                <td className="py-3 px-3 text-right font-mono text-purple-700 font-medium">{emp.emailsCount}</td>
-                <td className="py-3 px-3 text-right font-mono text-emerald-700 font-bold">{emp.interestedCount}</td>
-                <td className="py-3 px-3 text-right font-mono text-gray-500">{emp.pendingCount}</td>
-                <td className="py-3 px-4 text-right">
-                  <span className="font-mono font-bold text-gray-900">{emp.completionRate}%</span>
+            {filteredEmployees.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="py-12 text-center text-xs text-gray-400">
+                  No employees found in directory.
                 </td>
               </tr>
-            ))}
+            ) : (
+              filteredEmployees.map(emp => (
+                <tr
+                  key={emp.id}
+                  onClick={() => onNavigate(`/employees/${emp.id}`)}
+                  className="hover:bg-gray-50/80 cursor-pointer transition-colors"
+                >
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2.5">
+                      <img src={emp.avatar} alt={emp.name} className="w-7 h-7 rounded-full object-cover ring-1 ring-gray-200" />
+                      <div>
+                        <span className="font-semibold text-gray-900 block">{emp.name}</span>
+                        <span className="text-[11px] text-gray-400">{emp.role}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3 font-medium text-gray-700">{emp.departmentName}</td>
+                  <td className="py-3 px-3 text-right font-mono text-gray-900">{emp.assignedCount}</td>
+                  <td className="py-3 px-3 text-right font-mono text-gray-700">{emp.completedCount}</td>
+                  <td className="py-3 px-3 text-right font-mono text-blue-700 font-medium">{emp.callsCount}</td>
+                  <td className="py-3 px-3 text-right font-mono text-purple-700 font-medium">{emp.emailsCount}</td>
+                  <td className="py-3 px-3 text-right font-mono text-emerald-700 font-bold">{emp.interestedCount}</td>
+                  <td className="py-3 px-3 text-right font-mono text-gray-500">{emp.pendingCount}</td>
+                  <td className="py-3 px-4 text-right">
+                    <span className="font-mono font-bold text-gray-900">{emp.completionRate}%</span>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

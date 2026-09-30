@@ -1,11 +1,13 @@
 import React from 'react';
-import { MOCK_CAMPAIGNS } from '../mock/campaigns';
 import { StatusBadge } from '../components/common/StatusBadge';
 import { Megaphone, Calendar, Users2, ArrowRight, TrendingUp } from 'lucide-react';
+import { Campaign } from '../types';
 
 interface CampaignsProps {
   onNavigate: (path: string) => void;
 }
+
+const campaigns: Campaign[] = [];
 
 export const Campaigns: React.FC<CampaignsProps> = ({ onNavigate }) => {
   return (
@@ -22,7 +24,12 @@ export const Campaigns: React.FC<CampaignsProps> = ({ onNavigate }) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {MOCK_CAMPAIGNS.map(camp => (
+        {campaigns.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-xs text-gray-400 bg-white border border-[#E5E7EB] rounded-xl">
+            No outreach campaigns currently active.
+          </div>
+        ) : (
+          campaigns.map(camp => (
           <div
             key={camp.id}
             onClick={() => onNavigate(`/campaigns/${camp.id}`)}
@@ -71,7 +78,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({ onNavigate }) => {
               </div>
             </div>
           </div>
-        ))}
+        )))}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopHeader } from './TopHeader';
 import { ToastContainer } from '../common/ToastContainer';
+import { InteractiveBackground } from '../common/InteractiveBackground';
 
 interface AppLayoutProps {
   currentPath: string;
@@ -22,7 +23,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const [isOpenMobile, setIsOpenMobile] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-[#111827] flex">
+    <div className="min-h-screen bg-[#F8F9FA]/85 text-[#111827] flex relative selection:bg-emerald-500/20">
+      {/* Interactive Animated Dynamic Background with Particles & Constellation */}
+      <InteractiveBackground variant="adaptive" showControls={true} />
+
       {/* Navigation Sidebar */}
       <Sidebar
         currentPath={currentPath}

@@ -175,6 +175,19 @@ class DatabaseAgent(BaseAgent):
         if location:
             filters["location"] = location
 
+        if not category and not location:
+            # Ungrounded availability check without criteria cannot be sufficient
+            return {
+                "success": True,
+                "count": 0,
+                "records": [],
+                "source": "postgresql",
+                "query_type": "check_data_availability",
+                "is_sufficient": False,
+                "requested_quantity": quantity,
+                "errors": [],
+            }
+
         count_res = self.count_matching_leads(filters)
         if not count_res["success"]:
             return count_res

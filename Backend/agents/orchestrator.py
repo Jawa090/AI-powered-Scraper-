@@ -572,36 +572,36 @@ class AgentOrchestrator:
                         "collaborationId": None,
                         "collaborationStatus": None,
                         "agentsInvolved": ["database"],
-                        "agentSteps": [],
                         "workflowStatus": "COMPLETED",
                         "intent": structured_intent.to_dict(),
                     }
 
-                # --- GENERAL CONVERSATIONAL INQUIRY ROUTING ---
-                # Word-boundary match: a bare substring "hi" would also catch
-                # "which", "this", "Philadelphia", ... and hijack real requests.
-                if structured_intent.intent == IntentType.GENERAL_INFORMATION or re.search(
-                    r"\b(hello|hi|who are you|what can you do|help me understand|scraping engines are supported|supported engines|what scrapers|supported scrapers)\b",
-                    text.lower(),
-                ):
+                # -------------------------------------------------------------
+                # ROUTING CHECK 1: DIRECT SCRAPER EXECUTION
+                # -------------------------------------------------------------
+                is_scraper_cmd, resolved_script_id, is_unknown_scraper = self._detect_scraper_command(text)
+                if not is_scraper_cmd and text.strip().lower() in ["confirm & generate data", "confirm", "start scraping", "run scraper", "start extraction"]:
+                    resolved_script_id = req_record.selected_script or structured_intent.scraper_id or "bonfire"
+                    is_scraper_cmd = True
+                elif not is_scraper_cmd and (structured_intent.intent == IntentType.SCRAPER_REQUEST or workflow_plan.route == "scraper_only"):
+                    resolved_script_id = structured_intent.scraper_id or norm_query.source_preference or WorkflowPlanner._resolve_scraper_id(structured_intent) or "bonfire"
+                    is_scraper_cmd = True
+
+                if is_unknown_scraper:
                     reply_text = (
-                        "I am the **DataOps Intelligence Assistant**, an enterprise multi-agent platform for lead discovery and procurement harvesting.\n\n"
-                        "**Supported Autonomous Scraping Engines:**\n"
+                        "The requested scraper engine was not recognized.\n\n"
+                        "Available autonomous scraping engines:\n"
                         "- **Dallas City Hall Bonfire** (`bonfire`): Municipal procurement bids and RFPs for Dallas, Texas\n"
                         "- **DASNY RFP & Bid Opportunities** (`dasny`): New York State public works and construction RFPs\n"
                         "- **JWiz Commercial Directory** (`jwiz`): Commercial contractors, trade services, and business directory listings\n"
                         "- **NYSCR State Contract Reporter** (`nyscr`): New York State agency procurement contracts\n\n"
-                        "**Key Capabilities:**\n"
-                        "- Query verified leads and datasets directly from **PostgreSQL**\n"
-                        "- Launch autonomous web scraping pipelines with credential preflights\n"
-                        "- Execute multi-agent collaboration workflows (DatabaseAgent + ScraperAgent)\n"
-                        "- Track real-time job status and execution progress"
+                        "Please specify one of the supported scraping engines."
                     )
                     suggestions = [
-                        "Show me contractors in Dallas",
-                        "Scrape 50 contractor leads in Dallas from Bonfire",
-                        "What datasets are available?",
-                        "Show me the latest jobs",
+                        "Dallas City Bids (Bonfire)",
+                        "NY State Construction (DASNY)",
+                        "Commercial Contractors (JWiz)",
+                        "State Contracts (NYSCR)",
                     ]
                     asst_msg = AgentMessage(
                         id=str(uuid.uuid4()),
@@ -619,27 +619,170 @@ class AgentOrchestrator:
                         "updatedRequirement": self._requirement_to_dict(req_record, norm_query),
                         "recommendedScript": None,
                         "sessionId": resolved_session_id,
-                        "decision": DecisionType.USE_DATABASE.value,
+                        "decision": DecisionType.NEED_CLARIFICATION.value,
                         "query": norm_query.to_dict(),
                         "agentCode": "orchestrator",
                         "handledBy": "AgentOrchestrator",
-                        "agentResult": {"status": "success", "agentCode": "orchestrator", "message": reply_text},
-                        "proposedActions": [],
-                        "jobId": None,
+                        "agentResult": None,
                         "collaborationId": None,
                         "collaborationStatus": None,
                         "agentsInvolved": ["orchestrator"],
                         "agentSteps": [],
-                        "workflowStatus": "COMPLETED",
-                        "intent": structured_intent.to_dict(),
+                        "proposedActions": [],
+                        "jobId": None,
+                        "workflowStatus": "FAILED",
                     }
 
-                # --- PHASE 2C: DATABASE-ONLY & LEAD DISCOVERY ROUTING ---
-                if structured_intent.intent in [IntentType.DATABASE_SEARCH, IntentType.LEAD_DISCOVERY] or (
+                if is_scraper_cmd and resolved_script_id:
+                    from scraper_manager import scraper_manager as _mgr
+                    script = _mgr.get_script(resolved_script_id)
+                    if script:
+                        req_industry = norm_query.category or structured_intent.category or script.get("category", "General Contractor")
+                        req_location = norm_query.location or structured_intent.location or ("Dallas, TX" if resolved_script_id == "bonfire" else "New York")
+                        requested_qty = norm_query.quantity or structured_intent.quantity or script.get("defaultLimit", 20)
+
+                        ds_id = f"ds-{uuid.uuid4().hex[:6]}"
+                        location_clean = req_location.lower().replace(" ", "-")
+                        keyword_clean = req_industry.lower() if resolved_script_id == "jwiz" else ""
+
+                        parameters = {
+                            "limit": min(requested_qty, 1000),
+                            "location": location_clean,
+                            "keyword": keyword_clean,
+                        }
+
+                        job_id = _mgr.create_job(resolved_script_id, parameters, dataset_id=ds_id)
+                        job = _mgr.get_job(job_id)
+                        actual_dataset_id = (job or {}).get("datasetId") or ds_id
+
+                        req_record.status = "generating"
+                        req_record.completion_percentage = 30
+                        req_record.selected_script = resolved_script_id
+                        req_record.selected_script_name = script.get("name")
+                        req_record.dataset_id = actual_dataset_id
+                        req_record.industry = req_industry
+                        req_record.location = req_location
+                        req_record.quantity = requested_qty
+                        db.commit()
+
+                        reply_text = (
+                            f"Autonomous extraction pipeline **initiated** using **{script['name']}**.\n\n"
+                            f"- **Status**: **RUNNING**\n"
+                            f"- **Job ID**: `{job_id}`\n"
+                            f"- **Dataset ID**: `{actual_dataset_id}`\n"
+                            f"- **Target**: **{requested_qty} records** for **{req_industry}** in **{req_location}**\n\n"
+                            f"The scraper is actively harvesting live data from the portal in the background. "
+                            f"You can monitor execution progress in the **Execution Jobs** tab."
+                        )
+                        suggestions = [
+                            f"Status of job {job_id}",
+                            "Show recent extraction jobs",
+                            "View Harvested Leads",
+                        ]
+                        proposed_action = ProposedAction(
+                            action_type="view_job",
+                            label="View Live Job",
+                            parameters={
+                                "script_id": resolved_script_id,
+                                "scriptName": script["name"],
+                                "jobId": job_id,
+                                "datasetId": actual_dataset_id,
+                                "parameters": parameters,
+                            },
+                            safe_to_auto_execute=True,
+                        )
+                        action_audit = AgentAction(
+                            id=str(uuid.uuid4()),
+                            session_id=resolved_session_id,
+                            agent_id=agent_session.agent_id or _DEFAULT_AGENT_ID,
+                            user_id=user_id if user_id else None,
+                            action_type="scraper_execution",
+                            title=f"Autonomous Scraper Execution: {script['name']}",
+                            description=f"Initiated execution for {script['name']} (Job {job_id})",
+                            action_data={
+                                "scriptId": resolved_script_id,
+                                "jobId": job_id,
+                                "datasetId": actual_dataset_id,
+                                "parameters": parameters,
+                                "status": "Running",
+                            },
+                        )
+                        db.add(action_audit)
+                        asst_msg = AgentMessage(
+                            id=str(uuid.uuid4()),
+                            session_id=resolved_session_id,
+                            sender="agent",
+                            text=reply_text,
+                            suggestions=suggestions,
+                        )
+                        db.add(asst_msg)
+                        db.commit()
+
+                        return {
+                            "reply": reply_text,
+                            "suggestions": suggestions,
+                            "updatedRequirement": self._requirement_to_dict(req_record, norm_query),
+                            "recommendedScript": resolved_script_id,
+                            "sessionId": resolved_session_id,
+                            "decision": DecisionType.NEED_FETCH.value,
+                            "query": norm_query.to_dict(),
+                            "agentCode": "data",
+                            "handledBy": "ScraperExecutionEngine",
+                            "agentResult": {
+                                "status": AgentStatus.EXECUTION_REQUIRED.value,
+                                "agentCode": "data",
+                                "message": reply_text,
+                                "proposedActions": [proposed_action.to_dict()],
+                                "data": {"jobId": job_id, "scriptId": resolved_script_id, "datasetId": actual_dataset_id},
+                                "metadata": {"jobId": job_id},
+                                "suggestions": suggestions,
+                            },
+                            "proposedActions": [proposed_action.to_dict()],
+                            "jobId": job_id,
+                            "collaborationId": None,
+                            "collaborationStatus": None,
+                            "agentsInvolved": ["data"],
+                            "agentSteps": [],
+                            "workflowStatus": "IN_PROGRESS",
+                            "intent": structured_intent.to_dict(),
+                        }
+
+                # -------------------------------------------------------------
+                # ROUTING CHECK 2: CONVERSATIONAL & INCOMPLETE CROSS-QUESTIONING
+                # -------------------------------------------------------------
+                has_category = bool(structured_intent.category or norm_query.category)
+                has_location = bool(structured_intent.location or norm_query.location)
+                has_complete_request = bool(has_category and (has_location or resolved_script_id))
+
+                is_conversational = (
+                    not has_complete_request
+                    and (
+                        structured_intent.intent == IntentType.GENERAL_INFORMATION
+                        or norm_query.intent == "general_inquiry"
+                        or (not has_category and not has_location and not resolved_script_id)
+                        or any(w in text.lower() for w in ["lo", "hi", "hello", "salam", "assalam", "aoa", "bhai", "kya haal", "sun", "help", "who are you", "what can you do", "mujhe leads chahiye", "need leads", "leads chahiye"])
+                    )
+                )
+
+                if is_conversational and not is_scraper_cmd:
+                    return self._generate_clarification_response(
+                        db=db,
+                        session_id=resolved_session_id,
+                        user_message=text,
+                        norm_query=norm_query,
+                        structured_intent=structured_intent,
+                        req_record=req_record,
+                        current_requirement=current_requirement,
+                    )
+
+                # -------------------------------------------------------------
+                # ROUTING CHECK 3: DATABASE SEARCH & GROUNDED LEAD DISCOVERY
+                # -------------------------------------------------------------
+                if has_category or has_location or structured_intent.intent == IntentType.DATABASE_SEARCH or (
                     any(k in text.lower() for k in ["database", "in db", "our database", "from the database", "stored leads"])
                 ):
                     cat_label = structured_intent.category or norm_query.category or "Leads"
-                    loc_label = structured_intent.location or norm_query.location or "Database"
+                    loc_label = structured_intent.location or norm_query.location or "All Regions"
                     target_qty = structured_intent.quantity or norm_query.quantity or 20
 
                     avail_res = database_agent.check_data_availability(
@@ -682,9 +825,10 @@ class AgentOrchestrator:
                             f"You can trigger an autonomous scraper to extract fresh records from external sources."
                         )
                         suggestions = [
-                            "Scrape Dallas City Bids (Bonfire)",
-                            "Extract NY State RFPs (DASNY)",
-                            "Harvest Directory Leads (JWiz)",
+                            "Dallas City Bids (Bonfire)",
+                            "NY State Construction (DASNY)",
+                            "Commercial Contractors (JWiz)",
+                            "State Contracts (NYSCR)",
                         ]
                         proposed_action = ProposedAction(
                             action_type="trigger_scraper",
@@ -694,29 +838,15 @@ class AgentOrchestrator:
                         )
                         decision_val = DecisionType.USE_DATABASE.value
                     else:
-                        # Lead discovery where database does not have full quantity
                         suggested_script = structured_intent.scraper_id or result.suggested_script or WorkflowPlanner._resolve_scraper_id(structured_intent) or "bonfire"
                         script_name = self._script_display_name(suggested_script) or suggested_script.upper()
-                        # JWiz (the only business-directory source) is NY/NJ-centric;
-                        # say so rather than implying local results elsewhere.
-                        coverage_note = ""
-                        if suggested_script == "jwiz" and not any(
-                            r in loc_label.lower()
-                            for r in ["new york", "jersey", "brooklyn", "queens", "bronx", "manhattan",
-                                      "staten island", "lakewood", "albany", "buffalo", "database"]
-                        ):
-                            coverage_note = (
-                                f"**Note:** the JWiz directory mainly lists New York / New Jersey businesses, "
-                                f"so it may return few or no results for **{loc_label}**.\n\n"
-                            )
                         reply_text = (
                             f"Found **{avail_count} records** matching **{cat_label}** in **{loc_label}**, "
                             f"but you requested **{target_qty}**.\n\n"
                             f"Trigger the **{script_name}** to collect fresh records.\n\n"
-                            f"{coverage_note}"
                             f"Click **Confirm & Generate Data** to start live extraction."
                         )
-                        suggestions = ["Confirm & Generate Data", "Use Available Records Only", "Change Requirements"]
+                        suggestions = ["Confirm & Generate Data", "Dallas City Bids (Bonfire)", "Commercial Contractors (JWiz)"]
                         proposed_action = ProposedAction(
                             action_type="trigger_scraper",
                             label="Trigger Scraper",
@@ -724,6 +854,14 @@ class AgentOrchestrator:
                             safe_to_auto_execute=False,
                         )
                         decision_val = DecisionType.NEED_FETCH.value
+                        req_record.industry = cat_label
+                        req_record.location = loc_label
+                        req_record.quantity = target_qty
+                        req_record.selected_script = suggested_script
+                        req_record.selected_script_name = script_name
+                        req_record.status = "ready_for_confirmation"
+                        req_record.completion_percentage = 100
+                        db.commit()
 
                     asst_msg = AgentMessage(
                         id=str(uuid.uuid4()),
@@ -1821,6 +1959,258 @@ class AgentOrchestrator:
             "workflowStatus": "FAILED",
         }
 
+    def _clean_human_text(self, text: str) -> str:
+        """
+        Cleans and standardizes conversational text by stripping unwanted markdown formatting
+        such as bold/italic asterisks, hash headers, and excess whitespace to ensure a clean,
+        natural human chat experience.
+        """
+        if not text:
+            return ""
+        # Remove bold and italic markdown: **text** or *text*
+        text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+        text = re.sub(r"\*([^*]+)\*", r"\1", text)
+        text = re.sub(r"__([^_]+)__", r"\1", text)
+        text = re.sub(r"_([^_]+)_", r"\1", text)
+        # Remove markdown headers: e.g. # Header or ## Header
+        text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+        # Remove code fences and backticks
+        text = re.sub(r"```[a-zA-Z]*\n?", "", text)
+        text = text.replace("`", "")
+        # Normalize consecutive blank lines
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def _generate_clarification_response(
+        self,
+        db: Any,
+        session_id: str,
+        user_message: str,
+        norm_query: NormalizedQuery,
+        structured_intent: StructuredIntent,
+        req_record: Requirement,
+        current_requirement: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Interactive conversational cross-questioning engine powered by DeepSeek LLM.
+        Engages the user in their language (Urdu/English) and clarifies:
+        1. Trade/Industry
+        2. Location & Target Scraper Engine (Bonfire, DASNY, JWiz, NYSCR)
+        3. Quantity needed
+        """
+        import logging
+        from agents.llm import get_llm_provider
+
+        _logger = logging.getLogger(__name__)
+
+        # 1. Merge and extract structured requirement parameters
+        category = (
+            norm_query.category
+            or structured_intent.category
+            or (current_requirement.get("industry") if current_requirement else None)
+        )
+        if category in ["Not specified", "All Open Opportunities", None]:
+            category = None
+
+        location = (
+            norm_query.location
+            or structured_intent.location
+            or (current_requirement.get("location") if current_requirement else None)
+        )
+        if location in ["Not specified", "Specified Region", None]:
+            location = None
+
+        quantity = (
+            norm_query.quantity
+            or structured_intent.quantity
+            or (current_requirement.get("quantity") if current_requirement else None)
+            or 20
+        )
+
+        selected_script = (
+            getattr(norm_query, "source_preference", None)
+            or structured_intent.scraper_id
+            or (current_requirement.get("selectedScript") if current_requirement else None)
+        )
+
+        # Scrapers imply their location if location was not explicitly provided
+        if not location and selected_script == "bonfire":
+            location = "Dallas"
+        elif not location and selected_script in ("dasny", "jwiz", "nyscr"):
+            location = "New York"
+
+        # Location implies default scraper if script was not explicitly provided
+        if not selected_script and location:
+            loc_l = location.lower()
+            if "dallas" in loc_l or "texas" in loc_l:
+                selected_script = "bonfire"
+            elif "new york" in loc_l or "nyc" in loc_l or "ny" in loc_l or "albany" in loc_l:
+                selected_script = "dasny" if "construction" in (category or "").lower() else "jwiz"
+
+        # Update req_record fields
+        if category:
+            req_record.industry = category
+        if location:
+            req_record.location = location
+        if quantity:
+            req_record.quantity = quantity
+        if selected_script:
+            req_record.selected_script = selected_script
+            req_record.selected_script_name = self._script_display_name(selected_script)
+
+        # Dynamic completion & status calculation
+        filled_fields = sum(1 for f in [req_record.industry, req_record.location, req_record.selected_script] if f and f != "Not specified")
+        if filled_fields >= 2:
+            req_record.completion_percentage = 90 if not req_record.quantity else 100
+            req_record.status = "ready_for_confirmation"
+        elif filled_fields == 1:
+            req_record.completion_percentage = 50
+            req_record.status = "collecting"
+        else:
+            req_record.completion_percentage = 20
+            req_record.status = "collecting"
+
+        db.commit()
+
+        # System prompt for natural cross-questioning
+        system_prompt = (
+            "You are the DataOps AI Assistant for lead generation and procurement web scraping.\n"
+            "Your job is to cross-question the user to determine their exact scraping requirements before running pipelines.\n"
+            f"Currently identified parameters:\n"
+            f"- Trade / Industry: {req_record.industry or 'Not specified'}\n"
+            f"- Target Location: {req_record.location or 'Not specified'}\n"
+            f"- Scraper Engine: {req_record.selected_script_name or req_record.selected_script or 'Auto-detecting'}\n"
+            f"- Quantity: {req_record.quantity or 20} records\n\n"
+            "If any field above is already known, acknowledge it warmly and only ask about what is still missing!\n\n"
+            "Tone & Style Guidelines:\n"
+            "- CRITICAL FORMATTING: Do NOT use markdown symbols. Never use asterisks (**), never use hashtags (#), and never use markdown headers.\n"
+            "- Write in clean, conversational, natural human-like text like a friendly colleague messaging in chat.\n"
+            "- If the user addressed you in Roman Urdu / Urdu (e.g. 'lo', 'hlo', 'bhai', 'mujhe leads chahiye', 'salam'), reply warmly in natural Roman Urdu!\n"
+            "- If the user wrote in English, reply in clean friendly English.\n"
+            "- Keep your response short and concise (under 80 words).\n"
+            "- NEVER claim that leads were found or exist in the database."
+        )
+
+        reply_text = ""
+        try:
+            llm = get_llm_provider()
+            reply_text = llm.generate(
+                prompt=user_message,
+                system_prompt=system_prompt,
+                temperature=0.3,
+                max_tokens=250,
+            )
+        except Exception as e:
+            _logger.warning(f"DeepSeek clarification generation error: {e}")
+
+        if not reply_text or not reply_text.strip():
+            # Robust, natural fallback in case of transient LLM error
+            is_urdu = any(w in user_message.lower() for w in ["lo", "hlo", "bhai", "chahiye", "karo", "kese", "salam", "kia", "kya", "sun"])
+            if is_urdu:
+                if req_record.status == "ready_for_confirmation":
+                    reply_text = (
+                        f"Tamam details tayyar hain!\n\n"
+                        f"Trade: {req_record.industry}\n"
+                        f"Location: {req_record.location} ({req_record.selected_script_name or req_record.selected_script})\n"
+                        f"Quantity: {req_record.quantity or 20} verified leads\n\n"
+                        "Aap right panel par 'Confirm & Generate Data' par click karke live pipeline start kar sakte hain."
+                    )
+                elif req_record.industry:
+                    reply_text = (
+                        f"Zabardast! {req_record.industry} ke liye leads collect karte hain.\n\n"
+                        "Ab bas ye confirm kar dein ke target portal ya location konsi honi chahiye:\n"
+                        "1. Dallas Bonfire\n"
+                        "2. NY DASNY (New York)\n"
+                        "3. JWiz Directory\n"
+                        "4. NYSCR State Contracts\n\n"
+                        "Aap niche diye gaye button par click karke bhi directly choose kar sakte hain."
+                    )
+                else:
+                    reply_text = (
+                        "Salam! Sahi aur verified data nikalne ke liye mujhe ye 3 cheezein confirm kar dein:\n\n"
+                        "1. Trade ya Kaam: (jaise Construction, Plumbing, Electrical, HVAC, ya Municipal Bids)\n"
+                        "2. Target Portal ya Area: Dallas Bonfire, NY DASNY, JWiz Directory, ya NYSCR?\n"
+                        "3. Kitni leads chahiye: 20, 50, ya 100?\n\n"
+                        "Aap niche diye gaye buttons par click karke bhi directly start kar sakte hain."
+                    )
+            else:
+                if req_record.status == "ready_for_confirmation":
+                    reply_text = (
+                        f"Your requirement specification is ready!\n\n"
+                        f"Industry: {req_record.industry}\n"
+                        f"Location & Portal: {req_record.location} ({req_record.selected_script_name or req_record.selected_script})\n"
+                        f"Target Volume: {req_record.quantity or 20} records\n\n"
+                        "Click 'Confirm & Generate Data' in the right panel to launch live data extraction."
+                    )
+                elif req_record.industry:
+                    reply_text = (
+                        f"Great! We will target {req_record.industry} leads.\n\n"
+                        "Which portal or location should we harvest from?\n"
+                        "1. Dallas Bonfire (City Bids)\n"
+                        "2. NY DASNY (New York Construction)\n"
+                        "3. JWiz Commercial Directory\n"
+                        "4. NYSCR State Contracts\n\n"
+                        "Or tap any button below to proceed."
+                    )
+                else:
+                    reply_text = (
+                        "Hello! To help you harvest the right leads, please share 3 quick details:\n\n"
+                        "1. Industry or Trade: (e.g. Construction, Electrical, Plumbing, HVAC, Cleaning, or Municipal Bids)\n"
+                        "2. Target Portal: Dallas Bonfire, DASNY, JWiz, or NYSCR\n"
+                        "3. Quantity: Target number of records (e.g. 20, 50, 100)\n\n"
+                        "Or simply tap any of the options below to get started."
+                    )
+
+        reply_text = self._clean_human_text(reply_text)
+
+        suggestions = []
+        if req_record.status == "ready_for_confirmation":
+            suggestions = ["Confirm & Generate Data", "50 Records", "100 Records", "Change Location"]
+        elif req_record.industry:
+            suggestions = [
+                "Dallas City Bids (Bonfire)",
+                "NY State Construction (DASNY)",
+                "Commercial Contractors (JWiz)",
+                "State Contracts (NYSCR)",
+            ]
+        else:
+            suggestions = [
+                "Dallas City Bids (Bonfire)",
+                "NY State Construction (DASNY)",
+                "Commercial Contractors (JWiz)",
+                "State Contracts (NYSCR)",
+            ]
+
+        asst_msg = AgentMessage(
+            id=str(uuid.uuid4()),
+            session_id=session_id,
+            sender="agent",
+            text=reply_text,
+            suggestions=suggestions,
+        )
+        db.add(asst_msg)
+        db.commit()
+
+        return {
+            "reply": reply_text,
+            "suggestions": suggestions,
+            "updatedRequirement": self._requirement_to_dict(req_record, norm_query),
+            "recommendedScript": req_record.selected_script,
+            "sessionId": session_id,
+            "decision": DecisionType.NEED_FETCH.value if req_record.status == "ready_for_confirmation" else DecisionType.NEED_CLARIFICATION.value,
+            "query": norm_query.to_dict(),
+            "agentCode": "orchestrator",
+            "handledBy": "AgentOrchestrator",
+            "agentResult": {"status": "success", "agentCode": "orchestrator", "message": reply_text},
+            "proposedActions": [],
+            "jobId": None,
+            "collaborationId": None,
+            "collaborationStatus": None,
+            "agentsInvolved": ["orchestrator"],
+            "agentSteps": [],
+            "workflowStatus": "COMPLETED",
+            "intent": structured_intent.to_dict(),
+        }
 
     @staticmethod
     def _detect_scraper_command(text: str) -> tuple[bool, Optional[str], bool]:

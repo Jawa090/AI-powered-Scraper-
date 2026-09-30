@@ -18,7 +18,10 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
   const isRunning = requirement.status === 'generating' || requirement.status === 'running';
   const isCompleted = requirement.status === 'completed';
   const isFailed = requirement.status === 'failed';
-  const isReady = requirement.status === 'ready_for_confirmation';
+  const isReady =
+    requirement.status === 'ready_for_confirmation' ||
+    requirement.status === 'confirmed' ||
+    ((requirement.completionPercentage || 0) >= 80 && !isRunning && !isCompleted && !isFailed);
 
   const scriptKey = ((requirement as any).selectedScript || (requirement as any).scriptId || '').toLowerCase();
   const indLower = (requirement.industry || '').toLowerCase();
@@ -35,9 +38,11 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
       ? 'JWiz Commercial Directory Scraper'
       : scriptKey === 'nyscr' || indLower.includes('nyscr') || locLower.includes('albany')
       ? 'NYSCR State Contract Reporter Scraper'
+      : indLower.includes('construction')
+      ? 'DASNY RFP & Bid Opportunities Scraper'
       : 'Auto-detected Scraper Engine');
 
-  let volumeText = 'Not specified';
+  let volumeText = requirement.quantity ? `${requirement.quantity.toLocaleString()} target records` : '20 target records';
   if (isCompleted) {
     const verified = (requirement as any).verifiedRecords || requirement.quantity || 0;
     volumeText = `${verified.toLocaleString()} verified records`;
@@ -51,10 +56,8 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
       : 'Extraction Failed';
   } else if (isReady) {
     volumeText = requirement.quantity
-      ? `${requirement.quantity.toLocaleString()} target records (Pending confirmation)`
-      : 'Pending confirmation';
-  } else if (requirement.quantity) {
-    volumeText = `${requirement.quantity.toLocaleString()} target records`;
+      ? `${requirement.quantity.toLocaleString()} target records (Ready to confirm)`
+      : '20 target records (Ready to confirm)';
   }
 
   const fields = [

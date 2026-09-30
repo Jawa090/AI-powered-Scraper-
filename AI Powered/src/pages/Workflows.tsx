@@ -1,7 +1,9 @@
 import React from 'react';
-import { MOCK_WORKFLOWS } from '../mock/workflows';
 import { GitBranch, ArrowDown, ArrowRight, CheckCircle2, Loader2, Play } from 'lucide-react';
 import { StatusBadge } from '../components/common/StatusBadge';
+import { Workflow } from '../types';
+
+const workflows: Workflow[] = [];
 
 export const Workflows: React.FC = () => {
   return (
@@ -23,7 +25,12 @@ export const Workflows: React.FC = () => {
       </div>
 
       <div className="space-y-6">
-        {MOCK_WORKFLOWS.map(wf => (
+        {workflows.length === 0 ? (
+          <div className="py-12 text-center text-xs text-gray-400 bg-white border border-[#E5E7EB] rounded-xl">
+            No autonomous extraction workflows configured.
+          </div>
+        ) : (
+          workflows.map(wf => (
           <div
             key={wf.id}
             className="bg-white border border-[#E5E7EB] rounded-xl p-6 shadow-card space-y-6"
@@ -83,7 +90,7 @@ export const Workflows: React.FC = () => {
               </div>
             </div>
           </div>
-        ))}
+        )))}
       </div>
     </div>
   );

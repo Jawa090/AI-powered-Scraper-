@@ -9,11 +9,10 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { MOCK_ACTIVITY_CHART } from '../../mock/analytics';
 
 export const ActivityOverviewChart: React.FC = () => {
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('7d');
-  const data = MOCK_ACTIVITY_CHART[range];
+  const data: any[] = [];
 
   return (
     <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 shadow-card">
@@ -44,6 +43,11 @@ export const ActivityOverviewChart: React.FC = () => {
 
       {/* Recharts Area Container */}
       <div className="h-64 w-full">
+        {!data || data.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-xs text-gray-400">
+            No activity data recorded yet.
+          </div>
+        ) : (
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <defs>
@@ -119,6 +123,7 @@ export const ActivityOverviewChart: React.FC = () => {
             />
           </AreaChart>
         </ResponsiveContainer>
+        )}
       </div>
     </div>
   );
