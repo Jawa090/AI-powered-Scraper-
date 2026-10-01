@@ -18,7 +18,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
-from database.connection import SessionLocal
 from services.dataset_service import DatasetService
 from services.lead_service import LeadService
 from services.source_service import SourceService
@@ -94,10 +93,9 @@ class ApprovedResearchProvider:
         active_sources = []
 
         try:
-            with SessionLocal() as session:
-                lead_svc = LeadService(session)
-                ds_svc = DatasetService(session)
-                src_svc = SourceService(session)
+                lead_svc = LeadService()
+                ds_svc = DatasetService()
+                src_svc = SourceService()
 
                 # Search internal matching leads
                 leads, platform_lead_count = lead_svc.search_leads(

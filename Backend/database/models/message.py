@@ -5,10 +5,10 @@ from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from database.base import Base
+from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.session import AgentSession
+    from Database.models.session import AgentSession
 
 
 class AgentMessage(Base):

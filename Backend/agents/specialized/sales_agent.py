@@ -54,8 +54,8 @@ from agents.sales_intelligence import (
     check_sales_freshness,
     format_lead_orm,
 )
-from database.connection import SessionLocal
-from database.models.action import AgentAction
+# from database.connection import SessionLocal
+from Database.models.action import AgentAction
 from services.dataset_service import DatasetService
 from services.lead_service import LeadService
 from services.source_service import SourceService
@@ -223,7 +223,7 @@ class SalesAgent(BaseAgent):
 
         # Case 4: Execute DB-backed Sales Intelligence via Services (USE_DATABASE)
         try:
-            with SessionLocal() as session:
+#             with SessionLocal() as session:
                 lead_svc = LeadService(session)
                 source_svc = SourceService(session)
                 dataset_svc = DatasetService(session)
@@ -370,10 +370,10 @@ class SalesAgent(BaseAgent):
         Record sales_evaluation audit in agent_actions table using existing infrastructure.
         """
         try:
-            with SessionLocal() as session:
+#             with SessionLocal() as session:
                 resolved_session_id = None
                 if context.session_id:
-                    from database.models.session import AgentSession
+                    from Database.models.session import AgentSession
                     if session.get(AgentSession, context.session_id):
                         resolved_session_id = context.session_id
 

@@ -17,15 +17,15 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from sqlalchemy import select, func, and_, or_, not_
 from sqlalchemy.orm import selectinload
 
-from database.connection import SessionLocal
-from database.models.lead import Lead
-from database.models.organization import Organization
-from database.models.contact import Contact
-from database.models.email import Email
-from database.models.phone import Phone
-from database.models.location import Location
-from database.models.dataset import Dataset
-from database.models.job import Job
+from Database import db as _db
+from Database.models.lead import Lead
+from Database.models.organization import Organization
+from Database.models.contact import Contact
+from Database.models.email import Email
+from Database.models.phone import Phone
+from Database.models.location import Location
+from Database.models.dataset import Dataset
+from Database.models.job import Job
 from agents.base import BaseAgent, AgentContext, AgentResult, AgentStatus, ProposedAction
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ class DatabaseAgent(BaseAgent):
             return self._build_result(False, 0, [], "search_leads", [err])
 
         try:
-            with SessionLocal() as db:
+                db = _db.session
                 stmt = (
                     select(Lead)
                     .join(Lead.organization, isouter=True)
@@ -147,7 +147,7 @@ class DatabaseAgent(BaseAgent):
             return self._build_result(False, 0, [], "count_matching_leads", [err])
 
         try:
-            with SessionLocal() as db:
+                db = _db.session
                 stmt = select(func.count(Lead.id)).join(Lead.organization, isouter=True)
                 clauses = self._build_lead_filter_clauses(filters)
                 if clauses:
@@ -224,7 +224,7 @@ class DatabaseAgent(BaseAgent):
             return self._build_result(False, 0, [], "search_datasets", [err])
 
         try:
-            with SessionLocal() as db:
+                db = _db.session
                 stmt = select(Dataset)
                 if "id" in filters:
                     stmt = stmt.where(Dataset.id == filters["id"])
@@ -258,7 +258,7 @@ class DatabaseAgent(BaseAgent):
             return self._build_result(False, 0, [], "get_job", ["Invalid or empty job_id."])
 
         try:
-            with SessionLocal() as db:
+                db = _db.session
                 job = db.get(Job, job_id)
                 if not job:
                     return self._build_result(False, 0, [], "get_job", [f"Job '{job_id}' not found."])
@@ -288,7 +288,7 @@ class DatabaseAgent(BaseAgent):
         limit = min(max(1, limit), 100)
         offset = max(0, offset)
         try:
-            with SessionLocal() as db:
+                db = _db.session
                 stmt = select(Job).order_by(Job.started_at.desc()).offset(offset).limit(limit)
                 jobs = db.scalars(stmt).all()
                 serialized = [

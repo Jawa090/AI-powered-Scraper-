@@ -3,15 +3,15 @@ from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from database.base import Base
+from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.user import User
-    from database.models.agent import Agent
-    from database.models.session import AgentSession
-    from database.models.dataset import Dataset
-    from database.models.job import Job
-    from database.models.lead import Lead
+    from Database.models.user import User
+    from Database.models.agent import Agent
+    from Database.models.session import AgentSession
+    from Database.models.dataset import Dataset
+    from Database.models.job import Job
+    from Database.models.lead import Lead
 
 
 class Department(Base):

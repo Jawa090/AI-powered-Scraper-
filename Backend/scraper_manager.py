@@ -23,7 +23,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from database.connection import SessionLocal
+
 from services.job_service import JobService
 from services.dataset_service import DatasetService
 from services.lead_service import LeadService
@@ -65,18 +65,16 @@ class ScraperManager:
 
     def get_jobs(self) -> List[Dict[str, Any]]:
         """Return recent scraper jobs from PostgreSQL (newest first)."""
-        with SessionLocal() as session:
-            job_service = JobService(session)
-            db_jobs = job_service.list_recent(limit=100)
-            return [self._serialize_db_job(j) for j in db_jobs]
+        job_service = JobService()
+        db_jobs = job_service.list_recent(limit=100)
+        return [self._serialize_db_job(j) for j in db_jobs]
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Return a single job record from PostgreSQL, or None if not found."""
-        with SessionLocal() as session:
-            job_service = JobService(session)
-            db_job = job_service.get_by_id(job_id)
-            if db_job:
-                return self._serialize_db_job(db_job)
+        job_service = JobService()
+        db_job = job_service.get_by_id(job_id)
+        if db_job:
+            return self._serialize_db_job(db_job)
         return None
 
     # ------------------------------------------------------------------
@@ -85,10 +83,9 @@ class ScraperManager:
 
     def get_datasets(self) -> List[Dict[str, Any]]:
         """Return recent datasets from PostgreSQL (newest first)."""
-        with SessionLocal() as session:
-            ds_service = DatasetService(session)
-            db_datasets = ds_service.list_recent(limit=100)
-            return [self._serialize_db_dataset(d) for d in db_datasets]
+        ds_service = DatasetService()
+        db_datasets = ds_service.list_recent(limit=100)
+        return [self._serialize_db_dataset(d) for d in db_datasets]
 
     # ------------------------------------------------------------------
     # Lead querying (PostgreSQL only)
@@ -100,29 +97,28 @@ class ScraperManager:
         query: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return leads from PostgreSQL, optionally filtered by dataset or keyword."""
-        with SessionLocal() as session:
-            lead_service = LeadService(session)
-            if dataset_id:
-                db_leads = lead_service.list_by_dataset(dataset_id)
-            else:
-                db_leads = lead_service.list(limit=200)
+        lead_service = LeadService()
+        if dataset_id:
+            db_leads = lead_service.list_by_dataset(dataset_id)
+        else:
+            db_leads = lead_service.list(limit=200)
 
-            serialized = [self._serialize_db_lead(l) for l in db_leads]
+        serialized = [self._serialize_db_lead(l) for l in db_leads]
 
-            if query:
-                q = query.lower()
-                serialized = [
-                    l for l in serialized
-                    if q in (
-                        " ".join([
-                            l.get("name", ""),
-                            l.get("company", ""),
-                            l.get("title", ""),
-                            l.get("location", ""),
-                        ])
-                    ).lower()
-                ]
-            return serialized
+        if query:
+            q = query.lower()
+            serialized = [
+                l for l in serialized
+                if q in (
+                    " ".join([
+                        l.get("name", ""),
+                        l.get("company", ""),
+                        l.get("title", ""),
+                        l.get("location", ""),
+                    ])
+                ).lower()
+            ]
+        return serialized
 
     # ------------------------------------------------------------------
     # Job creation — single canonical execution path

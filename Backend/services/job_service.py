@@ -10,11 +10,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy.orm import Session
 
-from database.models.job import Job
-from repositories.datasets import DatasetRepository
-from repositories.jobs import JobRepository
+from Database.models.job import Job
+from Database import db
 from services.base import BaseService
 
 
@@ -23,10 +21,10 @@ class JobService(BaseService):
     Business service for managing scraping/processing jobs and their lifecycle events.
     """
 
-    def __init__(self, session: Session) -> None:
-        super().__init__(session)
-        self.job_repo = JobRepository(session)
-        self.dataset_repo = DatasetRepository(session)
+    def __init__(self) -> None:
+        super().__init__()
+        self.job_repo = db.jobs
+        self.dataset_repo = db.datasets
 
     # ------------------------------------------------------------------
     # Lookups & Queries

@@ -5,14 +5,14 @@ from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from database.base import Base
+from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.source import Source
-    from database.models.job import Job
-    from database.models.query import Query
-    from database.models.organization import Organization
-    from database.models.lead import Lead
+    from Database.models.source import Source
+    from Database.models.job import Job
+    from Database.models.query import Query
+    from Database.models.organization import Organization
+    from Database.models.lead import Lead
 
 
 class ScrapeRun(Base):

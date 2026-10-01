@@ -12,15 +12,9 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
 
-from database.models.lead import Lead
-from repositories.contacts import ContactRepository
-from repositories.datasets import DatasetRecordRepository
-from repositories.emails import EmailRepository
-from repositories.leads import LeadRepository
-from repositories.organizations import OrganizationRepository
-from repositories.phones import PhoneRepository
+from Database.models.lead import Lead
+from Database import db
 from services.base import BaseService
 
 
@@ -29,14 +23,14 @@ class LeadService(BaseService):
     Business service for managing leads, status workflows, and atomic multi-repository ingest.
     """
 
-    def __init__(self, session: Session) -> None:
-        super().__init__(session)
-        self.lead_repo = LeadRepository(session)
-        self.org_repo = OrganizationRepository(session)
-        self.contact_repo = ContactRepository(session)
-        self.email_repo = EmailRepository(session)
-        self.phone_repo = PhoneRepository(session)
-        self.dataset_record_repo = DatasetRecordRepository(session)
+    def __init__(self) -> None:
+        super().__init__()
+        self.lead_repo = db.leads
+        self.org_repo = db.organizations
+        self.contact_repo = db.contacts
+        self.email_repo = db.emails
+        self.phone_repo = db.phones
+        self.dataset_record_repo = db.dataset_records
 
     # ------------------------------------------------------------------
     # Lookups & Queries

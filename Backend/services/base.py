@@ -1,4 +1,4 @@
-﻿"""
+"""
 services/base.py
 ─────────────────
 BaseService: session lifecycle and transaction ownership for the Service layer.
@@ -20,7 +20,6 @@ import logging
 from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -47,35 +46,29 @@ class BaseService:
             return result
     """
 
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self) -> None:
+        pass
 
     def _commit(self) -> None:
         """Commit the current transaction."""
-        self.session.commit()
+        from Database import db
+        db.session.commit()
 
     def _rollback(self) -> None:
         """Roll back the current transaction."""
-        self.session.rollback()
+        from Database import db
+        db.session.rollback()
 
     def _flush(self) -> None:
         """Flush pending changes without committing."""
-        self.session.flush()
+        from Database import db
+        db.session.flush()
 
     @contextmanager
     def _transaction(self) -> Generator[None, None, None]:
         """
         Context manager that commits on success or rolls back on any exception.
-
-        Usage::
-
-            with self._transaction():
-                repo_a.create(data_a)
-                repo_b.create(data_b)
         """
-        try:
+        from Database import db
+        with db.transaction():
             yield
-            self._commit()
-        except Exception:
-            self._rollback()
-            raise

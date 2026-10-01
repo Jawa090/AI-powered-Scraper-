@@ -10,14 +10,11 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
 
-from database.models.contact import Contact
-from database.models.email import Email
-from database.models.phone import Phone
-from repositories.contacts import ContactRepository
-from repositories.emails import EmailRepository
-from repositories.phones import PhoneRepository
+from Database.models.contact import Contact
+from Database.models.email import Email
+from Database.models.phone import Phone
+from Database import db
 from services.base import BaseService
 
 
@@ -26,11 +23,11 @@ class ContactService(BaseService):
     Business service for managing Contacts and their contact channels.
     """
 
-    def __init__(self, session: Session) -> None:
-        super().__init__(session)
-        self.contact_repo = ContactRepository(session)
-        self.email_repo = EmailRepository(session)
-        self.phone_repo = PhoneRepository(session)
+    def __init__(self) -> None:
+        super().__init__()
+        self.contact_repo = db.contacts
+        self.email_repo = db.emails
+        self.phone_repo = db.phones
 
     # ------------------------------------------------------------------
     # Lookups & Queries

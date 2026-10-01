@@ -15,14 +15,15 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func as sa_func, select
 from sqlalchemy.orm import Session
+from Database import db
 
 from agents.query.models import NormalizedQuery
-from database.models.lead import Lead
-from database.models.organization import Organization
+from Database.models.lead import Lead
+from Database.models.organization import Organization
 from execution.registry import recommend_scraper
-from repositories.leads import LeadRepository
-from repositories.organizations import OrganizationRepository
-from repositories.scrape_runs import ScrapeRunRepository
+from Database.repositories.leads import LeadRepository
+from Database.repositories.organizations import OrganizationRepository
+from Database.repositories.scrape_runs import ScrapeRunRepository
 
 
 class DecisionType(str, Enum):
@@ -58,11 +59,11 @@ class DataAvailabilityChecker:
     Evaluates query completeness, database coverage, and freshness.
     """
 
-    def __init__(self, session: Session) -> None:
-        self.session = session
-        self.lead_repo = LeadRepository(session)
-        self.org_repo = OrganizationRepository(session)
-        self.scrape_run_repo = ScrapeRunRepository(session)
+    def __init__(self, session: Session = None) -> None:
+        self.session = session or db.session
+        self.lead_repo = LeadRepository(self.session)
+        self.org_repo = OrganizationRepository(self.session)
+        self.scrape_run_repo = ScrapeRunRepository(self.session)
 
     def evaluate(self, query: NormalizedQuery) -> DataAvailabilityResult:
         # 1. Completeness check

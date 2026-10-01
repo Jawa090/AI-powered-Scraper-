@@ -196,6 +196,19 @@ class QueryParser:
 
         # 9. Determine Intent (word-boundary matches: "contract" must not
         #    match "contractor", "hi" must not match "which")
+        #
+        # Pre-compute whether the CURRENT message (not inherited context)
+        # provided any new category, location, or quantity. This ensures
+        # greetings are not blocked by stale context_requirement fields.
+        _ctx_cat = ctx.get("industry") if ctx.get("industry") not in ["Not specified", None] else None
+        _ctx_loc = ctx.get("location") if ctx.get("location") not in ["Not specified", None] else None
+        _ctx_qty = ctx.get("quantity") if ctx.get("quantity", 0) > 0 else None
+        _msg_added_cat = (cat is not None and cat != _ctx_cat)
+        _msg_added_loc = (loc is not None and loc != _ctx_loc)
+        _msg_added_qty = (qty is not None and qty != _ctx_qty)
+        _msg_added_src = (src is not None and src != ctx.get("selectedScript"))
+        _current_msg_has_new_data = _msg_added_cat or _msg_added_loc or _msg_added_qty or _msg_added_src
+
         intent = "lead_search"
         if re.search(r"\b(contracts?|bids?|rfps?|rfqs?|procurements?|tenders?|solicitations?)\b", lower) or src in ("bonfire", "dasny", "nyscr"):
             intent = "contract_search"
@@ -205,10 +218,18 @@ class QueryParser:
             intent = "research_request"
         elif re.search(r"\b(growth|scale|expand|market comparison|acquisition)\b", lower):
             intent = "growth_strategy"
-        elif re.search(r"\b(hello|hi|hey|help|who are you|what can you do|lo|salam|assalam|aoa|bhai|sun|kese|start|kya|kia|hola)\b", lower) and not (cat or loc or qty):
+        elif re.search(r"\b(hello|hi|hey|help|who are you|what can you do|lo|salam|assalam|aoa|bhai|sun|kese|start|kya|kia|hola)\b", lower) and not _current_msg_has_new_data:
             intent = "general_inquiry"
         elif not (cat or loc or qty or src):
             intent = "general_inquiry"
+
+        # When intent is general_inquiry, clear any inherited context fields
+        # so that the greeting is not treated as a complete data request.
+        if intent == "general_inquiry":
+            cat = None
+            loc = None
+            qty = None
+            src = None
 
         # Procurement requests with no specific trade cover all open opportunities
         if intent == "contract_search" and not cat:

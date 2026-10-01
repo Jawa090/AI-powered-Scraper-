@@ -5,12 +5,12 @@ from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from database.base import Base
+from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.scrape_run import ScrapeRun
-    from database.models.job import Job
-    from database.models.organization import Organization
+    from Database.models.scrape_run import ScrapeRun
+    from Database.models.job import Job
+    from Database.models.organization import Organization
 
 
 class Source(Base):

@@ -37,11 +37,11 @@ from agents.email_intelligence import (
     plan_outreach_sequence,
     _score_context,
 )
-from database.connection import SessionLocal
+
 from services.lead_service import LeadService
 from services.contact_service import ContactService
 from services.organization_service import OrganizationService
-from repositories.emails import EmailRepository
+from Database.repositories.emails import EmailRepository
 
 
 class EmailAgent(BaseAgent):
@@ -225,26 +225,25 @@ class EmailAgent(BaseAgent):
         email_list: List[Dict[str, Any]] = []
 
         try:
-            with SessionLocal() as session:
-                # --- Resolve lead ---
-                if lead_id:
-                    lead_svc = LeadService(session)
-                    lead = lead_svc.get_by_id(lead_id)
-                    if lead:
-                        lead_dict = {
-                            "id": lead.id,
-                            "status": lead.status,
-                            "title": lead.title,
-                        }
-                        # Inherit contact/org ids from lead if not provided
-                        if not contact_id and lead.contact_id:
-                            contact_id = lead.contact_id
-                        if not org_id and lead.organization_id:
-                            org_id = lead.organization_id
+            # --- Resolve lead ---
+            if lead_id:
+                lead_svc = LeadService()
+                lead = lead_svc.get_by_id(lead_id)
+                if lead:
+                    lead_dict = {
+                        "id": lead.id,
+                        "status": lead.status,
+                        "title": lead.title,
+                    }
+                    # Inherit contact/org ids from lead if not provided
+                    if not contact_id and lead.contact_id:
+                        contact_id = lead.contact_id
+                    if not org_id and lead.organization_id:
+                        org_id = lead.organization_id
 
                 # --- Resolve contact ---
                 if contact_id:
-                    contact_svc = ContactService(session)
+                    contact_svc = ContactService()
                     contact = contact_svc.get_by_id(contact_id)
                     if contact:
                         contact_dict = {
@@ -256,7 +255,7 @@ class EmailAgent(BaseAgent):
                             "department": contact.department,
                         }
                         # Fetch emails for this contact
-                        email_repo = EmailRepository(session)
+                        email_repo = EmailRepository()
                         emails = email_repo.list_by_contact(contact_id)
                         email_list = [
                             {
@@ -269,7 +268,7 @@ class EmailAgent(BaseAgent):
 
                 # --- Resolve organization ---
                 if org_id:
-                    org_svc = OrganizationService(session)
+                    org_svc = OrganizationService()
                     org = org_svc.get_by_id(org_id)
                     if org:
                         org_dict = {

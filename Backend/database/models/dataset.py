@@ -5,15 +5,15 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from database.base import Base
+from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.department import Department
-    from database.models.user import User
-    from database.models.job import Job
-    from database.models.lead import Lead
-    from database.models.organization import Organization
-    from database.models.contact import Contact
+    from Database.models.department import Department
+    from Database.models.user import User
+    from Database.models.job import Job
+    from Database.models.lead import Lead
+    from Database.models.organization import Organization
+    from Database.models.contact import Contact
 
 
 class Dataset(Base):

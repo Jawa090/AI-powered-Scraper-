@@ -8,19 +8,14 @@ Architecture:
         ↓
     Services (business workflows, transaction ownership)
         ↓
-    Repositories (database queries & mutations)
-        ↓
-    SQLAlchemy
+    Database singleton (from Database import db)
         ↓
     PostgreSQL
 
 Usage pattern:
-    from database.connection import SessionLocal
-    from services import LeadService, OrganizationService
-
-    with SessionLocal() as session:
-        lead_service = LeadService(session)
-        leads = lead_service.list_by_status("New")
+    from services import LeadService
+    lead_service = LeadService()
+    leads = lead_service.list_by_status("New")
 """
 
 from services.base import BaseService

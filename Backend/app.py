@@ -10,6 +10,11 @@ import logging
 import os
 import sys
 import time
+
+# Ensure project root is in path so `from Database import db` works
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Query
@@ -17,9 +22,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+# from sqlalchemy import text
 
-from database.connection import SessionLocal
+# from database.connection import SessionLocal
 from scraper_manager import scraper_manager
 from execution.registry import SCRIPTS_REGISTRY
 from agents.orchestrator import agent_orchestrator
@@ -64,21 +69,21 @@ def fail_interrupted_jobs() -> None:
     server starts was killed by the previous shutdown. Close those out as
     Failed instead of leaving them "Running" forever.
     """
-    from database.models.dataset import Dataset  # noqa: PLC0415
-    from database.models.job import Job  # noqa: PLC0415
+    from Database.models.dataset import Dataset  # noqa: PLC0415
+    from Database.models.job import Job  # noqa: PLC0415
     from services.job_service import JobService  # noqa: PLC0415
 
     try:
-        with SessionLocal() as db:
-            stale = db.query(Job).filter(Job.status.in_(["Queued", "Running"])).all()
-            service = JobService(db)
+        from Database import db
+        with db.transaction():
+            stale = db.session.query(Job).filter(Job.status.in_(["Queued", "Running"])).all()
+            service = JobService()
             for job in stale:
                 service.fail(job.id, "Interrupted: server restarted before the job finished", commit=False)
                 if job.dataset_id:
-                    ds = db.get(Dataset, job.dataset_id)
+                    ds = db.session.get(Dataset, job.dataset_id)
                     if ds is not None and ds.status == "Running":
                         ds.status = "Failed"
-            db.commit()
             if stale:
                 logger.info("Marked %d interrupted job(s) as Failed", len(stale))
     except Exception as exc:  # never block startup on housekeeping
@@ -205,8 +210,9 @@ def health_check():
 def readiness_check():
     """Readiness probe: verifies active PostgreSQL connectivity."""
     try:
-        with SessionLocal() as db:
-            db.execute(text("SELECT 1"))
+        from Database import db
+        from sqlalchemy import text
+        db.session.execute(text("SELECT 1"))
         return {
             "status": "ready",
             "database": "connected",

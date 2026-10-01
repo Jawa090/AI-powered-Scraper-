@@ -5,16 +5,16 @@ from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from database.base import Base
+from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.source import Source
-    from database.models.scrape_run import ScrapeRun
-    from database.models.contact import Contact
-    from database.models.email import Email
-    from database.models.phone import Phone
-    from database.models.location import Location
-    from database.models.lead import Lead
+    from Database.models.source import Source
+    from Database.models.scrape_run import ScrapeRun
+    from Database.models.contact import Contact
+    from Database.models.email import Email
+    from Database.models.phone import Phone
+    from Database.models.location import Location
+    from Database.models.lead import Lead
 
 
 class Organization(Base):

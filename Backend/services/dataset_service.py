@@ -9,11 +9,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
 
-from database.models.dataset import Dataset, DatasetRecord
-from repositories.datasets import DatasetRecordRepository, DatasetRepository
-from repositories.leads import LeadRepository
+from Database.models.dataset import Dataset, DatasetRecord
+from Database import db
 from services.base import BaseService
 
 
@@ -22,11 +20,11 @@ class DatasetService(BaseService):
     Business service for managing datasets and their constituent records.
     """
 
-    def __init__(self, session: Session) -> None:
-        super().__init__(session)
-        self.dataset_repo = DatasetRepository(session)
-        self.record_repo = DatasetRecordRepository(session)
-        self.lead_repo = LeadRepository(session)
+    def __init__(self) -> None:
+        super().__init__()
+        self.dataset_repo = db.datasets
+        self.record_repo = db.dataset_records
+        self.lead_repo = db.leads
 
     # ------------------------------------------------------------------
     # Dataset Queries

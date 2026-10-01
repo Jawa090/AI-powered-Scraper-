@@ -24,8 +24,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.base import BaseAgent, AgentContext, AgentResult, AgentStatus, ProposedAction
 from agents.query.models import DataQueryContract
-from database.connection import SessionLocal
-from database.models.lead import Lead
+# from database.connection import SessionLocal
+from Database.models.lead import Lead
 from services.dataset_service import DatasetService
 from services.lead_service import LeadService
 
@@ -251,23 +251,22 @@ class DataAgent(BaseAgent):
 
         # Case 4: USE_DATABASE — Retrieve matching records from PostgreSQL
         try:
-            with SessionLocal() as session:
-                lead_service = LeadService(session)
-                leads, total_available = lead_service.search_leads(
-                    category=contract.category,
-                    location=contract.location,
-                    source_code=contract.source_code,
-                    status=contract.status,
-                    has_email=contract.has_email,
-                    has_phone=contract.has_phone,
-                    assigned_to=contract.assigned_to,
-                    department_id=contract.department_id,
-                    limit=contract.quantity,
-                    offset=contract.offset,
-                )
+            lead_service = LeadService()
+            leads, total_available = lead_service.search_leads(
+                category=contract.category,
+                location=contract.location,
+                source_code=contract.source_code,
+                status=contract.status,
+                has_email=contract.has_email,
+                has_phone=contract.has_phone,
+                assigned_to=contract.assigned_to,
+                department_id=contract.department_id,
+                limit=contract.quantity,
+                offset=contract.offset,
+            )
 
-                # Format leads respecting field selection
-                formatted_records, fields_included = self._format_records(leads, contract.requested_fields)
+            # Format leads respecting field selection
+            formatted_records, fields_included = self._format_records(leads, contract.requested_fields)
 
             # If 0 records were returned despite decision
             if total_available == 0:

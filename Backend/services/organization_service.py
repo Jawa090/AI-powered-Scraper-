@@ -10,16 +10,12 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
 
-from database.models.email import Email
-from database.models.location import Location
-from database.models.organization import Organization
-from database.models.phone import Phone
-from repositories.emails import EmailRepository
-from repositories.locations import LocationRepository
-from repositories.organizations import OrganizationRepository
-from repositories.phones import PhoneRepository
+from Database.models.email import Email
+from Database.models.location import Location
+from Database.models.organization import Organization
+from Database.models.phone import Phone
+from Database import db
 from services.base import BaseService
 
 
@@ -29,12 +25,12 @@ class OrganizationService(BaseService):
     and related communication channels / locations.
     """
 
-    def __init__(self, session: Session) -> None:
-        super().__init__(session)
-        self.org_repo = OrganizationRepository(session)
-        self.email_repo = EmailRepository(session)
-        self.phone_repo = PhoneRepository(session)
-        self.location_repo = LocationRepository(session)
+    def __init__(self) -> None:
+        super().__init__()
+        self.org_repo = db.organizations
+        self.email_repo = db.emails
+        self.phone_repo = db.phones
+        self.location_repo = db.locations
 
     # ------------------------------------------------------------------
     # Organization Lookups & Queries

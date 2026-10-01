@@ -23,21 +23,23 @@ import traceback
 import uuid
 from typing import Any, Dict, List, Optional
 
-from database.connection import SessionLocal
-from database.models.agent import Agent
-from database.models.dataset import Dataset
-from database.models.message import AgentMessage
-from database.models.requirement import Requirement
-from database.models.query import Query
-from database.models.session import AgentSession
+# from database.connection import SessionLocal
+from Database import db as _db
+from sqlalchemy import select, func
+from Database.models.agent import Agent
+from Database.models.dataset import Dataset
+from Database.models.message import AgentMessage
+from Database.models.requirement import Requirement
+from Database.models.query import Query
+from Database.models.session import AgentSession
 
-from repositories.agent_sessions import (
+from Database.repositories.agent_sessions import (
     AgentRepository,
     AgentMessageRepository,
     AgentSessionRepository,
 )
-from repositories.requirements import RequirementRepository
-from repositories.queries import QueryRepository
+from Database.repositories.requirements import RequirementRepository
+from Database.repositories.queries import QueryRepository
 
 from agents.query.models import NormalizedQuery
 from agents.query.parser import QueryParser
@@ -46,7 +48,7 @@ from agents.decisions.data_availability import (
     DataAvailabilityResult,
     DecisionType,
 )
-from database.models.action import AgentAction
+from Database.models.action import AgentAction
 from agents.base import AgentContext, AgentResult, AgentStatus, ProposedAction
 from agents.registry import agent_registry
 from agents.collaboration.planner import CollaborationPlanner
@@ -146,7 +148,7 @@ class AgentOrchestrator:
             )
 
         try:
-            with SessionLocal() as db:
+                db = _db.session
                 # 1. Resolve or create session
                 agent_session = self._get_or_create_session(
                     db, session_id, user_id, department_id
@@ -652,8 +654,7 @@ class AgentOrchestrator:
                         }
 
                         job_id = _mgr.create_job(resolved_script_id, parameters, dataset_id=ds_id)
-                        job = _mgr.get_job(job_id)
-                        actual_dataset_id = (job or {}).get("datasetId") or ds_id
+                        actual_dataset_id = ds_id
 
                         req_record.status = "generating"
                         req_record.completion_percentage = 30
@@ -754,13 +755,39 @@ class AgentOrchestrator:
                 has_location = bool(structured_intent.location or norm_query.location)
                 has_complete_request = bool(has_category and (has_location or resolved_script_id))
 
+                # Detect if the user's message is purely a greeting / conversational opener.
+                # This MUST override has_complete_request — a stale context_requirement
+                # with leftover category/location should NOT auto-trigger execution when
+                # the user simply says "hi".
+                _greeting_words = ["lo", "hi", "hello", "salam", "assalam", "aoa", "bhai",
+                                   "kya haal", "sun", "help", "who are you", "what can you do",
+                                   "mujhe leads chahiye", "need leads", "leads chahiye",
+                                   "hey", "hola", "start", "hlo"]
+                _is_pure_greeting = any(w in text.lower().strip() for w in _greeting_words)
+
+                # If the user's current message itself did NOT mention any category,
+                # location, or quantity, treat it as conversational even if stale context
+                # carried over those fields.
+                _current_msg_has_substance = bool(
+                    (norm_query.category and norm_query.category != (current_requirement or {}).get("industry"))
+                    or (norm_query.location and norm_query.location != (current_requirement or {}).get("location"))
+                    or (norm_query.quantity and norm_query.quantity != (current_requirement or {}).get("quantity"))
+                    or norm_query.source_preference
+                )
+
                 is_conversational = (
-                    not has_complete_request
-                    and (
-                        structured_intent.intent == IntentType.GENERAL_INFORMATION
-                        or norm_query.intent == "general_inquiry"
-                        or (not has_category and not has_location and not resolved_script_id)
-                        or any(w in text.lower() for w in ["lo", "hi", "hello", "salam", "assalam", "aoa", "bhai", "kya haal", "sun", "help", "who are you", "what can you do", "mujhe leads chahiye", "need leads", "leads chahiye"])
+                    _is_pure_greeting
+                    or (
+                        not has_complete_request
+                        and (
+                            structured_intent.intent == IntentType.GENERAL_INFORMATION
+                            or norm_query.intent == "general_inquiry"
+                            or (not has_category and not has_location and not resolved_script_id)
+                        )
+                    )
+                    or (
+                        not _current_msg_has_substance
+                        and norm_query.intent == "general_inquiry"
                     )
                 )
 
@@ -792,6 +819,10 @@ class AgentOrchestrator:
                     )
                     avail_count = avail_res.get("count", 0) if avail_res.get("success") else 0
                     is_sufficient = avail_res.get("is_sufficient", False)
+
+                    job_id = None
+                    actual_dataset_id = None
+                    suggested_script = None
 
                     if is_sufficient and avail_count > 0:
                         db_leads_res = database_agent.search_leads(
@@ -838,29 +869,54 @@ class AgentOrchestrator:
                         )
                         decision_val = DecisionType.USE_DATABASE.value
                     else:
+                        # ----------------------------------------------------------
+                        # DB data insufficient → PROMPT FOR SCRAPER LAUNCH
+                        # ----------------------------------------------------------
                         suggested_script = structured_intent.scraper_id or result.suggested_script or WorkflowPlanner._resolve_scraper_id(structured_intent) or "bonfire"
                         script_name = self._script_display_name(suggested_script) or suggested_script.upper()
-                        reply_text = (
-                            f"Found **{avail_count} records** matching **{cat_label}** in **{loc_label}**, "
-                            f"but you requested **{target_qty}**.\n\n"
-                            f"Trigger the **{script_name}** to collect fresh records.\n\n"
-                            f"Click **Confirm & Generate Data** to start live extraction."
-                        )
-                        suggestions = ["Confirm & Generate Data", "Dallas City Bids (Bonfire)", "Commercial Contractors (JWiz)"]
+
+                        job_id = None
+                        actual_dataset_id = None
+
+                        if avail_count > 0:
+                            reply_text = (
+                                f"Found **{avail_count} records** in the database matching **{cat_label}** in **{loc_label}**, "
+                                f"but you requested **{target_qty}**.\n\n"
+                                f"Would you like to run the **{script_name}** scraper to extract fresh records from the web?"
+                            )
+                        else:
+                            reply_text = (
+                                f"No matching records found in the database for **{cat_label}** in **{loc_label}**.\n\n"
+                                f"Would you like to run the **{script_name}** scraper to extract fresh data?"
+                            )
+
+                        suggestions = [
+                            f"Run {script_name} Scraper",
+                            "Change location",
+                            "Modify target quantity",
+                        ]
+                        
                         proposed_action = ProposedAction(
                             action_type="trigger_scraper",
-                            label="Trigger Scraper",
-                            parameters={"category": cat_label, "location": loc_label, "script_id": suggested_script},
+                            label="Run Scraper",
+                            parameters={
+                                "script_id": suggested_script,
+                                "category": cat_label,
+                                "location": loc_label,
+                                "limit": target_qty,
+                            },
                             safe_to_auto_execute=False,
                         )
-                        decision_val = DecisionType.NEED_FETCH.value
+                        decision_val = DecisionType.NEED_CLARIFICATION.value
+                        
                         req_record.industry = cat_label
                         req_record.location = loc_label
                         req_record.quantity = target_qty
                         req_record.selected_script = suggested_script
                         req_record.selected_script_name = script_name
                         req_record.status = "ready_for_confirmation"
-                        req_record.completion_percentage = 100
+                        req_record.completion_percentage = 20
+
                         db.commit()
 
                     asst_msg = AgentMessage(
@@ -877,25 +933,25 @@ class AgentOrchestrator:
                         "reply": reply_text,
                         "suggestions": suggestions,
                         "updatedRequirement": self._requirement_to_dict(req_record, norm_query),
-                        "recommendedScript": structured_intent.scraper_id or result.suggested_script,
+                        "recommendedScript": suggested_script,
                         "sessionId": resolved_session_id,
                         "decision": decision_val,
                         "query": norm_query.to_dict(),
-                        "agentCode": "database",
-                        "handledBy": "DatabaseAgent",
+                        "agentCode": "database" if not job_id else "data",
+                        "handledBy": "DatabaseAgent" if not job_id else "ScraperExecutionEngine",
                         "agentResult": {
-                            "status": AgentStatus.SUCCESS.value,
-                            "agentCode": "database",
+                            "status": AgentStatus.SUCCESS.value if not job_id else AgentStatus.EXECUTION_REQUIRED.value,
+                            "agentCode": "database" if not job_id else "data",
                             "message": reply_text,
-                            "data": {"count": avail_count},
+                            "data": {"count": avail_count, "jobId": job_id, "datasetId": actual_dataset_id},
                         },
                         "proposedActions": [proposed_action.to_dict()],
-                        "jobId": None,
+                        "jobId": job_id,
                         "collaborationId": None,
                         "collaborationStatus": None,
-                        "agentsInvolved": ["database"],
+                        "agentsInvolved": ["database", "data"] if job_id else ["database"],
                         "agentSteps": [],
-                        "workflowStatus": "COMPLETED",
+                        "workflowStatus": "IN_PROGRESS" if job_id else "COMPLETED",
                         "intent": structured_intent.to_dict(),
                     }
 
@@ -933,8 +989,7 @@ class AgentOrchestrator:
 
                             if raw_status == "completed":
                                 # Verify records actually exist in PostgreSQL
-                                from database.models.lead import Lead
-                                from sqlalchemy import select, func
+                                from Database.models.lead import Lead
                                 leads_in_ds = db.scalar(select(func.count(Lead.id)).where(Lead.dataset_id == dataset_id)) or 0
                                 if leads_in_ds > 0:
                                     records_found = leads_in_ds
@@ -1210,11 +1265,10 @@ class AgentOrchestrator:
                                     stale_id = j.get("id")
                                     if stale_id and not job_executor.is_job_active(stale_id):
                                         try:
-                                            with SessionLocal() as db_session:
                                                 from services.job_service import JobService
                                                 from services.scrape_run_service import ScrapeRunService
-                                                JobService(db_session).fail(stale_id, error_message="Worker process terminated unexpectedly", commit=True)
-                                                ScrapeRunService(db_session).fail(f"run-{stale_id}", error_message="Worker process terminated unexpectedly", commit=True)
+                                                JobService().fail(stale_id, error_message="Worker process terminated unexpectedly", commit=True)
+                                                ScrapeRunService().fail(f"run-{stale_id}", error_message="Worker process terminated unexpectedly", commit=True)
                                         except Exception:
                                             pass
 
@@ -1299,9 +1353,8 @@ class AgentOrchestrator:
                             }
 
                         # Check available data silently in PostgreSQL
-                        from database.models.lead import Lead
-                        from database.models.organization import Organization
-                        from sqlalchemy import select
+                        from Database.models.lead import Lead
+                        from Database.models.organization import Organization
 
                         stmt = select(Lead).join(Lead.organization, isouter=True)
                         if norm_query.category:
@@ -1401,53 +1454,28 @@ class AgentOrchestrator:
                                 "agentSteps": [],
                             }
 
-                        # Data is insufficient -> Trigger live scraper execution job
+                        # Data is insufficient -> Prompt for live scraper execution
                         parameters = {
                             "limit": requested_qty,
                             "location": (norm_query.location or ("dallas" if resolved_script_id == "bonfire" else "new-york")).lower().replace(" ", "-"),
                             "keyword": (norm_query.category or ("contractor" if resolved_script_id == "jwiz" else "")).lower(),
                         }
 
-                        # Layer 4 Execution Boundary: submit job via scraper_manager
-                        ds_id = f"ds-{uuid.uuid4().hex[:6]}"
-                        job_id = _mgr.create_job(resolved_script_id, parameters, dataset_id=ds_id)
-                        job = _mgr.get_job(job_id)
-                        dataset_id = (job or {}).get("datasetId") or ds_id
-
-                        req_record.status = "generating"
-                        req_record.completion_percentage = 30  # In progress, not 100%
+                        req_record.status = "ready_for_confirmation"
+                        req_record.completion_percentage = 20
 
                         proposed_action = ProposedAction(
-                            action_type="view_job",
-                            label="View Job",
+                            action_type="trigger_scraper",
+                            label="Run Scraper",
                             parameters={
                                 "script_id": resolved_script_id,
-                                "scriptName": script["name"],
-                                "jobId": job_id,
-                                "datasetId": dataset_id,
-                                "parameters": parameters,
+                                "category": parameters["keyword"],
+                                "location": parameters["location"],
+                                "limit": requested_qty,
                             },
                             requires_confirmation=False,
-                            safe_to_auto_execute=True,
+                            safe_to_auto_execute=False,
                         )
-
-                        action_audit = AgentAction(
-                            id=str(uuid.uuid4()),
-                            session_id=resolved_session_id,
-                            agent_id=agent_session.agent_id or _DEFAULT_AGENT_ID,
-                            user_id=user_id if user_id else None,
-                            action_type="scraper_execution",
-                            title=f"Autonomous Scraper Execution: {script['name']}",
-                            description=f"Initiated execution for {script['name']} (Job {job_id})",
-                            action_data={
-                                "scriptId": resolved_script_id,
-                                "jobId": job_id,
-                                "datasetId": dataset_id,
-                                "parameters": parameters,
-                                "status": "Running",
-                            },
-                        )
-                        db.add(action_audit)
 
                         script_raw = (resolved_script_id or "").lower()
                         if "nyscr" in script_raw:
@@ -1462,16 +1490,12 @@ class AgentOrchestrator:
                             short_title = script["name"]
 
                         reply_text = (
-                            f"Initiated autonomous extraction pipeline using **{script['name']}**.\n\n"
-                            f"Your {short_title} extraction is currently running (Job **{job_id}**).\n"
-                            f"Status: **RUNNING**\n"
-                            f"Progress: In Progress\n\n"
-                            f"You can monitor real-time progress in the Execution Jobs view or inspect results once harvesting completes."
+                            f"I found some data, but not enough to meet your target of {requested_qty}.\n\n"
+                            f"Would you like to run the **{short_title}** scraper to autonomously extract fresh data from the web?"
                         )
                         suggestions = [
-                            f"Status of job {job_id}",
-                            "Show recent extraction jobs",
-                            "View harvested leads",
+                            f"Run {short_title} Scraper",
+                            "Modify target quantity",
                         ]
 
                         asst_msg = AgentMessage(
@@ -1490,21 +1514,21 @@ class AgentOrchestrator:
                             "updatedRequirement": self._requirement_to_dict(req_record, norm_query),
                             "recommendedScript": resolved_script_id,
                             "sessionId": resolved_session_id,
-                            "decision": DecisionType.NEED_FETCH.value,
+                            "decision": DecisionType.NEED_CLARIFICATION.value,
                             "query": norm_query.to_dict(),
                             "agentCode": "data",
                             "handledBy": "ScraperExecutionEngine",
                             "agentResult": {
-                                "status": AgentStatus.EXECUTION_REQUIRED.value,
+                                "status": AgentStatus.SUCCESS.value,
                                 "agentCode": "data",
                                 "message": reply_text,
                                 "proposedActions": [proposed_action.to_dict()],
-                                "data": {"jobId": job_id, "scriptId": resolved_script_id, "datasetId": dataset_id},
-                                "metadata": {"jobId": job_id},
+                                "data": {"scriptId": resolved_script_id},
+                                "metadata": {},
                                 "suggestions": suggestions,
                             },
                             "proposedActions": [proposed_action.to_dict()],
-                            "jobId": job_id,
+                            "jobId": None,
                             "collaborationId": None,
                             "collaborationStatus": None,
                             "agentsInvolved": ["data"],
@@ -1730,12 +1754,11 @@ class AgentOrchestrator:
                 }
 
             job_id = _mgr.create_job(script_id, parameters, dataset_id=dataset_id)
-            job = _mgr.get_job(job_id)
-            actual_dataset_id = (job or {}).get("datasetId") or dataset_id
+            actual_dataset_id = dataset_id
 
             # Persist assistant message (best-effort)
             try:
-                with SessionLocal() as db:
+                    db = _db.session
                     req_repo = RequirementRepository(db)
                     existing_req = req_repo.get_by_session(session_id)
                     if existing_req:
@@ -2003,7 +2026,36 @@ class AgentOrchestrator:
 
         _logger = logging.getLogger(__name__)
 
+        # 0. Detect if the user's message is a pure greeting / conversational opener
+        #    with no actual requirement substance. If so, do NOT auto-fill from stale
+        #    current_requirement context — force fresh requirement gathering instead.
+        _greeting_tokens = [
+            "lo", "hi", "hello", "salam", "assalam", "aoa", "bhai",
+            "kya haal", "sun", "help", "who are you", "what can you do",
+            "mujhe leads chahiye", "need leads", "leads chahiye",
+            "hey", "hola", "start", "hlo",
+        ]
+        _lower_msg = user_message.lower().strip()
+        _is_greeting = any(w in _lower_msg for w in _greeting_tokens)
+
+        # Check if the user's CURRENT message text itself carries any requirement
+        # substance (industry, location, scraper keywords).  We check the raw text
+        # directly because norm_query / structured_intent may inherit stale values
+        # from the passed-in current_requirement context.
+        from agents.query.parser import CATEGORY_PATTERNS, LOCATION_PATTERNS
+        _msg_has_own_substance = (
+            any(re.search(pat, _lower_msg) for pat, _ in CATEGORY_PATTERNS)
+            or any(re.search(pat, _lower_msg) for pat, _ in LOCATION_PATTERNS)
+            or any(k in _lower_msg for k in ["bonfire", "dasny", "jwiz", "nyscr", "scrape", "crawl", "extract"])
+        )
+
+        # When the message is a greeting with no substance, wipe stale context so
+        # the system asks the user what they need rather than auto-confirming.
+        if _is_greeting and not _msg_has_own_substance:
+            current_requirement = None
+
         # 1. Merge and extract structured requirement parameters
+        #    Only pull from current_requirement if it was NOT wiped above.
         category = (
             norm_query.category
             or structured_intent.category
@@ -2032,6 +2084,19 @@ class AgentOrchestrator:
             or structured_intent.scraper_id
             or (current_requirement.get("selectedScript") if current_requirement else None)
         )
+
+        # When greeting with no substance, also clear any stale fields on req_record
+        # so that the completion calculation starts fresh.
+        if _is_greeting and not _msg_has_own_substance:
+            category = None
+            location = None
+            quantity = 20
+            selected_script = None
+            req_record.industry = None
+            req_record.location = None
+            req_record.selected_script = None
+            req_record.selected_script_name = None
+            req_record.quantity = 20
 
         # Scrapers imply their location if location was not explicitly provided
         if not location and selected_script == "bonfire":
@@ -2088,7 +2153,8 @@ class AgentOrchestrator:
             "- If the user addressed you in Roman Urdu / Urdu (e.g. 'lo', 'hlo', 'bhai', 'mujhe leads chahiye', 'salam'), reply warmly in natural Roman Urdu!\n"
             "- If the user wrote in English, reply in clean friendly English.\n"
             "- Keep your response short and concise (under 80 words).\n"
-            "- NEVER claim that leads were found or exist in the database."
+            "- NEVER give the User any info about the Database and internal working"
+            ## that leads were found or exist in the database.
         )
 
         reply_text = ""

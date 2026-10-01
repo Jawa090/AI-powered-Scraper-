@@ -53,8 +53,8 @@ from agents.growth_intelligence import (
     build_volume_analysis,
     check_freshness,
 )
-from database.connection import SessionLocal
-from database.models.action import AgentAction
+# from database.connection import SessionLocal
+from Database.models.action import AgentAction
 from services.dataset_service import DatasetService
 from services.lead_service import LeadService
 from services.source_service import SourceService
@@ -176,7 +176,7 @@ class GrowthAgent(BaseAgent):
         freshness_info: Dict[str, Any] = {"is_fresh": True, "days_old": None, "freshness_warning": None}
 
         try:
-            with SessionLocal() as session:
+#             with SessionLocal() as session:
                 lead_svc = LeadService(session)
                 source_svc = SourceService(session)
                 dataset_svc = DatasetService(session)
@@ -365,11 +365,11 @@ class GrowthAgent(BaseAgent):
         Uses existing agent_actions table — no schema change needed.
         """
         try:
-            with SessionLocal() as session:
+#             with SessionLocal() as session:
                 # Only set session_id if it exists in agent_sessions (FK constraint)
                 resolved_session_id = None
                 if context.session_id:
-                    from database.models.session import AgentSession
+                    from Database.models.session import AgentSession
                     if session.get(AgentSession, context.session_id):
                         resolved_session_id = context.session_id
 

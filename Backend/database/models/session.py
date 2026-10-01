@@ -5,16 +5,16 @@ from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from database.base import Base
+from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.agent import Agent
-    from database.models.department import Department
-    from database.models.user import User
-    from database.models.message import AgentMessage
-    from database.models.requirement import Requirement
-    from database.models.query import Query
-    from database.models.action import AgentAction
+    from Database.models.agent import Agent
+    from Database.models.department import Department
+    from Database.models.user import User
+    from Database.models.message import AgentMessage
+    from Database.models.requirement import Requirement
+    from Database.models.query import Query
+    from Database.models.action import AgentAction
 
 
 class AgentSession(Base):
