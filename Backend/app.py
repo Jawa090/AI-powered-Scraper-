@@ -46,11 +46,12 @@ app = FastAPI(
 )
 
 # CORS configuration (Environment-configurable for production with dev fallback)
+# In production, set CORS_ORIGINS="https://your-domain.com" explicitly
 CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS")
 ALLOWED_ORIGINS = (
     [o.strip() for o in CORS_ORIGINS_ENV.split(",") if o.strip()]
     if CORS_ORIGINS_ENV
-    else ["*"]
+    else ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
 )
 
 app.add_middleware(
@@ -68,12 +69,31 @@ def fail_interrupted_jobs() -> None:
     Jobs run on in-process threads, so anything still Queued/Running when the
     server starts was killed by the previous shutdown. Close those out as
     Failed instead of leaving them "Running" forever.
+
+    Uses a file lock to prevent race conditions when running with multiple
+    uvicorn workers — only the first worker to acquire the lock runs cleanup.
     """
+    import tempfile
     from Database.models.dataset import Dataset  # noqa: PLC0415
     from Database.models.job import Job  # noqa: PLC0415
     from services.job_service import JobService  # noqa: PLC0415
 
+    lock_file_path = os.path.join(tempfile.gettempdir(), "dataops_startup_cleanup.lock")
     try:
+        # Attempt to acquire an exclusive lock (non-blocking)
+        lock_fd = open(lock_file_path, "w")
+        lock_fd.write("lock")  # msvcrt.locking requires >= 1 byte
+        lock_fd.flush()
+        lock_fd.seek(0)
+        import msvcrt
+        try:
+            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+        except (OSError, IOError):
+            # Another worker already holds the lock — skip cleanup
+            lock_fd.close()
+            logger.info("Another worker is handling startup cleanup — skipping.")
+            return
+
         from Database import db
         with db.transaction():
             stale = db.session.query(Job).filter(Job.status.in_(["Queued", "Running"])).all()
@@ -86,6 +106,10 @@ def fail_interrupted_jobs() -> None:
                         ds.status = "Failed"
             if stale:
                 logger.info("Marked %d interrupted job(s) as Failed", len(stale))
+
+        # Release the lock
+        msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
+        lock_fd.close()
     except Exception as exc:  # never block startup on housekeeping
         logger.warning("Could not reconcile interrupted jobs: %s", exc)
 

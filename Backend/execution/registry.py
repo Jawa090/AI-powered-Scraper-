@@ -156,6 +156,17 @@ def recommend_scraper(
         or cat == "all open opportunities"
         or any(c in cat for c in _BONFIRE_CATEGORIES)
     )
+    # State-level contract indicators → NYSCR (not DASNY which is construction-specific)
+    _state_contract_indicators = ("state contract", "state agency", "state procurement", "statewide")
+    is_state_level = (
+        any(ind in txt for ind in _state_contract_indicators)
+        or any(ind in cat for ind in _state_contract_indicators)
+        or "albany" in loc
+    )
     if is_procurement:
-        return "bonfire" if ("dallas" in loc or "texas" in loc) else "dasny"
+        if "dallas" in loc or "texas" in loc:
+            return "bonfire"
+        if is_state_level:
+            return "nyscr"
+        return "dasny"
     return "jwiz"

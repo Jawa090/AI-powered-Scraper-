@@ -2472,7 +2472,7 @@ def setup_logging():
 
     log_file = (
         LOG_DIR
-        / "jw​​iz_scraper.log"
+        / "jwiz_scraper.log"
     )
 
     logging.basicConfig(

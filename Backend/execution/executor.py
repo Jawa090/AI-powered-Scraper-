@@ -8,7 +8,9 @@ database persistence through JobService, ScrapeRunService, DatasetService, and L
 from __future__ import annotations
 
 import logging
+import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 import uuid
 from datetime import datetime, timezone
@@ -34,6 +36,9 @@ class JobExecutor:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._active_jobs: Dict[str, str] = {}  # job_id -> script_id
+        # Limit concurrent scraper workers to prevent Chrome/memory exhaustion
+        _max_workers = int(os.environ.get("MAX_SCRAPER_WORKERS", "2"))
+        self._thread_pool = ThreadPoolExecutor(max_workers=_max_workers, thread_name_prefix="Worker")
 
     def is_job_active(self, job_id: str) -> bool:
         """Check if a worker thread is currently actively executing for this job_id."""
@@ -115,15 +120,12 @@ class JobExecutor:
             commit=True,
         )
 
-        # 4. Dispatch worker
+        # 4. Dispatch worker (bounded by ThreadPoolExecutor)
         if background:
-            thread = threading.Thread(
-                target=self._worker,
-                args=(job_id, run_id, dataset_id, script_info, request),
-                daemon=True,
-                name=f"Worker-{job_id}",
+            self._thread_pool.submit(
+                self._worker,
+                job_id, run_id, dataset_id, script_info, request,
             )
-            thread.start()
         else:
             self._worker(job_id, run_id, dataset_id, script_info, request)
 
@@ -169,7 +171,7 @@ class JobExecutor:
             raw_records = dispatch_scraper(script_id, request.parameters, telemetry)
 
             elapsed = int(time.time() - start_time)
-            duration_str = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
+            duration_str = f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
 
             # 2. Standardize records into canonical lead structure
             standardized_leads = standardize_records(raw_records, script_id, dataset_id)
@@ -263,7 +265,7 @@ class JobExecutor:
         except Exception as e:
             # Failure handling: ensure Job and ScrapeRun are marked Failed with error details
             elapsed = int(time.time() - start_time)
-            duration_str = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
+            duration_str = f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
             error_msg = str(e)
 
             try:

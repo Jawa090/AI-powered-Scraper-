@@ -26,3 +26,8 @@ urllib3>=2.0.0
 
 # --- Utilities & Configuration ---
 python-dotenv>=1.0.0
+
+# --- LangGraph Agent Orchestration ---
+langgraph>=1.2.0
+langchain-core>=1.6.0
+langchain-google-genai>=4.4.0

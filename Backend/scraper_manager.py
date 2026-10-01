@@ -178,7 +178,7 @@ class ScraperManager:
                     else j.started_at.replace(tzinfo=timezone.utc)
                 )
                 secs = max(0, int((now - job_start).total_seconds()))
-                duration_val = f"{secs // 60:02d}:{secs % 60:02d}"
+                duration_val = f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
 
         return {
             "id": j.id,

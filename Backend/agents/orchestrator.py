@@ -117,26 +117,16 @@ class AgentOrchestrator:
         department_id: str = _DEFAULT_DEPARTMENT_ID,
     ) -> Dict[str, Any]:
         """
-        Process one user message turn.
+        Process one user message turn via LangGraph StateGraph pipeline.
 
-        Returns a dict matching the frontend BotChatResponse contract:
-          {
-            "reply": str,
-            "suggestions": [str, ...],
-            "updatedRequirement": { ... },
-            "recommendedScript": str | None,
-            # extended fields (non-breaking):
-            "sessionId": str,
-            "decision": str,
-            "query": { ... } | None,
-            "agentCode": str,
-            "handledBy": str,
-            "agentResult": { ... } | None,
-            "collaborationId": str | None,
-            "collaborationStatus": str | None,
-            "agentsInvolved": [str, ...],
-            "agentSteps": [ ... ],
-          }
+        Delegates to the compiled LangGraph agent graph which handles:
+          - Query normalization & intent classification (LLM-powered)
+          - DB-first data availability check
+          - Permission-gated scraper execution
+          - Job status & dataset queries
+          - Conversational cross-questioning
+
+        Returns a dict matching the frontend BotChatResponse contract.
         """
         # --- Guard: empty message ---
         text = (message or "").strip()
@@ -146,6 +136,17 @@ class AgentOrchestrator:
                 "Empty message received. Please describe what data you need.",
                 current_requirement,
             )
+
+        # ── Delegate to LangGraph pipeline ────────────────────────────────
+        from agents.graph.graph import run_agent_graph
+
+        return run_agent_graph(
+            session_id=session_id,
+            message=text,
+            current_requirement=current_requirement,
+            user_id=user_id,
+            department_id=department_id,
+        )
 
         try:
                 db = _db.session
@@ -2029,14 +2030,15 @@ class AgentOrchestrator:
         # 0. Detect if the user's message is a pure greeting / conversational opener
         #    with no actual requirement substance. If so, do NOT auto-fill from stale
         #    current_requirement context — force fresh requirement gathering instead.
-        _greeting_tokens = [
-            "lo", "hi", "hello", "salam", "assalam", "aoa", "bhai",
-            "kya haal", "sun", "help", "who are you", "what can you do",
-            "mujhe leads chahiye", "need leads", "leads chahiye",
-            "hey", "hola", "start", "hlo",
+        # Use word-boundary matching to avoid false positives (e.g., "lo" inside "location")
+        _greeting_patterns = [
+            r"\blo\b", r"\bhi\b", r"\bhello\b", r"\bsalam\b", r"\bassalam\b", r"\baoa\b", r"\bbhai\b",
+            r"\bkya haal\b", r"\bsun\b", r"\bhelp\b", r"\bwho are you\b", r"\bwhat can you do\b",
+            r"\bmujhe leads chahiye\b", r"\bneed leads\b", r"\bleads chahiye\b",
+            r"\bhey\b", r"\bhola\b", r"\bstart\b", r"\bhlo\b",
         ]
         _lower_msg = user_message.lower().strip()
-        _is_greeting = any(w in _lower_msg for w in _greeting_tokens)
+        _is_greeting = any(re.search(pat, _lower_msg) for pat in _greeting_patterns)
 
         # Check if the user's CURRENT message text itself carries any requirement
         # substance (industry, location, scraper keywords).  We check the raw text

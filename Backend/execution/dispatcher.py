@@ -244,23 +244,17 @@ def execute_nyscr(params: Dict[str, Any], telemetry: TelemetryCallback) -> List[
     nyscr_user = os.environ.get("NYSCR_USERNAME", "").strip()
     nyscr_pass = os.environ.get("NYSCR_PASSWORD", "").strip()
     if not nyscr_user or not nyscr_pass:
-        telemetry(25, "Bypassing Auth (Mock Mode)", "NYSCR credentials not found. Using simulated data for testing...", "warning")
-        import time
-        time.sleep(3)
-        mock_records = []
-        for i in range(limit):
-            mock_records.append({
-                "title": f"NYS Infrastructure Project 2026-{i+1}",
-                "issuing_organization": "New York State Department of Transportation",
-                "contact_name": f"Procurement Officer {i+1}",
-                "contact_email": f"bids{i+1}@dot.ny.gov",
-                "phone": f"518-555-01{i:02d}",
-                "location": "Albany, NY, USA",
-                "url": f"https://www.nyscr.ny.gov/Ads/Details/MOCK{i+1}",
-                "bid_deadline": "2026-12-31"
-            })
-        telemetry(80, f"Scraped {limit} NYSCR contracts (Mock)", f"Extracted {limit} simulated NY State contracts.", "info")
-        return mock_records
+        telemetry(
+            25,
+            "BLOCKED — Missing Credentials",
+            "NYSCR portal requires authentication. Set NYSCR_USERNAME and NYSCR_PASSWORD environment variables.",
+            "error",
+        )
+        raise RuntimeError(
+            "NYSCR credentials not configured. "
+            "Set NYSCR_USERNAME and NYSCR_PASSWORD environment variables to enable NYSCR scraping. "
+            "No synthetic/mock data will be generated — job marked FAILED."
+        )
 
     telemetry(15, "NYSCR credential check passed", "NYSCR credentials found in environment.", "info")
     telemetry(25, "Connecting to NYSCR Portal", "Querying New York State Contract Reporter for open contracts...", "info")

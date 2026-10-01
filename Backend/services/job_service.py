@@ -192,7 +192,7 @@ class JobService(BaseService):
         duration_str: Optional[str] = None
         if existing.started_at:
             secs = int((now - existing.started_at).total_seconds())
-            duration_str = f"{secs}s"
+            duration_str = f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
 
         data: Dict[str, Any] = {
             "status": "Completed",
