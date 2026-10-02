@@ -5,7 +5,7 @@ Seeds the reference rows the runtime depends on (departments, users, agents,
 sources). Without them, chat sessions and jobs fail with foreign-key errors
 on a fresh database.
 
-Idempotent: existing rows are left untouched.
+Idempotent: existing rows are left untouched (ON CONFLICT DO NOTHING).
 
 Usage (from project root, after `alembic upgrade head`):
     python -m Database.seed
@@ -24,6 +24,10 @@ sys.path.insert(0, PROJECT_ROOT)
 BACKEND_DIR = os.path.join(PROJECT_ROOT, "Backend")
 sys.path.insert(0, BACKEND_DIR)
 
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(BACKEND_DIR, ".env"))
+
+from sqlalchemy import text
 from Database.controller import db
 from execution.registry import SCRIPTS_REGISTRY
 
@@ -80,35 +84,51 @@ def _source_rows():
 
 
 def seed() -> None:
-    # Order matters: departments before users/agents (foreign keys).
-    
-    with db.transaction():
+    """Seed all reference data. Idempotent via ON CONFLICT DO NOTHING."""
+
+    with db.transaction() as session:
         # DEPARTMENTS
         added = 0
         for row in DEPARTMENTS:
-            res = db._fetch_one("SELECT id FROM departments WHERE id = %s", (row['id'],))
-            if not res:
-                db._execute("INSERT INTO departments (id, name, code, created_at, updated_at) VALUES (%s, %s, %s, NOW(), NOW())", (row['id'], row['name'], row['code']))
+            result = session.execute(
+                text(
+                    "INSERT INTO departments (id, name, code, created_at, updated_at) "
+                    "VALUES (:id, :name, :code, NOW(), NOW()) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                {"id": row["id"], "name": row["name"], "code": row["code"]},
+            )
+            if result.rowcount:
                 added += 1
         print(f"departments  +{added} (of {len(DEPARTMENTS)})")
-        
+
         # USERS
         added = 0
         for row in USERS:
-            res = db._fetch_one("SELECT id FROM users WHERE id = %s", (row['id'],))
-            if not res:
-                db._execute("INSERT INTO users (id, email, name, role, role_title, department_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())", 
-                            (row['id'], row['email'], row['name'], row['role'], row['role_title'], row['department_id']))
+            result = session.execute(
+                text(
+                    "INSERT INTO users (id, email, name, role, role_title, department_id, created_at, updated_at) "
+                    "VALUES (:id, :email, :name, :role, :role_title, :department_id, NOW(), NOW()) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                row,
+            )
+            if result.rowcount:
                 added += 1
         print(f"users        +{added} (of {len(USERS)})")
 
         # AGENTS
         added = 0
         for row in AGENTS:
-            res = db._fetch_one("SELECT id FROM agents WHERE id = %s", (row['id'],))
-            if not res:
-                db._execute("INSERT INTO agents (id, department_id, name, code, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW())",
-                            (row['id'], row['department_id'], row['name'], row['code']))
+            result = session.execute(
+                text(
+                    "INSERT INTO agents (id, department_id, name, code, created_at, updated_at) "
+                    "VALUES (:id, :department_id, :name, :code, NOW(), NOW()) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                row,
+            )
+            if result.rowcount:
                 added += 1
         print(f"agents       +{added} (of {len(AGENTS)})")
 
@@ -116,10 +136,19 @@ def seed() -> None:
         sources = list(_source_rows())
         added = 0
         for row in sources:
-            res = db._fetch_one("SELECT id FROM sources WHERE id = %s", (row['id'],))
-            if not res:
-                db._execute("INSERT INTO sources (id, name, code, version, category, script_file, status, description, capabilities, default_limit, success_rate, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())",
-                            (row['id'], row['name'], row['code'], row['version'], row['category'], row['script_file'], row['status'], row['description'], row['capabilities'], row['default_limit'], row['success_rate']))
+            result = session.execute(
+                text(
+                    "INSERT INTO sources (id, name, code, version, category, script_file, "
+                    "status, description, capabilities, default_limit, success_rate, "
+                    "created_at, updated_at) "
+                    "VALUES (:id, :name, :code, :version, :category, :script_file, "
+                    ":status, :description, :capabilities, :default_limit, :success_rate, "
+                    "NOW(), NOW()) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                row,
+            )
+            if result.rowcount:
                 added += 1
         print(f"sources      +{added} (of {len(sources)})")
 

@@ -13,31 +13,14 @@ import re
 import json
 import time
 
-# Ensure Python311 site-packages is in sys.path even if running from a venv
-_PYTHON311_PKG = r"C:\Users\lenovo\AppData\Local\Programs\Python\Python311\Lib\site-packages"
-if os.path.exists(_PYTHON311_PKG) and _PYTHON311_PKG not in sys.path:
-    sys.path.insert(0, _PYTHON311_PKG)
-
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime
 
-try:
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
-except ImportError:
-    import subprocess
-    py_exe = sys.executable
-    if not os.path.exists(os.path.join(os.path.dirname(py_exe), "pip.exe")):
-        py_exe = r"C:\Users\lenovo\AppData\Local\Programs\Python\Python311\python.exe"
-    subprocess.check_call([py_exe, "-m", "pip", "install", "selenium"])
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
 
 BASE_URL = "https://dallascityhall.bonfirehub.com/portal/?tab=openOpportunities"
 OUTPUT_FILE = "dallas_bonfire_data.json"

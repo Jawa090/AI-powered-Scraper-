@@ -26,30 +26,12 @@ if sys.platform.startswith('win'):
     except AttributeError:
         pass
 
-# Ensure Python311 site-packages is in sys.path
-_PYTHON311_PKG = r"C:\Users\lenovo\AppData\Local\Programs\Python\Python311\Lib\site-packages"
-if os.path.exists(_PYTHON311_PKG) and _PYTHON311_PKG not in sys.path:
-    sys.path.insert(0, _PYTHON311_PKG)
-
-try:
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-except ImportError:
-    import subprocess
-    py_exe = sys.executable
-    if not os.path.exists(os.path.join(os.path.dirname(py_exe), "pip.exe")):
-        py_exe = r"C:\Users\lenovo\AppData\Local\Programs\Python\Python311\python.exe"
-    subprocess.check_call([py_exe, '-m', 'pip', 'install', 'selenium'])
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 # ---------------------------------------------------------------------------
 # Module-level helpers
@@ -158,9 +140,14 @@ class NYSCRScraper:
     def __init__(self):
         self.driver = None
         self.wait = None
-        # Use environment variables for credentials, with fallback to legacy hardcoded values
-        self.username = os.environ.get("NYSCR_USERNAME", "").strip() or "kody2143"
-        self.password = os.environ.get("NYSCR_PASSWORD", "").strip() or "TTHg6n*C7KuMES*"
+        # Credentials MUST come from environment variables — never hard-code.
+        self.username = os.environ.get("NYSCR_USERNAME", "").strip()
+        self.password = os.environ.get("NYSCR_PASSWORD", "").strip()
+        if not self.username or not self.password:
+            raise EnvironmentError(
+                "NYSCR_USERNAME and NYSCR_PASSWORD must be set in environment variables. "
+                "See .env.example for details."
+            )
         # Job ID is set by the dispatcher so captcha_manager can track this job
         self.job_id = None
         # Telemetry callback is set by the dispatcher for status updates
@@ -315,13 +302,41 @@ class NYSCRScraper:
                     print("[NYSCR] reCAPTCHA not solved — login aborted")
                     return False
 
-            # Click submit
+            # Click submit — try multiple selectors since the site may use
+            # <button>, <input type="submit">, or other variations
             print("Clicking submit button...")
-            try:
-                submit_btn = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[type="submit"]')))
-                submit_btn.click()
-            except Exception as click_err:
-                print(f"Could not click submit button: {click_err}")
+            submit_btn = None
+            _submit_selectors = [
+                (By.CSS_SELECTOR, 'button[type="submit"]'),
+                (By.CSS_SELECTOR, 'input[type="submit"]'),
+                (By.XPATH, '//button[contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"sign in")]'),
+                (By.XPATH, '//input[@value="Sign In" or @value="sign in" or @value="Login" or @value="Log In"]'),
+                (By.XPATH, '//button[contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"log in")]'),
+                (By.CSS_SELECTOR, 'form button'),
+                (By.CSS_SELECTOR, 'form input[type="submit"]'),
+            ]
+            for by, selector in _submit_selectors:
+                try:
+                    btn = self.driver.find_element(by, selector)
+                    if btn.is_displayed() and btn.is_enabled():
+                        submit_btn = btn
+                        print(f"  Found submit button via {by}='{selector}' → text='{btn.text}'")
+                        break
+                except Exception:
+                    continue
+
+            if submit_btn:
+                try:
+                    submit_btn.click()
+                except Exception:
+                    self.driver.execute_script("arguments[0].click();", submit_btn)
+            else:
+                print("  WARNING: Could not find submit button, trying form.submit()...")
+                try:
+                    form = self.driver.find_element(By.TAG_NAME, "form")
+                    self.driver.execute_script("arguments[0].submit();", form)
+                except Exception as form_err:
+                    print(f"  Form submit also failed: {form_err}")
 
             # Wait for page redirect (up to 30 seconds)
             max_wait = 30
@@ -342,8 +357,14 @@ class NYSCRScraper:
                     if captcha_ok:
                         # Re-click submit after captcha resolution
                         try:
-                            submit_btn = self.driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
-                            submit_btn.click()
+                            for by, sel in _submit_selectors:
+                                try:
+                                    btn = self.driver.find_element(by, sel)
+                                    if btn.is_displayed():
+                                        self.driver.execute_script("arguments[0].click();", btn)
+                                        break
+                                except Exception:
+                                    continue
                             time.sleep(3)
                         except Exception:
                             pass

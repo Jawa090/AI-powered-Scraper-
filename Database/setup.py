@@ -74,7 +74,7 @@ except Exception as e:
 # Step 2: Run Alembic migrations
 print("\n[Step 2/3] Running database migrations (alembic upgrade head)...")
 try:
-    alembic_cfg = Config(str(DATABASE_DIR / "alembic.ini"))
+    alembic_cfg = Config(str(PROJECT_ROOT / "Backend" / "alembic.ini"))
     command.upgrade(alembic_cfg, "head")
     print("  [OK] Database schema migrations applied successfully.")
 except Exception as e:
