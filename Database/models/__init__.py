@@ -21,6 +21,8 @@ from Database.models.phone import Phone
 from Database.models.location import Location
 from Database.models.lead import Lead
 from Database.models.action import AgentAction
+from Database.models.query_result import QueryResult
+from Database.models.lead_source import LeadSource
 
 __all__ = [
     "Department",
@@ -42,4 +44,6 @@ __all__ = [
     "Location",
     "Lead",
     "AgentAction",
+    "QueryResult",
+    "LeadSource",
 ]

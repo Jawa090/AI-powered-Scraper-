@@ -26,6 +26,11 @@ class AgentMessage(Base):
     message_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
     )
+    # Phase 2 — LLM tool call trace (JSONB)
+    role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # user, agent, system, system_event
+    tool_trace: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True, nullable=False)
 

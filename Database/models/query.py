@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -35,6 +35,16 @@ class Query(Base):
     status: Mapped[str] = mapped_column(
         String(50), default="pending", index=True
     )  # pending, running, completed, failed
+
+    # Phase 2 — agent decision tracking
+    decision: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    job_id: Mapped[Optional[str]] = mapped_column(
+        String(100), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    records_returned: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    records_new: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    records_updated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    served_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True, nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(
