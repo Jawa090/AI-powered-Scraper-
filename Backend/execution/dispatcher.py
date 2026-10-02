@@ -257,11 +257,17 @@ def execute_nyscr(params: Dict[str, Any], telemetry: TelemetryCallback) -> List[
         )
 
     telemetry(15, "NYSCR credential check passed", "NYSCR credentials found in environment.", "info")
-    telemetry(25, "Connecting to NYSCR Portal", "Querying New York State Contract Reporter for open contracts...", "info")
+    telemetry(25, "Connecting to NYSCR Portal", "Initializing browser and authenticating with NYSCR...", "info")
 
     # Import canonical class name: NYSCRScraper
     from scrappers.nyscr import NYSCRScraper
     scraper = NYSCRScraper()
+
+    # Inject job_id and telemetry so the scraper can use CaptchaWaitManager
+    # for reCAPTCHA pause/resume through the chat UI
+    scraper.job_id = params.get("_job_id")
+    scraper._telemetry = telemetry
+
     if not scraper.setup_chrome():
         raise RuntimeError(
             "NYSCR — Could not initialize Chrome/ChromeDriver. "
@@ -269,7 +275,19 @@ def execute_nyscr(params: Dict[str, Any], telemetry: TelemetryCallback) -> List[
         )
 
     try:
-        telemetry(35, "Harvesting NYSCR open bid IDs", "Collecting open NY State Contract opportunity IDs...", "info")
+        # Authenticate with NYSCR portal (required before any scraping)
+        telemetry(30, "Logging into NYSCR Portal", "Authenticating with NYSCR credentials...", "info")
+        if not scraper.login():
+            raise RuntimeError(
+                "NYSCR login failed. Possible causes:\n"
+                "- Invalid credentials (check NYSCR_USERNAME / NYSCR_PASSWORD)\n"
+                "- reCAPTCHA challenge blocked automated login\n"
+                "- Portal is down or IP is blocked\n"
+                "No fabricated records will be substituted. Job marked FAILED."
+            )
+        telemetry(35, "NYSCR Login Successful", "Authenticated with NYSCR portal. Starting data collection...", "info")
+
+        telemetry(40, "Harvesting NYSCR open bid IDs", "Collecting open NY State Contract opportunity IDs...", "info")
         raw_records = scraper.scrape(max_opportunities=limit)
 
         if not raw_records:

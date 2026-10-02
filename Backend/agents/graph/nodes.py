@@ -229,22 +229,51 @@ def classify_intent(state: AgentState) -> Dict[str, Any]:
         any(k in lower for k in ["status", "latest", "recent", "list", "show", "history", "progress"])
     ))
 
+    # Distinguish between EXPLICIT scraper commands ("run nyscr", "scrape bonfire")
+    # vs DATA REQUESTS that mention a scraper as a source ("give me 3 contractors from NYSCR").
+    # Only explicit commands bypass the confirmation flow.
+    _explicit_scraper_verbs = ["run", "scrape", "execute", "trigger", "launch"]
+    # "confirm" actions also count as explicit confirmation
+    _confirm_phrases = ["confirm & generate", "confirm", "start scraping", "run scraper", "start extraction"]
+    is_explicit_scraper_cmd = (
+        has_explicit_scraper and any(v in lower for v in _explicit_scraper_verbs)
+    ) or lower.strip() in _confirm_phrases
+
+    # Data request verbs — these indicate the user wants data, not necessarily
+    # an immediate scraper launch. Route through check_database → ask_permission.
+    _data_request_verbs = ["get", "give", "find", "fetch", "show", "extract", "need", "want"]
+    is_data_request_with_scraper = (
+        has_explicit_scraper
+        and any(v in lower for v in _data_request_verbs)
+        and not is_explicit_scraper_cmd
+    )
+
+    # Check for captcha continue / done intent
+    from execution.captcha_manager import captcha_manager
+    is_captcha_waiting = captcha_manager.is_any_waiting()
+    _captcha_phrases = ["done", "continue", "solved", "resolved", "captcha", "ready", "resume"]
+    is_captcha_continue = is_captcha_waiting and any(w in lower for w in _captcha_phrases)
+
     # Determine route
-    if is_job_query or intent_type == IntentType.JOB_STATUS:
+    if is_captcha_continue:
+        route = "captcha_continue"
+    elif is_job_query or intent_type == IntentType.JOB_STATUS:
         route = "job_status"
     elif intent_type == IntentType.DATASET_QUERY or "dataset" in lower:
         route = "dataset_query"
-    elif has_explicit_scraper and any(k in lower for k in [
-        "run", "scrape", "execute", "trigger", "launch", "start",
-        "get", "give", "find", "fetch", "extract",
-    ]):
+    elif is_explicit_scraper_cmd:
+        # User explicitly said "run nyscr", "scrape bonfire", etc.
         route = "scraper_request"
+    elif is_data_request_with_scraper:
+        # User said "give me 3 contractors from NYSCR" — check DB first,
+        # then ask permission before launching the scraper.
+        route = "check_database"
     elif is_greeting and not has_category and not has_location and not has_explicit_scraper:
         route = "greeting"
     elif has_category or has_location:
         route = "check_database"
     elif intent_type == IntentType.SCRAPER_REQUEST:
-        route = "scraper_request"
+        route = "check_database"  # Still go through DB check before scraping
     elif intent_type == IntentType.DATABASE_SEARCH:
         route = "check_database"
     elif intent_type == IntentType.LEAD_DISCOVERY:
@@ -932,6 +961,47 @@ def respond(state: AgentState) -> Dict[str, Any]:
 
     return {}
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NODE 10: handle_captcha_continue
+# ═══════════════════════════════════════════════════════════════════════════
+
+def handle_captcha_continue(state: AgentState) -> Dict[str, Any]:
+    """
+    Handle user prompts like 'done' or 'continue' when a scraper is paused waiting for reCAPTCHA.
+    """
+    from execution.captcha_manager import captcha_manager
+    from agents.decisions.data_availability import DecisionType
+
+    # Signal the first waiting job
+    job_id = captcha_manager.signal_any()
+
+    if job_id:
+        reply_text = f"Resuming extraction job **{job_id}**. The scraper will now verify the reCAPTCHA and continue data collection."
+        decision = DecisionType.NEED_FETCH.value
+        status = "success"
+    else:
+        reply_text = "There are no scraping jobs currently waiting for reCAPTCHA resolution."
+        decision = DecisionType.NEED_CLARIFICATION.value
+        status = "failed"
+
+    return {
+        "reply_text": reply_text,
+        "suggestions": ["Show recent extraction jobs", "View harvested leads"],
+        "decision": decision,
+        "proposed_actions": [],
+        "agent_code": "data",
+        "handled_by": "LangGraphCaptchaNode",
+        "job_id": job_id,
+        "dataset_id": None,
+        "workflow_status": "IN_PROGRESS" if job_id else "FAILED",
+        "agent_result": {
+            "status": status,
+            "agentCode": "data",
+            "message": reply_text,
+            "data": {"jobId": job_id},
+        },
+    }
 
 # ---------------------------------------------------------------------------
 # Helpers

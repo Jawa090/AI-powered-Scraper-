@@ -168,7 +168,10 @@ class JobExecutor:
 
         try:
             # 1. Execute scraper via dispatcher
-            raw_records = dispatch_scraper(script_id, request.parameters, telemetry)
+            # Inject job_id so scrapers can use CaptchaWaitManager for reCAPTCHA pause/resume
+            dispatch_params = dict(request.parameters)
+            dispatch_params["_job_id"] = job_id
+            raw_records = dispatch_scraper(script_id, dispatch_params, telemetry)
 
             elapsed = int(time.time() - start_time)
             duration_str = f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
@@ -214,6 +217,10 @@ class JobExecutor:
                         email=lead_item.get("email"),
                         phone=lead_item.get("phone"),
                         title=lead_item.get("title"),
+                        location=lead_item.get("location"),
+                        website=lead_item.get("website"),
+                        industry=lead_item.get("industry"),
+                        notes=lead_item.get("notes"),
                         dataset_id=dataset_id,
                         source_id=script_id,
                         scrape_run_id=run_id,

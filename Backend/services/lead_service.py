@@ -31,6 +31,7 @@ class LeadService(BaseService):
         self.email_repo = db.emails
         self.phone_repo = db.phones
         self.dataset_record_repo = db.dataset_records
+        self.location_repo = db.locations
 
     # ------------------------------------------------------------------
     # Lookups & Queries
@@ -148,6 +149,10 @@ class LeadService(BaseService):
         email: Optional[str] = None,
         phone: Optional[str] = None,
         title: Optional[str] = None,
+        location: Optional[str] = None,
+        website: Optional[str] = None,
+        industry: Optional[str] = None,
+        notes: Optional[str] = None,
         dataset_id: Optional[str] = None,
         source_id: Optional[str] = None,
         scrape_run_id: Optional[str] = None,
@@ -176,8 +181,24 @@ class LeadService(BaseService):
                         "normalized_name": clean_org_name.lower(),
                         "primary_source_id": source_id,
                         "source_scrape_run_id": scrape_run_id,
+                        "website": website,
+                        "industry": industry,
                     })
                     org_id = new_org.id
+            
+            # Attach location to organization if provided
+            if org_id and location and location.strip():
+                clean_loc = location.strip()
+                # Simplified check to see if org already has this location (using raw string for now)
+                # In a robust system, we would normalize city/state
+                existing_locs = self.location_repo.list(filters={"organization_id": org_id, "raw_location": clean_loc})
+                if not existing_locs:
+                    self.location_repo.create({
+                        "organization_id": org_id,
+                        "raw_location": clean_loc,
+                        "normalized_location": clean_loc.lower(),
+                        "source_id": source_id,
+                    })
 
             contact_id: Optional[str] = None
             if contact_name and contact_name.strip():
@@ -233,6 +254,12 @@ class LeadService(BaseService):
                 lead = self.lead_repo.get_by_organization_and_contact(org_id, contact_id)
 
             if not lead:
+                # Append location to notes so that database_agent's _build_lead_filter_clauses
+                # can find it (which currently searches Lead.notes for location strings).
+                final_notes = notes or ""
+                if location:
+                    final_notes += f" | Location: {location}" if final_notes else location
+
                 lead = self.lead_repo.create({
                     "organization_id": org_id,
                     "contact_id": contact_id,
@@ -241,6 +268,7 @@ class LeadService(BaseService):
                     "scrape_run_id": scrape_run_id,
                     "status": status,
                     "title": title,
+                    "notes": final_notes.strip() or None,
                     "lead_metadata": lead_metadata or {},
                 })
                 created = True

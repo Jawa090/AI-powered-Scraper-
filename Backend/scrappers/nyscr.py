@@ -158,8 +158,13 @@ class NYSCRScraper:
     def __init__(self):
         self.driver = None
         self.wait = None
-        self.username = "kody2143"
-        self.password = "TTHg6n*C7KuMES*"
+        # Use environment variables for credentials, with fallback to legacy hardcoded values
+        self.username = os.environ.get("NYSCR_USERNAME", "").strip() or "kody2143"
+        self.password = os.environ.get("NYSCR_PASSWORD", "").strip() or "TTHg6n*C7KuMES*"
+        # Job ID is set by the dispatcher so captcha_manager can track this job
+        self.job_id = None
+        # Telemetry callback is set by the dispatcher for status updates
+        self._telemetry = None
 
     # ------------------------------------------------------------------ setup
     def setup_chrome(self):
@@ -184,6 +189,115 @@ class NYSCRScraper:
             print(f"Chrome setup failed: {e}")
             return False
 
+    # -------------------------------------------------------- reCAPTCHA detection
+    def _detect_recaptcha(self):
+        """Check if a reCAPTCHA challenge is present on the current page."""
+        try:
+            # Google reCAPTCHA v2 iframe
+            recaptcha_iframes = self.driver.find_elements(
+                By.CSS_SELECTOR, 'iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"]'
+            )
+            if recaptcha_iframes:
+                return True
+            # reCAPTCHA div containers
+            recaptcha_divs = self.driver.find_elements(
+                By.CSS_SELECTOR, '.g-recaptcha, .recaptcha-checkbox, #recaptcha'
+            )
+            if recaptcha_divs:
+                return True
+            # Check page source for reCAPTCHA markers
+            page_src = self.driver.page_source.lower()
+            if 'recaptcha' in page_src or 'g-recaptcha' in page_src:
+                return True
+            return False
+        except Exception:
+            return False
+
+    def _wait_for_captcha_resolution(self, context="login"):
+        """
+        If reCAPTCHA is detected, pause and notify the user through the chat
+        to solve it manually, then wait for their 'done' signal.
+        
+        Returns True if captcha was resolved (or wasn't present), False on timeout.
+        """
+        if not self._detect_recaptcha():
+            return True  # No captcha, continue normally
+
+        print(f"[NYSCR] reCAPTCHA detected during {context}!")
+
+        # Notify via telemetry (updates the job status in the DB)
+        if self._telemetry:
+            self._telemetry(
+                25,
+                "WAITING — reCAPTCHA Challenge",
+                f"reCAPTCHA detected during {context}. Please solve it in the browser window and type 'done' in the chat.",
+                "warning",
+            )
+
+        # If we have a job_id, use CaptchaWaitManager to pause this thread
+        if self.job_id:
+            try:
+                from execution.captcha_manager import captcha_manager
+                from services.job_service import JobService
+
+                # Update job status to WAITING_FOR_USER
+                try:
+                    js = JobService()
+                    js.update_progress(
+                        self.job_id,
+                        progress=25,
+                        current_step="WAITING_FOR_USER",
+                        commit=True,
+                    )
+                    js.append_log(
+                        self.job_id,
+                        f"reCAPTCHA challenge detected during {context}. "
+                        "Waiting for user to solve it in the browser window. "
+                        "Type 'done' or 'continue' in the chat after solving.",
+                        level="WARNING",
+                        commit=True,
+                    )
+                except Exception as e:
+                    print(f"[NYSCR] Could not update job status: {e}")
+
+                # Register this job as waiting and block the thread
+                captcha_manager.register_wait(
+                    self.job_id,
+                    "nyscr",
+                    f"reCAPTCHA detected during {context}. "
+                    "Please solve it in the browser window and type 'done' in the chat.",
+                )
+
+                print(f"[NYSCR] Thread paused — waiting for user to solve reCAPTCHA (job={self.job_id})...")
+                # Wait up to 5 minutes for the user to solve it
+                user_signaled = captcha_manager.wait_for_user(self.job_id, timeout=300.0)
+
+                if user_signaled:
+                    print(f"[NYSCR] User signaled 'done' — resuming {context}...")
+                    # Give a few seconds for the page to process after captcha solve
+                    time.sleep(3)
+                    return True
+                else:
+                    print(f"[NYSCR] Timed out waiting for user to solve reCAPTCHA (5 min)")
+                    return False
+
+            except ImportError:
+                print("[NYSCR] CaptchaWaitManager not available, falling back to polling")
+
+        # Fallback: poll for up to 120 seconds hoping user solves it
+        print("[NYSCR] Polling for reCAPTCHA resolution (fallback mode, 120s)...")
+        for i in range(40):
+            time.sleep(3)
+            if not self._detect_recaptcha():
+                print(f"[NYSCR] reCAPTCHA resolved after ~{(i+1)*3}s")
+                return True
+            current_url = self.driver.current_url.lower()
+            if "login" not in current_url and "account" not in current_url:
+                print(f"[NYSCR] Page redirected (reCAPTCHA likely solved)")
+                return True
+        print("[NYSCR] reCAPTCHA was not resolved within 120 seconds")
+        return False
+
     # ------------------------------------------------------------------ login
     def login(self):
         try:
@@ -192,16 +306,57 @@ class NYSCRScraper:
             time.sleep(2)
             self.wait.until(EC.presence_of_element_located((By.ID, "Username"))).send_keys(self.username)
             self.wait.until(EC.presence_of_element_located((By.ID, "Password"))).send_keys(self.password)
-            print("\n" + "=" * 60)
-            print("SOLVE THE reCAPTCHA in the browser window, then press ENTER.")
-            print("=" * 60)
-            input("\nPress ENTER after solving reCAPTCHA...")
-            self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[type="submit"]'))).click()
-            time.sleep(5)
+
+            # Check for reCAPTCHA BEFORE clicking submit
+            if self._detect_recaptcha():
+                print("[NYSCR] reCAPTCHA present on login page — requesting user intervention...")
+                captcha_ok = self._wait_for_captcha_resolution("login")
+                if not captcha_ok:
+                    print("[NYSCR] reCAPTCHA not solved — login aborted")
+                    return False
+
+            # Click submit
+            print("Clicking submit button...")
+            try:
+                submit_btn = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[type="submit"]')))
+                submit_btn.click()
+            except Exception as click_err:
+                print(f"Could not click submit button: {click_err}")
+
+            # Wait for page redirect (up to 30 seconds)
+            max_wait = 30
+            poll_interval = 2
+            elapsed = 0
+            while elapsed < max_wait:
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+                current_url = self.driver.current_url.lower()
+                if "login" not in current_url and "account" not in current_url:
+                    print(f"Login successful! (redirected after {elapsed}s)")
+                    return True
+
+                # Check if a NEW reCAPTCHA appeared after submit
+                if self._detect_recaptcha():
+                    print("[NYSCR] reCAPTCHA appeared after submit — requesting user intervention...")
+                    captcha_ok = self._wait_for_captcha_resolution("post-submit login")
+                    if captcha_ok:
+                        # Re-click submit after captcha resolution
+                        try:
+                            submit_btn = self.driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
+                            submit_btn.click()
+                            time.sleep(3)
+                        except Exception:
+                            pass
+                    else:
+                        return False
+
+                print(f"  Still on login page... ({elapsed}s / {max_wait}s)")
+
+            # Final check
             if "login" not in self.driver.current_url.lower():
                 print("Login successful!")
                 return True
-            print(f"Login failed. URL: {self.driver.current_url}")
+            print(f"Login timed out after {max_wait}s. URL: {self.driver.current_url}")
             return False
         except Exception as e:
             print(f"Login error: {e}")

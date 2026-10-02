@@ -51,26 +51,20 @@ def route_after_db_check(state: AgentState) -> str:
 # Graph Builder
 # ---------------------------------------------------------------------------
 
-def build_agent_graph() -> StateGraph:
-    """
-    Build and compile the LangGraph StateGraph for the agent orchestrator.
+def build_agent_graph():
+    from agents.graph.nodes import (
+        parse_input,
+        classify_intent,
+        handle_greeting,
+        check_database,
+        ask_scraper_permission,
+        handle_scraper_request,
+        handle_job_status,
+        handle_dataset_query,
+        handle_captcha_continue,
+        respond,
+    )
 
-    Graph topology:
-        parse_input
-            ↓
-        classify_intent
-            ↓ (conditional)
-        ┌──────────────────────────────────────────┐
-        │ greeting         → respond               │
-        │ check_database   → [sufficient?]          │
-        │                    yes → respond          │
-        │                    no  → ask_permission   │
-        │                         → respond         │
-        │ scraper_request  → respond               │
-        │ job_status       → respond               │
-        │ dataset_query    → respond               │
-        └──────────────────────────────────────────┘
-    """
     graph = StateGraph(AgentState)
 
     # ── Add nodes ─────────────────────────────────────────────────────────
@@ -82,6 +76,7 @@ def build_agent_graph() -> StateGraph:
     graph.add_node("handle_scraper_request", handle_scraper_request)
     graph.add_node("handle_job_status", handle_job_status)
     graph.add_node("handle_dataset_query", handle_dataset_query)
+    graph.add_node("handle_captcha_continue", handle_captcha_continue)
     graph.add_node("respond", respond)
 
     # ── Set entry point ───────────────────────────────────────────────────
@@ -100,6 +95,7 @@ def build_agent_graph() -> StateGraph:
             "scraper_request": "handle_scraper_request",
             "job_status": "handle_job_status",
             "dataset_query": "handle_dataset_query",
+            "captcha_continue": "handle_captcha_continue",
         },
     )
 
@@ -119,6 +115,7 @@ def build_agent_graph() -> StateGraph:
     graph.add_edge("handle_scraper_request", "respond")
     graph.add_edge("handle_job_status", "respond")
     graph.add_edge("handle_dataset_query", "respond")
+    graph.add_edge("handle_captcha_continue", "respond")
     graph.add_edge("respond", END)
 
     return graph.compile()
