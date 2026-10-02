@@ -1,4 +1,4 @@
-﻿"""
+"""
 repositories/base.py
 ────────────────────
 Generic CRUD BaseRepository using SQLAlchemy 2.x Session.
@@ -76,12 +76,10 @@ class BaseRepository(Generic[ModelT]):
             for column_name, value in filters.items():
                 col = getattr(self.model, column_name, None)
                 if col is None:
-                    logger.warning(
-                        "Filter column '%s' does not exist on %s — skipping.",
-                        column_name,
-                        self.model.__name__,
+                    raise ValueError(
+                        f"Unknown filter '{column_name}' for {self.model.__name__}. "
+                        f"Valid columns: {[c.key for c in inspect(self.model).column_attrs]}"
                     )
-                    continue
                 if value is None:
                     stmt = stmt.where(col.is_(None))
                 else:

@@ -205,9 +205,15 @@ def run_agent_graph(
         }
 
     except Exception as exc:
+        # Roll back any uncommitted DB work to prevent session poisoning
+        try:
+            from Database.controller import db as _db
+            if _db.SessionFactory is not None:
+                _db.SessionFactory().rollback()
+        except Exception:
+            pass
         tb = traceback.format_exc()
-        logger.error(f"LangGraph execution error: {exc}\n{tb}")
-        print(f"[LangGraph] Error: {exc}\n{tb}")
+        logger.error("LangGraph execution error: %s\n%s", exc, tb, exc_info=True)
         return _error_response(session_id, "An internal error occurred. Please try again.", current_requirement)
 
 

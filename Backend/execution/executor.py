@@ -286,6 +286,14 @@ class JobExecutor:
             except Exception as fe:
                 logger.error(f"Failed to record execution failure to database: {fe}")
         finally:
+            # Clean up the thread-local DB session so it doesn't leak
+            # across reused ThreadPoolExecutor threads.
+            try:
+                from Database.controller import db as _db
+                if _db.SessionFactory is not None:
+                    _db.SessionFactory.remove()
+            except Exception:
+                pass
             with self._lock:
                 self._active_jobs.pop(job_id, None)
 

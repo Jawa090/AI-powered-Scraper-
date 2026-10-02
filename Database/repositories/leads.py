@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from sqlalchemy import and_, exists, func as sa_func, or_, select
+from sqlalchemy.orm import selectinload
 
 from Database.models.contact import Contact
 from Database.models.email import Email
@@ -22,6 +23,50 @@ from Database.repositories.base import BaseRepository
 
 class LeadRepository(BaseRepository[Lead]):
     model = Lead
+
+    # ------------------------------------------------------------------
+    # Eager loading options — prevents N+1 queries when serializing leads
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _eager_options():
+        """Return SQLAlchemy loader options for Lead serialization."""
+        return [
+            selectinload(Lead.organization).selectinload(Organization.emails),
+            selectinload(Lead.organization).selectinload(Organization.phones),
+            selectinload(Lead.contact).selectinload(Contact.emails),
+            selectinload(Lead.contact).selectinload(Contact.phones),
+        ]
+
+    def list(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        filters=None,
+        order_by=None,
+        descending: bool = False,
+    ) -> List[Lead]:
+        """Override base list() to include eager loading for related entities."""
+        limit = min(limit, 1000)
+        stmt = select(self.model).options(*self._eager_options())
+
+        if filters:
+            for column_name, value in filters.items():
+                col = getattr(self.model, column_name, None)
+                if col is None:
+                    continue
+                if value is None:
+                    stmt = stmt.where(col.is_(None))
+                else:
+                    stmt = stmt.where(col == value)
+
+        if order_by:
+            col = getattr(self.model, order_by, None)
+            if col is not None:
+                stmt = stmt.order_by(col.desc() if descending else col.asc())
+
+        stmt = stmt.offset(offset).limit(limit)
+        return list(self.session.scalars(stmt).all())
 
     # ------------------------------------------------------------------
     # Domain-specific lookups

@@ -67,6 +67,20 @@ app.add_middleware(
 )
 
 
+# Session cleanup middleware — ensures the scoped_session is removed after
+# every request so stale sessions never leak across requests on the same thread.
+@app.middleware("http")
+async def db_session_cleanup(request: Request, call_next):
+    response = await call_next(request)
+    try:
+        from Database.controller import db as _db
+        if _db.SessionFactory is not None:
+            _db.SessionFactory.remove()
+    except Exception:
+        pass  # Don't let cleanup failure break the response
+    return response
+
+
 @app.on_event("startup")
 def fail_interrupted_jobs() -> None:
     """

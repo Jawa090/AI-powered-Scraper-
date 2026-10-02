@@ -146,8 +146,12 @@ class DBController:
         except Exception:
             session.rollback()
             raise
+        finally:
+            session.close()
+            self.SessionFactory.remove()
 
 db = DBController()
 
 import atexit
 atexit.register(db.close)
+
