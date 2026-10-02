@@ -323,8 +323,8 @@ def standardize_records(
         lead_id = f"lead-{clean_id}-{int(time.time())}-{i+1}"
 
         if clean_id == "bonfire":
-            title = item.get("title", "City Procurement Project")
-            ref = item.get("ref_number", f"DAL-{i+1:03d}")
+            title = item.get("title") or None
+            ref = item.get("ref_number") or None
             company = item.get("issuing_organization") or "City of Dallas"
             contact_person = item.get("contact_person") or None
             email = item.get("contact_email") or None
@@ -336,19 +336,19 @@ def standardize_records(
                 "dataset_id": dataset_id,
                 "organization_name": company,
                 "contact_name": contact_person,
-                "title": f"Procurement: {title[:60]}",
+                "title": f"Procurement: {title[:60]}" if title else None,
                 "email": email,
                 "phone": phone,
-                "location": item.get("location") or "Dallas, TX, USA",
-                "website": item.get("url") or "https://dallascityhall.bonfirehub.com",
-                "industry": "Municipal Procurement / Construction",
+                "location": item.get("location") or None,
+                "website": item.get("url") or None,
+                "industry": item.get("industry") or "Municipal Procurement",
                 "status": "New",
-                "notes": f"Ref #: {ref}. Close Date: {item.get('close_date')}. Days left: {item.get('days_left')}",
+                "notes": f"Ref #: {ref}. Close Date: {item.get('close_date')}." if ref else None,
                 "lead_metadata": item,
             })
 
         elif clean_id == "jwiz":
-            company = item.get("company_name", f"Commercial Contractor #{i+1}")
+            company = item.get("company_name") or None
             # JWiz cards carry no named contact; don't invent one
             contact_person = None
             email = item.get("email")
@@ -364,15 +364,15 @@ def standardize_records(
                 "email": email,
                 "phone": phone,
                 "location": ", ".join(location_parts + ["USA"]) if location_parts else None,
-                "website": item.get("profile_url") or "https://jwiz.com",
+                "website": item.get("profile_url") or None,
                 "industry": f"Commercial Services ({item.get('category', 'General')})",
                 "status": "New",
-                "notes": "Verified directory listing on JWiz.",
+                "notes": None,
                 "lead_metadata": item,
             })
 
         elif clean_id == "dasny":
-            title = item.get("title", f"DASNY Opportunity #{i+1}")
+            title = item.get("title") or None
             company = "Dormitory Authority of the State of New York (DASNY)"
             contact_person = item.get("contact_name") or None
             # Real contact only — no hardcoded fallback email/phone
@@ -384,20 +384,20 @@ def standardize_records(
                 "dataset_id": dataset_id,
                 "organization_name": company,
                 "contact_name": contact_person,
-                "title": f"RFP: {title[:60]}",
+                "title": f"RFP: {title[:60]}" if title else None,
                 "email": email,
                 "phone": phone,
-                "location": "Albany, NY, USA",
-                "website": item.get("url") or "https://www.dasny.org",
-                "industry": "Public Construction & Institutional Facilities",
+                "location": item.get("location") or None,
+                "website": item.get("url") or None,
+                "industry": item.get("industry") or "Public Construction",
                 "status": "New",
-                "notes": f"Full opportunity: {item.get('url')}",
+                "notes": item.get("url") or None,
                 "lead_metadata": item,
             })
 
         else:  # nyscr
-            title = item.get("title", f"NYS Contract #{i+1}")
-            company = item.get("issuing_organization") or "New York State Agency"
+            title = item.get("title") or None
+            company = item.get("issuing_organization") or None
             contact_person = item.get("contact_name") or None
             # Real contact only — no hardcoded fallback email/phone
             email = item.get("contact_email") or None
@@ -408,14 +408,14 @@ def standardize_records(
                 "dataset_id": dataset_id,
                 "organization_name": company,
                 "contact_name": contact_person,
-                "title": f"Contract: {title[:60]}",
+                "title": f"Contract: {title[:60]}" if title else None,
                 "email": email,
                 "phone": phone,
-                "location": item.get("location") or "New York, USA",
-                "website": item.get("url") or "https://www.nyscr.ny.gov",
-                "industry": "State Contracting & Procurement",
+                "location": item.get("location") or None,
+                "website": item.get("url") or None,
+                "industry": item.get("industry") or "State Contracting",
                 "status": "New",
-                "notes": f"Open State Contract. Bid deadline: {item.get('bid_deadline', 'Active')}",
+                "notes": f"Bid deadline: {item.get('bid_deadline')}" if item.get('bid_deadline') else None,
                 "lead_metadata": item,
             })
 
