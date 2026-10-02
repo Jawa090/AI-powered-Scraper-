@@ -160,6 +160,17 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 # ---------------------------------------------------------------------------
+# Health Check
+# ---------------------------------------------------------------------------
+
+@app.get("/health/llm")
+def llm_health():
+    """Return LLM provider configuration status (never exposes keys)."""
+    from agents.llm.chat_models import llm_health_check
+    return llm_health_check()
+
+
+# ---------------------------------------------------------------------------
 # Pydantic Schemas
 # ---------------------------------------------------------------------------
 
