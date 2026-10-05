@@ -80,7 +80,7 @@ class Job(Base):
         "User", back_populates="created_jobs", foreign_keys=[created_by]
     )
     dataset: Mapped[Optional["Dataset"]] = relationship("Dataset", back_populates="jobs")
-    query: Mapped[Optional["Query"]] = relationship("Query", back_populates="jobs")
+    query: Mapped[Optional["Query"]] = relationship("Query", back_populates="jobs", foreign_keys=[query_id])
     scrape_runs: Mapped[List["ScrapeRun"]] = relationship("ScrapeRun", back_populates="job")
 
     def __repr__(self) -> str:

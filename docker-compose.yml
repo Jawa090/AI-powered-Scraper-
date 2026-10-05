@@ -1,0 +1,80 @@
+version: "3.8"
+
+services:
+  api:
+    build: 
+      context: ./Backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=dataops
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_URL=redis://redis:6379/0
+      - CHROME_WS_URL=ws://chrome:3000
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./Backend:/app
+    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: ./Backend
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=dataops
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_URL=redis://redis:6379/0
+      - CHROME_WS_URL=ws://chrome:3000
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./Backend:/app
+    # If the app natively uses ThreadPoolExecutor inside the API, we can just run a headless worker script here,
+    # or just keep it as a placeholder for when Celery is introduced.
+    command: python -c "import time; print('Worker ready'); time.sleep(86400)"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=dataops
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dataops"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  chrome:
+    image: browserless/chrome:latest
+    environment:
+      - TIMEOUT=120000
+      - MAX_CONCURRENT_SESSIONS=10
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:

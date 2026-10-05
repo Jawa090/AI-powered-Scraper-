@@ -96,7 +96,12 @@ def find_cf_emails_in_html(html):
 # ---------------------------------------------------------------------------
 # Main scraper class
 # ---------------------------------------------------------------------------
-class DasnyScraper:
+from typing import Iterator
+from scrappers.base import BaseScraper, ScrapeParams, RawRecord
+
+class DasnyScraper(BaseScraper):
+    source_code = "DASNY"
+
     def __init__(self):
         self.driver = None
         self.wait = None
@@ -636,116 +641,62 @@ class DasnyScraper:
         return m.group(0).rstrip('.,;)') if m else None
 
     # ------------------------------------------------------------------
-    # Resume + save
+    # Run loop
     # ------------------------------------------------------------------
-    def load_existing(self, filename=OUTPUT_FILE):
-        if not os.path.exists(filename):
-            return [], set()
+    def run(self, params: ScrapeParams) -> Iterator[RawRecord]:
+        if not self.setup_chrome():
+            raise RuntimeError("Failed to setup chrome")
+            
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                existing = json.load(f)
-            if not isinstance(existing, list):
-                return [], set()
-            seen = {rec.get('source_url') for rec in existing if rec.get('source_url')}
-            print(f"Resume: loaded {len(existing)} existing records. Skipping those URLs.")
-            return existing, seen
-        except Exception as e:
-            print(f"Warning: could not load existing data ({e}). Starting fresh.")
-            return [], set()
-
-    def save(self, data, filename=OUTPUT_FILE):
-        tmp = filename + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, filename)
-        print(f"Saved {len(data)} records to {filename}")
-
-    def scrape(self, max_opportunities=None, output_file=OUTPUT_FILE):
-        existing_records, already_done = self.load_existing(output_file)
-
-        cap = max_opportunities if max_opportunities is not None else 999_999
-        fetch_cap = cap if cap == 999_999 else cap + len(already_done)
-        opps = self.get_open_opportunities(max_count=fetch_cap)
-        if not opps:
-            print("No opportunities found.")
-            return existing_records
-
-        pending = [o for o in opps if o['url'] not in already_done]
-        skipped = len(opps) - len(pending)
-        if skipped:
-            print(f"Skipping {skipped} already-scraped opportunities. {len(pending)} remain.")
-        if not pending:
-            print("All opportunities in this batch are already scraped.")
-            return existing_records
-
-        new_results = []
-        failed = 0
-        for i, opp in enumerate(pending):
-            print(f"\n[{i+1}/{len(pending)}] {opp['url']}")
-            try:
-                data = self.extract_opportunity(opp['url'])
-                if data:
-                    new_results.append(data)
-                    print(f"  Title: {data['title']}")
-            except Exception as e:
-                print(f"  ERROR: {e}")
-                failed += 1
-
-            if (i + 1) % 25 == 0 and new_results:
-                self.save(existing_records + new_results, filename=output_file)
-
-            time.sleep(0.8)
-
-        all_results = existing_records + new_results
-        print(f"\nDone. New: {len(new_results)}, Failed: {failed}, Total: {len(all_results)}")
-        return all_results
+            # Respect params.timeout_s
+            self.driver.set_page_load_timeout(params.timeout_s)
+            
+            opps = self.get_open_opportunities(max_count=params.limit or 999_999)
+            if not opps:
+                return
+            
+            if params.limit:
+                opps = opps[:params.limit]
+                
+            for opp in opps:
+                url = opp['url']
+                
+                try:
+                    data = self.extract_opportunity(url)
+                    if not data:
+                        continue
+                        
+                    # Basic keyword filter
+                    if params.keyword and params.keyword.lower() not in (data.get('title') or '').lower() and params.keyword.lower() not in (data.get('description') or '').lower():
+                        continue
+                        
+                    contact = data.get("contact_details", {})
+                    
+                    yield RawRecord(
+                        external_id=data.get("source_id") or data.get("url"),
+                        source_url=data.get("url"),
+                        organization_name=data.get("issuing_organization") or "DASNY",
+                        contact_name=contact.get("name"),
+                        email=contact.get("email"),
+                        phone=contact.get("phone"),
+                        title=data.get("title"),
+                        location=data.get("location_city") or data.get("location_address"),
+                        notes=data.get("description"),
+                        lead_metadata={
+                            "status": "OPEN",
+                            "bid_deadline": data.get("bid_deadline"),
+                            "issue_date": data.get("issue_date"),
+                            "project_type": data.get("project_type"),
+                            "documents": data.get("documents"),
+                        }
+                    )
+                except Exception as e:
+                    print(f"Error extracting {url}: {e}")
+                time.sleep(0.8)
+        finally:
+            self.close()
 
     def close(self):
         if self.driver:
             self.driver.quit()
             print("Browser closed.")
-
-
-def main():
-    print("=" * 60)
-    print("  DASNY Scraper — RFP/Bid Opportunities")
-    print("=" * 60)
-
-    scraper = DasnyScraper()
-    try:
-        if not scraper.setup_chrome():
-            return
-
-        print("\n  1. Test run   (first 20 opportunities)")
-        print("  2. Medium run (first 100 opportunities)")
-        print("  3. Full run   (ALL opportunities)")
-        while True:
-            choice = input("\n  Enter choice (1/2/3): ").strip()
-            if choice == "1":
-                max_opps = 20
-                break
-            elif choice == "2":
-                max_opps = 100
-                break
-            elif choice == "3":
-                max_opps = None
-                break
-            else:
-                print("  Invalid choice.")
-
-        data = scraper.scrape(max_opportunities=max_opps, output_file=OUTPUT_FILE)
-        if data:
-            scraper.save(data, filename=OUTPUT_FILE)
-            print(f"\nFinal output: {OUTPUT_FILE} ({len(data)} records)")
-        else:
-            print("No data scraped.")
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.")
-    except Exception as e:
-        print(f"Fatal error: {e}")
-    finally:
-        scraper.close()
-
-
-if __name__ == "__main__":
-    main()

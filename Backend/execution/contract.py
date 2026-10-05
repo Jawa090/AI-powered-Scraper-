@@ -21,13 +21,14 @@ class ExecutionRequest:
     Standard contract for submitting a scraper execution request.
     """
     script_id: str
+    department_id: str
+    created_by: str
+    query_id: str
+    idempotency_key: str
     parameters: Dict[str, Any] = field(default_factory=dict)
     custom_job_id: Optional[str] = None
     custom_run_id: Optional[str] = None
-    department_id: Optional[str] = "dept-sales-1"
-    created_by: Optional[str] = "usr-ahmed"
     dataset_id: Optional[str] = None
-    query_id: Optional[str] = None
 
 
 @dataclass

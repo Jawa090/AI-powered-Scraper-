@@ -1,50 +1,211 @@
 """
-agents/graph/graph.py
-─────────────────────
-LangGraph StateGraph Builder — compiles the agent workflow into an executable graph.
+agents/graph/graph_v2.py
+────────────────────────
+LangGraph v2 — LLM tool-calling agent graph.
 
-Architecture:
-    parse_input → classify_intent → [route] → handler → respond
+Replaces keyword-based routing with a proper LLM agent loop:
+    load_context → agent (LLM + tools) ↔ tools → scrape_gate → finalize
+
+The old graph.py remains as fallback for degraded mode.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import os
 import traceback
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Annotated, Dict, List, Optional
 
-from langgraph.graph import StateGraph, END
-
-from agents.graph.state import AgentState
-from agents.graph.nodes import (
-    parse_input,
-    classify_intent,
-    handle_greeting,
-    check_database,
-    ask_scraper_permission,
-    handle_scraper_request,
-    handle_job_status,
-    handle_dataset_query,
-    respond,
+from langchain_core.messages import (
+    AnyMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
 )
+from langgraph.graph import StateGraph, END, add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+
+from agents.graph.tools import READ_TOOLS, ALL_TOOLS
 
 logger = logging.getLogger(__name__)
 
+MAX_TOOL_STEPS = int(os.environ.get("MAX_TOOL_STEPS", "6"))
 
 # ---------------------------------------------------------------------------
-# Conditional Router
+# State
 # ---------------------------------------------------------------------------
 
-def route_after_classify(state: AgentState) -> str:
-    """Route to the correct handler node based on classified intent."""
-    return state.get("route", "greeting")
+class AgentStateV2(dict):
+    """LangGraph v2 agent state with message accumulation."""
+    pass
+
+# We use TypedDict for proper LangGraph integration
+from typing import TypedDict
+
+class AgentState(TypedDict, total=False):
+    messages: Annotated[list[AnyMessage], add_messages]
+    user_id: str
+    session_id: str
+    department_id: str
+    tool_steps: int
+    degraded: bool
 
 
-def route_after_db_check(state: AgentState) -> str:
-    """After checking the database, either respond (sufficient) or ask permission."""
-    if state.get("db_sufficient", False):
-        return "respond"
-    return "ask_scraper_permission"
+# ---------------------------------------------------------------------------
+# Load system prompt
+# ---------------------------------------------------------------------------
+
+_SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "system.md"
+_SYSTEM_PROMPT_CACHE: Optional[str] = None
+
+
+def _get_system_prompt() -> str:
+    global _SYSTEM_PROMPT_CACHE
+    if _SYSTEM_PROMPT_CACHE is None:
+        if _SYSTEM_PROMPT_PATH.exists():
+            _SYSTEM_PROMPT_CACHE = _SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
+        else:
+            _SYSTEM_PROMPT_CACHE = "You are a helpful data operations assistant."
+            logger.warning("System prompt not found at %s", _SYSTEM_PROMPT_PATH)
+    return _SYSTEM_PROMPT_CACHE
+
+
+# ---------------------------------------------------------------------------
+# Nodes
+# ---------------------------------------------------------------------------
+
+def call_model(state: AgentState) -> dict:
+    """Call the LLM with tools bound. This is the 'agent' node."""
+    from agents.llm.chat_models import build_chat_model
+
+    messages = state.get("messages", [])
+    tool_steps = state.get("tool_steps", 0)
+
+    # Build system message
+    system_text = _get_system_prompt()
+    system_msg = SystemMessage(content=system_text)
+
+    try:
+        model = build_chat_model(tools=ALL_TOOLS)
+        response = model.invoke([system_msg, *messages])
+        return {
+            "messages": [response],
+            "tool_steps": tool_steps + 1,
+            "degraded": False,
+        }
+    except Exception as e:
+        logger.error("LLM call failed: %s", e, exc_info=True)
+        # Degraded mode — return a plain text response
+        from langchain_core.messages import AIMessage
+        fallback_msg = AIMessage(content=(
+            "I'm having trouble connecting to the AI service right now. "
+            "You can still search for leads using the filters panel. "
+            "Please try again in a moment."
+        ))
+        return {
+            "messages": [fallback_msg],
+            "degraded": True,
+        }
+
+
+def scrape_gate(state: AgentState) -> dict:
+    """
+    Intercept propose_scrape tool calls. Validate preconditions,
+    then enqueue the scrape job.
+    """
+    messages = state.get("messages", [])
+    user_id = state.get("user_id", "")
+
+    # Find the propose_scrape tool call in the last AI message
+    last_msg = messages[-1] if messages else None
+    if not last_msg or not hasattr(last_msg, "tool_calls"):
+        return {"messages": []}
+
+    results = []
+    for call in (last_msg.tool_calls or []):
+        if call["name"] == "propose_scrape":
+            args = call.get("args", {})
+            source = args.get("source", "")
+            category = args.get("category")
+            location = args.get("location")
+            limit = args.get("limit", 20)
+
+            # Validate source
+            valid_sources = {"bonfire", "dasny", "jwiz", "nyscr"}
+            if source not in valid_sources:
+                results.append(ToolMessage(
+                    content=json.dumps({"error": f"Unknown source '{source}'. Valid: {sorted(valid_sources)}"}),
+                    tool_call_id=call["id"],
+                ))
+                continue
+
+            # Enqueue the job
+            try:
+                from scraper_manager import scraper_manager
+                import uuid
+
+                job_id = scraper_manager.create_job(
+                    script_id=source,
+                    parameters={
+                        "category": category,
+                        "location": location,
+                        "limit": min(max(1, limit), 200),
+                    },
+                    created_by=user_id,
+                    department_id=state.get("department_id", ""),
+                    query_id="",
+                    idempotency_key=str(uuid.uuid4()),
+                )
+                results.append(ToolMessage(
+                    content=json.dumps({
+                        "job_id": job_id,
+                        "status": "Queued",
+                        "source": source,
+                        "message": f"Scrape job queued successfully. Job ID: {job_id}",
+                    }),
+                    tool_call_id=call["id"],
+                ))
+            except Exception as e:
+                logger.error("scrape_gate enqueue error: %s", e, exc_info=True)
+                results.append(ToolMessage(
+                    content=json.dumps({"error": f"Failed to enqueue scrape: {str(e)}"}),
+                    tool_call_id=call["id"],
+                ))
+        else:
+            # Non-scrape tool call in the same message — tell LLM to run separately
+            results.append(ToolMessage(
+                content=json.dumps({"error": "Please call this tool separately, not alongside propose_scrape."}),
+                tool_call_id=call["id"],
+            ))
+
+    return {"messages": results}
+
+
+def route_after_agent(state: AgentState) -> str:
+    """Route after the agent node: tools, scrape_gate, or end."""
+    messages = state.get("messages", [])
+    if not messages:
+        return END
+
+    last_msg = messages[-1]
+    tool_calls = getattr(last_msg, "tool_calls", None) or []
+
+    if not tool_calls:
+        return END
+
+    # Check tool step limit
+    if state.get("tool_steps", 0) >= MAX_TOOL_STEPS:
+        logger.warning("Tool step limit reached (%d)", MAX_TOOL_STEPS)
+        return END
+
+    # Check if any call is propose_scrape
+    if any(c["name"] == "propose_scrape" for c in tool_calls):
+        return "scrape_gate"
+
+    return "tools"
 
 
 # ---------------------------------------------------------------------------
@@ -52,73 +213,26 @@ def route_after_db_check(state: AgentState) -> str:
 # ---------------------------------------------------------------------------
 
 def build_agent_graph():
-    from agents.graph.nodes import (
-        parse_input,
-        classify_intent,
-        handle_greeting,
-        check_database,
-        ask_scraper_permission,
-        handle_scraper_request,
-        handle_job_status,
-        handle_dataset_query,
-        handle_captcha_continue,
-        respond,
-    )
-
+    """Build the v2 LangGraph agent with LLM tool-calling."""
     graph = StateGraph(AgentState)
 
-    # ── Add nodes ─────────────────────────────────────────────────────────
-    graph.add_node("parse_input", parse_input)
-    graph.add_node("classify_intent", classify_intent)
-    graph.add_node("handle_greeting", handle_greeting)
-    graph.add_node("check_database", check_database)
-    graph.add_node("ask_scraper_permission", ask_scraper_permission)
-    graph.add_node("handle_scraper_request", handle_scraper_request)
-    graph.add_node("handle_job_status", handle_job_status)
-    graph.add_node("handle_dataset_query", handle_dataset_query)
-    graph.add_node("handle_captcha_continue", handle_captcha_continue)
-    graph.add_node("respond", respond)
+    # Nodes
+    graph.add_node("agent", call_model)
+    graph.add_node("tools", ToolNode(READ_TOOLS, handle_tool_errors=True))
+    graph.add_node("scrape_gate", scrape_gate)
 
-    # ── Set entry point ───────────────────────────────────────────────────
-    graph.set_entry_point("parse_input")
+    # Edges
+    graph.set_entry_point("agent")
+    graph.add_conditional_edges("agent", route_after_agent, {
+        "tools": "tools",
+        "scrape_gate": "scrape_gate",
+        END: END,
+    })
+    graph.add_edge("tools", "agent")
+    graph.add_edge("scrape_gate", "agent")
 
-    # ── Linear edges ──────────────────────────────────────────────────────
-    graph.add_edge("parse_input", "classify_intent")
-
-    # ── Conditional routing after intent classification ────────────────────
-    graph.add_conditional_edges(
-        "classify_intent",
-        route_after_classify,
-        {
-            "greeting": "handle_greeting",
-            "check_database": "check_database",
-            "scraper_request": "handle_scraper_request",
-            "job_status": "handle_job_status",
-            "dataset_query": "handle_dataset_query",
-            "captcha_continue": "handle_captcha_continue",
-        },
-    )
-
-    # ── Conditional routing after database check ──────────────────────────
-    graph.add_conditional_edges(
-        "check_database",
-        route_after_db_check,
-        {
-            "respond": "respond",
-            "ask_scraper_permission": "ask_scraper_permission",
-        },
-    )
-
-    # ── Terminal edges → respond → END ────────────────────────────────────
-    graph.add_edge("handle_greeting", "respond")
-    graph.add_edge("ask_scraper_permission", "respond")
-    graph.add_edge("handle_scraper_request", "respond")
-    graph.add_edge("handle_job_status", "respond")
-    graph.add_edge("handle_dataset_query", "respond")
-    graph.add_edge("handle_captcha_continue", "respond")
-    graph.add_edge("respond", END)
-
-    return graph.compile()
+    from agents.graph.checkpointer import checkpointer
+    return graph.compile(checkpointer=checkpointer)
 
 
 # ---------------------------------------------------------------------------
@@ -135,150 +249,3 @@ def get_compiled_graph():
         _compiled_graph = build_agent_graph()
         logger.info("LangGraph agent graph compiled successfully.")
     return _compiled_graph
-
-
-# ---------------------------------------------------------------------------
-# Public API — run the graph
-# ---------------------------------------------------------------------------
-
-def run_agent_graph(
-    session_id: str,
-    message: str,
-    current_requirement: Optional[Dict[str, Any]] = None,
-    user_id: str = "usr-ahmed",
-    department_id: str = "dept-sales-1",
-) -> Dict[str, Any]:
-    """
-    Execute the full LangGraph agent pipeline.
-
-    Returns the same dict shape as the old AgentOrchestrator.handle_message()
-    for full backward compatibility with the frontend.
-    """
-    graph = get_compiled_graph()
-
-    initial_state: AgentState = {
-        "session_id": session_id,
-        "message": message,
-        "current_requirement": current_requirement,
-        "user_id": user_id,
-        "department_id": department_id,
-    }
-
-    try:
-        final_state = graph.invoke(initial_state)
-
-        # Build the response dict matching frontend BotChatResponse contract
-        norm_query = final_state.get("norm_query")
-        req_record = final_state.get("req_record")
-
-        updated_requirement = _requirement_to_dict(req_record, norm_query) if req_record else (
-            current_requirement or {
-                "industry": "Not specified",
-                "location": "Not specified",
-                "companySize": "Not specified",
-                "decisionMakers": [],
-                "quantity": 0,
-                "completionPercentage": 10,
-                "status": "collecting",
-            }
-        )
-
-        return {
-            "reply": final_state.get("reply_text", "Something went wrong. Please try again."),
-            "suggestions": final_state.get("suggestions", []),
-            "updatedRequirement": updated_requirement,
-            "recommendedScript": (req_record.selected_script if req_record else None),
-            "sessionId": final_state.get("resolved_session_id", session_id),
-            "decision": final_state.get("decision", "NEED_CLARIFICATION"),
-            "query": norm_query.to_dict() if norm_query else None,
-            "agentCode": final_state.get("agent_code", "orchestrator"),
-            "handledBy": final_state.get("handled_by", "LangGraphOrchestrator"),
-            "agentResult": final_state.get("agent_result"),
-            "proposedActions": final_state.get("proposed_actions", []),
-            "jobId": final_state.get("job_id"),
-            "collaborationId": None,
-            "collaborationStatus": None,
-            "agentsInvolved": [final_state.get("agent_code", "orchestrator")],
-            "agentSteps": [],
-            "workflowStatus": final_state.get("workflow_status", "COMPLETED"),
-            "intent": final_state.get("intent_dict"),
-        }
-
-    except Exception as exc:
-        # Roll back any uncommitted DB work to prevent session poisoning
-        try:
-            from Database.controller import db as _db
-            if _db.SessionFactory is not None:
-                _db.SessionFactory().rollback()
-        except Exception:
-            pass
-        tb = traceback.format_exc()
-        logger.error("LangGraph execution error: %s\n%s", exc, tb, exc_info=True)
-        return _error_response(session_id, "An internal error occurred. Please try again.", current_requirement)
-
-
-# ---------------------------------------------------------------------------
-# Helpers (same logic as original orchestrator)
-# ---------------------------------------------------------------------------
-
-def _requirement_to_dict(req, query) -> Dict[str, Any]:
-    """Serialize Requirement ORM object to frontend dict shape."""
-    # When no specific fields are requested, default all to True (backwards-compatible).
-    # When specific fields ARE requested, only those fields are marked True.
-    req_fields = (query.requested_fields if query else []) or []
-    all_fields = not req_fields  # True if no specific fields were requested
-    field_flags = {
-        "companyName": True,
-        "contactName": True,
-        "jobTitle": True,
-        "email": all_fields or "email" in req_fields,
-        "phone": all_fields or "phone" in req_fields,
-        "website": all_fields or "website" in req_fields,
-    }
-    return {
-        "id": req.id if req else "",
-        "industry": (req.industry if req else None) or (query.category if query else None) or "Not specified",
-        "location": (req.location if req else None) or (query.location if query else None) or "Not specified",
-        "companySize": (req.company_size if req else None) or "Not specified",
-        "companyType": getattr(query, "company_type", None) or "Not specified",
-        "decisionMakers": (req.decision_makers if req else None) or [],
-        "quantity": (req.quantity if req else None) or (query.quantity if query else None) or 20,
-        "completionPercentage": req.completion_percentage if req else 10,
-        "status": req.status if req else "collecting",
-        "selectedScript": req.selected_script if req else None,
-        "selectedScriptName": req.selected_script_name if req else None,
-        "datasetId": getattr(req, "dataset_id", None),
-        "requiredFields": field_flags,
-    }
-
-
-def _error_response(session_id: str, message: str, current_requirement: Optional[Dict]) -> Dict[str, Any]:
-    """Fallback error response matching frontend contract."""
-    req = current_requirement or {
-        "industry": "Not specified",
-        "location": "Not specified",
-        "companySize": "Not specified",
-        "decisionMakers": [],
-        "quantity": 0,
-        "completionPercentage": 10,
-        "status": "collecting",
-    }
-    return {
-        "reply": message,
-        "suggestions": [],
-        "updatedRequirement": req,
-        "recommendedScript": None,
-        "sessionId": session_id,
-        "decision": "NEED_CLARIFICATION",
-        "query": None,
-        "agentCode": "orchestrator",
-        "handledBy": "LangGraphOrchestrator",
-        "agentResult": None,
-        "proposedActions": [],
-        "jobId": None,
-        "collaborationId": None,
-        "collaborationStatus": None,
-        "agentsInvolved": [],
-        "agentSteps": [],
-        "workflowStatus": "FAILED",
-    }

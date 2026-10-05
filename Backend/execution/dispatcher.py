@@ -32,275 +32,91 @@ def dispatch_scraper(
     telemetry: TelemetryCallback,
 ) -> List[Dict[str, Any]]:
     """
-    Dispatch execution to the registered scraper adapter.
+    Dispatch execution to the registered scraper adapter using the common BaseScraper interface.
     """
     clean_id = script_id.strip().lower()
     # Ensure script is registered
     get_registered_script(clean_id)
 
+    # 1. Instantiate Scraper
     if clean_id == "bonfire":
-        return execute_bonfire(parameters, telemetry)
+        from scrappers.bonfire import DallasBonfireScraper
+        scraper = DallasBonfireScraper(headless=True)
     elif clean_id == "jwiz":
-        return execute_jwiz(parameters, telemetry)
+        from scrappers.jwiz import JWizAdapter
+        scraper = JWizAdapter()
     elif clean_id == "dasny":
-        return execute_dasny(parameters, telemetry)
+        from scrappers.dasny import DasnyScraper
+        scraper = DasnyScraper()
     elif clean_id == "nyscr":
-        return execute_nyscr(parameters, telemetry)
+        from scrappers.nyscr import NYSCRScraper
+        scraper = NYSCRScraper()
     else:
         raise ValueError(f"No execution handler registered for script '{script_id}'")
 
+    # 2. Pre-flight check
+    ok, reason = scraper.check_credentials()
+    if not ok:
+        telemetry(25, "BLOCKED — Missing Credentials", reason or "Authentication required.", "error")
+        raise RuntimeError(f"Credentials check failed for {script_id}: {reason}")
 
-# ---------------------------------------------------------------------------
-# Scraper Adapters
-# ---------------------------------------------------------------------------
-
-def execute_bonfire(params: Dict[str, Any], telemetry: TelemetryCallback) -> List[Dict[str, Any]]:
-    """Execute Dallas Bonfire scraper."""
-    from scrappers.bonfire import DallasBonfireScraper
-    limit = params.get("limit", 20)
-
-    telemetry(15, "Navigating to Dallas Bonfire portal", "Navigating to City of Dallas Bonfire portal...", "info")
-
-    scraper = DallasBonfireScraper(headless=True)
-    if not scraper.setup_chrome():
-        raise RuntimeError("Could not initialize Chrome for Dallas Bonfire.")
-
-    try:
-        opps = scraper.discover_opportunities()
-        telemetry(40, f"Discovered {len(opps)} opportunities", f"Discovered {len(opps)} open opportunities on Dallas City Hall portal.", "info")
-
-        if limit:
-            opps = opps[:limit]
-
-        results = []
-        for idx, opp in enumerate(opps):
-            pct = 40 + int(((idx + 1) / len(opps)) * 50)
-            ref = opp.get("ref_number", f"DAL-{idx+1:03d}")
-            title = opp.get("title", "Opportunity")
-            telemetry(
-                pct,
-                f"Processing opportunity {idx+1}/{len(opps)}: {ref}",
-                f"Extracted [{ref}] {title[:45]} (Closes: {opp.get('close_date')})",
-                "info",
-            )
-            results.append(opp)
-
-        return results
-    finally:
-        scraper.close()
-
-
-def execute_jwiz(params: Dict[str, Any], telemetry: TelemetryCallback) -> List[Dict[str, Any]]:
-    """Execute JWiz Directory scraper using verified JWiz extraction engine."""
-    from bs4 import BeautifulSoup
-    from scrappers.jwiz import (
-        HTTPClient,
-        build_search_url,
-        find_result_cards,
-        extract_company_name,
-        extract_phone,
-        extract_email,
-        extract_location_line,
-        extract_city_state,
-        extract_profile_url,
+    # 3. Parameter setup
+    from scrappers.base import ScrapeParams
+    limit = int(parameters.get("limit") or 20)
+    
+    scrape_params = ScrapeParams(
+        limit=limit,
+        location=parameters.get("location"),
+        keyword=parameters.get("keyword"),
+        timeout_s=int(parameters.get("timeout_s") or 60)
     )
 
-    location = params.get("location", "new-york")
-    keyword = params.get("keyword") or "contractor"
-    limit = int(params.get("limit") or 25)
-
-    telemetry(20, f"Querying JWiz for '{keyword}' in '{location}'", f"Searching JWiz directory for category: {keyword}, location: {location}", "info")
-
-    client = HTTPClient()
+    # 4. Run loop
+    telemetry(15, f"Initializing {script_id.upper()} scraper", "Initializing browser/client...", "info")
+    records = []
+    
     try:
-        records: List[Dict[str, Any]] = []
-        found_names = set()
-        page = 0
-        max_pages = max(1, (limit + 99) // 100)
-
-        while len(records) < limit and page < max_pages:
-            offset = page * 100
-            url = build_search_url(location, keyword, offset)
-            res = client.get(url)
-            if res is None or res.status_code != 200:
-                status_code = res.status_code if res else "Connection Error"
-                if page == 0:
-                    raise RuntimeError(f"JWiz search request failed with status {status_code}")
-                break
-
-            soup = BeautifulSoup(res.text, "html.parser")
-            cards = find_result_cards(soup)
-            if not cards:
-                break
-
-            if page == 0:
-                telemetry(35, f"Discovered {len(cards)} listings on JWiz", f"Discovered {len(cards)} directory listings for {keyword} in {location}.", "info", records_found=0)
-
-            for card in cards:
-                if len(records) >= limit:
-                    break
-
-                name = extract_company_name(card)
-                if not name or len(name) < 3 or name in found_names:
-                    continue
-
-                found_names.add(name)
-                # Real phone only — no fabricated fallback
-                phone = extract_phone(card)
-                email = extract_email(card)
-                loc_line = extract_location_line(card)
-                # Real location only: JWiz ignores unknown search locations and
-                # returns its default (mostly NY) listings, so never stamp the
-                # requested city onto a card that doesn't state one.
-                city, state = extract_city_state(loc_line)
-
-                profile_link = extract_profile_url(card)
-
-                rec = {
-                    "source_id": f"JWIZ-{len(records)+1:04d}",
-                    "company_name": name,
-                    "category": keyword.title(),
-                    "city": city,
-                    "state": state,
-                    "phone": phone,            # None if not found on page
-                    "email": email,            # None if not found on page
-                    "profile_url": profile_link,
-                }
-                records.append(rec)
-
-                pct = 35 + int(((len(records)) / limit) * 60)
-                telemetry(
-                    pct,
-                    f"Captured lead {len(records)}/{limit}: {name[:30]}",
-                    f"Found company: {name} | Phone: {phone}",
-                    "info",
-                    records_found=len(records),
-                )
-
-            page += 1
-
-        telemetry(95, f"Standardizing {len(records)} records", f"Extracted {len(records)} verified records from JWiz.", "info", records_found=len(records))
-        return records
-    finally:
-        client.close()
-
-
-def execute_dasny(params: Dict[str, Any], telemetry: TelemetryCallback) -> List[Dict[str, Any]]:
-    """Execute DASNY scraper using the correct scrape() interface."""
-    from scrappers.dasny import DasnyScraper
-    limit = int(params.get("limit") or 20)
-
-    telemetry(15, "Launching DASNY headless browser", "Initializing headless Chrome session for DASNY...", "info")
-
-    scraper = DasnyScraper()
-    if not scraper.setup_chrome():
-        raise RuntimeError("Could not initialize Chrome for DASNY.")
-
-    try:
-        telemetry(30, "Loading DASNY RFP opportunities", "Loading opportunities from https://www.dasny.org/opportunities/rfps-bids...", "info")
-        # DasnyScraper.scrape() calls get_open_opportunities() then extract_opportunity()
-        # and returns a list of dicts with at minimum 'title' and 'url' keys.
-        raw_opps = scraper.scrape(max_opportunities=limit)
-        if limit:
-            raw_opps = raw_opps[:limit]
-        telemetry(60, f"Found {len(raw_opps)} DASNY opportunities", f"Found {len(raw_opps)} opportunities from DASNY portal.", "info")
-
-        results = []
-        for i, opp in enumerate(raw_opps):
-            pct = 60 + int(((i + 1) / max(len(raw_opps), 1)) * 35)
-            title = opp.get("title", "Opportunity")
+        iterator = scraper.run(scrape_params)
+        telemetry(30, f"Scraping {script_id.upper()} portal", "Collecting opportunities...", "info")
+        
+        for i, rec in enumerate(iterator):
+            pct = 30 + int(((i + 1) / max(limit, 1)) * 65)
             telemetry(
                 pct,
-                f"Extracting DASNY bid {i+1}/{len(raw_opps)}: {title[:30]}",
-                f"Extracted DASNY bid: {title} ({opp.get('url', '')})",
+                f"Extracting {script_id.upper()} record {i+1}/{limit}",
+                f"Extracted: {rec.title or rec.organization_name}",
                 "info",
             )
-            results.append(opp)
-
-        return results
+            
+            # Map RawRecord to the legacy dict expected by standardize_records
+            records.append({
+                "source_id": rec.external_id,
+                "url": rec.source_url,
+                "issuing_organization": rec.organization_name,
+                "company_name": rec.organization_name, 
+                "contact_name": rec.contact_name,
+                "contact_person": rec.contact_name,
+                "email": rec.email,
+                "contact_email": rec.email,
+                "phone": rec.phone,
+                "contact_phone": rec.phone,
+                "title": rec.title,
+                "location": rec.location,
+                "website": rec.website,
+                "industry": rec.industry,
+                "description": rec.notes,
+                "notes": rec.notes,
+                "close_date": rec.lead_metadata.get("close_date") or rec.lead_metadata.get("bid_deadline"),
+                **rec.lead_metadata
+            })
+            
     finally:
-        scraper.close()
+        if hasattr(scraper, 'close') and callable(scraper.close):
+            scraper.close()
+            
+    telemetry(95, f"Completed {script_id.upper()} extraction", f"Extracted {len(records)} records.", "info", records_found=len(records))
+    return records
 
-
-def execute_nyscr(params: Dict[str, Any], telemetry: TelemetryCallback) -> List[Dict[str, Any]]:
-    """
-    Execute NYSCR (NY State Contract Reporter) scraper.
-
-    Authentication requirement:
-        NYSCR requires a valid authenticated session.
-        Credentials must be provided via environment variables:
-            NYSCR_USERNAME — NYSCR portal login email
-            NYSCR_PASSWORD — NYSCR portal password
-
-        If credentials are absent, the job is failed immediately with a clear
-        BLOCKED message rather than attempting to scrape and silently returning
-        zero or fabricated records.
-
-    Class: NYSCRScraper (final_scraper.py) — canonical class name.
-    """
-    limit = int(params.get("limit") or 20)
-
-    # -- Credential pre-flight check ---------------------------------------
-    nyscr_user = os.environ.get("NYSCR_USERNAME", "").strip()
-    nyscr_pass = os.environ.get("NYSCR_PASSWORD", "").strip()
-    if not nyscr_user or not nyscr_pass:
-        telemetry(
-            25,
-            "BLOCKED — Missing Credentials",
-            "NYSCR portal requires authentication. Set NYSCR_USERNAME and NYSCR_PASSWORD environment variables.",
-            "error",
-        )
-        raise RuntimeError(
-            "NYSCR credentials not configured. "
-            "Set NYSCR_USERNAME and NYSCR_PASSWORD environment variables to enable NYSCR scraping. "
-            "No synthetic/mock data will be generated — job marked FAILED."
-        )
-
-    telemetry(15, "NYSCR credential check passed", "NYSCR credentials found in environment.", "info")
-    telemetry(25, "Connecting to NYSCR Portal", "Initializing browser and authenticating with NYSCR...", "info")
-
-    # Import canonical class name: NYSCRScraper
-    from scrappers.nyscr import NYSCRScraper
-    scraper = NYSCRScraper()
-
-    # Inject job_id and telemetry so the scraper can use CaptchaWaitManager
-    # for reCAPTCHA pause/resume through the chat UI
-    scraper.job_id = params.get("_job_id")
-    scraper._telemetry = telemetry
-
-    if not scraper.setup_chrome():
-        raise RuntimeError(
-            "NYSCR — Could not initialize Chrome/ChromeDriver. "
-            "Ensure chromium/chromedriver is installed and accessible."
-        )
-
-    try:
-        # Authenticate with NYSCR portal (required before any scraping)
-        telemetry(30, "Logging into NYSCR Portal", "Authenticating with NYSCR credentials...", "info")
-        if not scraper.login():
-            raise RuntimeError(
-                "NYSCR login failed. Possible causes:\n"
-                "- Invalid credentials (check NYSCR_USERNAME / NYSCR_PASSWORD)\n"
-                "- reCAPTCHA challenge blocked automated login\n"
-                "- Portal is down or IP is blocked\n"
-                "No fabricated records will be substituted. Job marked FAILED."
-            )
-        telemetry(35, "NYSCR Login Successful", "Authenticated with NYSCR portal. Starting data collection...", "info")
-
-        telemetry(40, "Harvesting NYSCR open bid IDs", "Collecting open NY State Contract opportunity IDs...", "info")
-        raw_records = scraper.scrape(max_opportunities=limit)
-
-        if not raw_records:
-            raise RuntimeError(
-                "NYSCR returned 0 records. The portal may have rejected the session "
-                "(reCAPTCHA, IP block, or invalid credentials). "
-                "No fabricated records will be substituted. Job marked FAILED."
-            )
-
-        telemetry(80, f"Scraped {len(raw_records)} NYSCR contracts", f"Extracted {len(raw_records)} NY State contracts.", "info")
-        return raw_records[:limit]
-    finally:
-        scraper.close()
 
 
 # ---------------------------------------------------------------------------

@@ -136,7 +136,11 @@ def _parse_date(raw):
 # Main scraper class
 # ---------------------------------------------------------------------------
 
-class NYSCRScraper:
+from scrappers.base import BaseScraper, ScrapeParams, RawRecord
+
+class NYSCRScraper(BaseScraper):
+    source_code = "NYSCR"
+
     def __init__(self):
         self.driver = None
         self.wait = None
@@ -152,6 +156,11 @@ class NYSCRScraper:
         self.job_id = None
         # Telemetry callback is set by the dispatcher for status updates
         self._telemetry = None
+
+    def check_credentials(self) -> tuple[bool, str | None]:
+        if not self.username or not self.password:
+            return False, "NYSCR_USERNAME and NYSCR_PASSWORD must be set in environment variables."
+        return True, None
 
     # ------------------------------------------------------------------ setup
     def setup_chrome(self):
@@ -1722,159 +1731,69 @@ class NYSCRScraper:
         return m.group(0).rstrip('.,;)') if m else None
 
     # ------------------------------------------------------------------
-    # Run scrape loop
+    # Run scrape loop (P4.1 Interface)
     # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Load previously saved records so we can resume interrupted runs
-    # ------------------------------------------------------------------
-    def load_existing(self, filename="nyscr_scraped_data.json"):
-        """Load existing JSON and return (records_list, seen_ids_set)."""
-        import os
-        if not os.path.exists(filename):
-            return [], set()
+    def run(self, params: ScrapeParams) -> Iterator[RawRecord]:
+        if not self.setup_chrome():
+            raise RuntimeError("Failed to initialize Chrome.")
+
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                existing = json.load(f)
-            if not isinstance(existing, list):
-                return [], set()
-            # source_id format is "nyscr_<numeric_id>"
-            seen = {rec['source_id'].split('_')[-1] for rec in existing
-                    if rec.get('source_id')}
-            print(f"Resume: loaded {len(existing)} existing records "
-                  f"({len(seen)} unique IDs). Skipping those.")
-            return existing, seen
-        except Exception as e:
-            print(f"Warning: could not load existing data ({e}). Starting fresh.")
-            return [], set()
+            if not self.login():
+                raise RuntimeError("NYSCR login failed.")
 
-    def scrape(self, max_opportunities=None, output_file="nyscr_scraped_data.json"):
-        """Scrape opportunities, resuming from any previously saved progress."""
-        # ── 1. Load what we already have ─────────────────────────────────
-        existing_records, already_done = self.load_existing(output_file)
+            # Respect params.timeout_s
+            self.driver.set_page_load_timeout(params.timeout_s)
 
-        # ── 2. Collect the full list of open opportunity IDs ─────────────
-        # Fetch cap + already_done so we always get cap NEW records after
-        # filtering out what was already saved.
-        cap = max_opportunities if max_opportunities is not None else 999_999
-        fetch_cap = cap if cap == 999_999 else cap + len(already_done)
-        opps = self.get_open_opportunities(max_count=fetch_cap)
-        if not opps:
-            print("No open opportunities found.")
-            return existing_records
+            opps = self.get_open_opportunities(max_count=params.limit or 999_999)
+            if not opps:
+                return
 
-        # ── 3. Filter out already-scraped IDs ────────────────────────────
-        pending = [o for o in opps if o['id'] not in already_done]
-        skipped = len(opps) - len(pending)
-        if skipped:
-            print(f"Skipping {skipped} already-scraped opportunities. "
-                  f"{len(pending)} remain.")
-        if not pending:
-            print("All opportunities in this batch are already scraped.")
-            return existing_records
+            if params.limit:
+                opps = opps[:params.limit]
 
-        # ── 4. Scrape the remaining ones, appending to existing_records ──
-        new_results = []
-        failed = 0
-        for i, opp in enumerate(pending):
-            print(f"\n[{i+1}/{len(pending)}] Processing ID {opp['id']} "
-                  f"(total saved so far: {len(existing_records) + len(new_results)})")
-            try:
-                data = self.extract_clean_data(opp['id'])
-                if data:
-                    new_results.append(data)
-                    print(f"  Title: {data['title']}")
-                else:
-                    failed += 1
-            except Exception as e:
-                print(f"  ERROR: {e}")
-                failed += 1
+            for opp in opps:
+                # Optionally filter by location/keyword here
+                if params.keyword and params.keyword.lower() not in opp.get('id', '').lower():
+                    # NYSCR usually doesn't give much context before clicking in, but leaving space for keyword filter if needed.
+                    pass
 
-            # ── Save progress every 25 NEW records ───────────────────────
-            if (i + 1) % 25 == 0 and new_results:
-                self.save(existing_records + new_results, filename=output_file)
+                try:
+                    data = self.extract_clean_data(opp['id'])
+                    if not data:
+                        continue
 
-            time.sleep(0.8)
-
-        all_results = existing_records + new_results
-        print(f"\nDone. New: {len(new_results)}, Failed: {failed}, "
-              f"Total in file: {len(all_results)}")
-        return all_results
-
-    def save(self, data, filename="nyscr_scraped_data.json"):
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"Saved {len(data)} records to {filename}")
+                    contact = data.get("contact_details", {})
+                    
+                    record = RawRecord(
+                        external_id=data.get("source_id"),
+                        source_url=data.get("url"),
+                        organization_name=data.get("issuing_organization"),
+                        contact_name=contact.get("name"),
+                        email=contact.get("email"),
+                        phone=contact.get("phone"),
+                        title=data.get("title"),
+                        location=data.get("location_city") or data.get("location_address"),
+                        notes=data.get("description"),
+                        lead_metadata={
+                            "status": "OPEN",
+                            "bid_deadline": data.get("bid_deadline"),
+                            "issue_date": data.get("issue_date"),
+                            "project_type": data.get("project_type"),
+                            "business_type": data.get("business_type"),
+                            "categories": data.get("categories"),
+                            "documents": data.get("documents"),
+                            "bid_results": data.get("bid_results"),
+                        }
+                    )
+                    yield record
+                except Exception as e:
+                    print(f"Error parsing NYSCR {opp['id']}: {e}")
+                    
+                time.sleep(0.8)
+        finally:
+            self.close()
 
     def close(self):
         if self.driver:
             self.driver.quit()
             print("Browser closed.")
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-def main():
-    print("=" * 60)
-    print("  NYSCR Scraper — Open Opportunities")
-    print("=" * 60)
-
-    scraper = NYSCRScraper()
-    try:
-        if not scraper.setup_chrome():
-            return
-        if not scraper.login():
-            print("Login failed. Exiting.")
-            return
-
-        # ── Scope selection (asked AFTER successful login) ──────────────
-        print("\n" + "=" * 60)
-        print("  Choose scraping scope:")
-        print("  1. Test run   (first 50 opportunities)")
-        print("  2. Medium run (first 200 opportunities)")
-        print("  3. Full run   (ALL opportunities)")
-        print("=" * 60)
-        while True:
-            choice = input("\n  Enter choice (1/2/3): ").strip()
-            if choice == "1":
-                max_opps = 50
-                print("  → Test run: first 50 opportunities")
-                break
-            elif choice == "2":
-                max_opps = 200
-                print("  → Medium run: first 200 opportunities")
-                break
-            elif choice == "3":
-                max_opps = None          # None = no limit = ALL
-                print("  → Full run: ALL open opportunities")
-                break
-            else:
-                print("  Invalid choice. Please enter 1, 2 or 3.")
-        # ────────────────────────────────────────────────────────────────
-
-        output_file = "nyscr_scraped_data.json"
-        data = scraper.scrape(max_opportunities=max_opps, output_file=output_file)
-
-        if data:
-            scraper.save(data, filename=output_file)
-            print(f"\nFinal output: {output_file} ({len(data)} records)")
-            print("\nSample (first record):")
-            sample = data[0]
-            for key in ['source_id', 'title', 'issuing_organization',
-                        'bid_deadline', 'location_address', 'location_city',
-                        'contact_details']:
-                print(f"  {key}: {sample.get(key)}")
-        else:
-            print("No data scraped.")
-
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.")
-    except Exception as e:
-        print(f"Fatal error: {e}")
-    finally:
-        scraper.close()
-
-
-if __name__ == "__main__":
-    main()

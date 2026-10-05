@@ -64,6 +64,24 @@ class JobExecutor:
         script_info = get_registered_script(request.script_id)
         script_id = script_info["id"]
 
+        import hashlib
+        import json
+        params_json = json.dumps(request.parameters, sort_keys=True)
+        params_hash = hashlib.sha256(params_json.encode("utf-8")).hexdigest()
+
+        # 1.5 Check for duplicate active job (P5.2)
+        from Database import db
+        from Database.models.job import Job
+        with db.transaction():
+            existing = (
+                db.session.query(Job)
+                .filter(Job.script_id == script_id, Job.params_hash == params_hash, Job.status.in_(["Queued", "Running"]))
+                .first()
+            )
+            if existing:
+                logger.info("Found existing active job %s for script %s with same parameters. Returning existing job_id.", existing.id, script_id)
+                return existing.id
+
         # 2. Identifier generation
         job_id = request.custom_job_id or f"job-{int(time.time())}-{uuid.uuid4().hex[:4]}"
         run_id = request.custom_run_id or f"run-{job_id}"
@@ -100,10 +118,15 @@ class JobExecutor:
             dataset_id=dataset_id,
             department_id=request.department_id,
             created_by=request.created_by,
+            query_id=request.query_id,
+            idempotency_key=request.idempotency_key,
             parameters=request.parameters,
             total_target=target_limit,
             commit=True,
         )
+        
+        # update params_hash manually since JobService doesn't accept it
+        job_service.update(job_id, {"params_hash": params_hash}, commit=True)
 
         scrape_run = scrape_run_service.create(
             id=run_id,
@@ -154,8 +177,18 @@ class JobExecutor:
         def telemetry(progress: int, current_step: str, message: str, level: str = "info", records_found: Optional[int] = None):
             try:
                 js = JobService()
+                
+                # Check for cancellation before doing work
+                job = js.get_by_id(job_id)
+                if job and getattr(job, "cancel_requested", False):
+                    raise InterruptedError("Job cancelled by user request.")
+
                 js.update_progress(job_id, progress=progress, current_step=current_step, records_found=records_found, commit=True)
                 js.append_log(job_id, message, level=level.upper(), commit=True)
+                
+                # Update heartbeat
+                from datetime import datetime, timezone
+                js.update(job_id, {"heartbeat_at": datetime.now(timezone.utc)}, commit=True)
             except Exception as te:
                 logger.warning(f"Telemetry update failed: {te}")
 
@@ -175,6 +208,7 @@ class JobExecutor:
 
             elapsed = int(time.time() - start_time)
             duration_str = f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
+            logger.info("Scrape execution completed", extra={"metric_name": "scrape_duration", "duration_seconds": elapsed, "script_id": script_id, "job_id": job_id})
 
             # 2. Standardize records into canonical lead structure
             standardized_leads = standardize_records(raw_records, script_id, dataset_id)
@@ -209,9 +243,10 @@ class JobExecutor:
                 )
 
             # Atomically ingest validated leads only
+            ingested_lead_ids = []
             for lead_item in validated_leads:
                 try:
-                    _, created = lead_service.ingest_lead_atomic(
+                    lead_obj, created = lead_service.ingest_lead_atomic(
                         organization_name=lead_item.get("organization_name"),
                         contact_name=lead_item.get("contact_name"),
                         email=lead_item.get("email"),
@@ -227,6 +262,7 @@ class JobExecutor:
                         lead_metadata=lead_item.get("lead_metadata"),
                         commit=True,
                     )
+                    ingested_lead_ids.append(lead_obj.id)
                     if created:
                         created_leads_count += 1
                 except Exception as le:
@@ -268,12 +304,66 @@ class JobExecutor:
                 level="INFO",
                 commit=True,
             )
+            logger.info("Scrape job finished", extra={
+                "metric_name": "scrape_summary",
+                "script_id": script_id,
+                "job_id": job_id,
+                "duration_seconds": elapsed,
+                "records_found": len(raw_records),
+                "duplicates_prevented": len(validated_leads) - created_leads_count,
+                "errors_count": rejected_count
+            })
 
+            # 5. P5.7 Completion Handling for Agent Queries
+            if request.query_id:
+                try:
+                    from Database import db
+                    from Database.models.query import Query
+                    from Database.models.message import AgentMessage
+                    from Database.models.query_result import QueryResult
+                    from datetime import datetime, timezone
+                    
+                    with db.transaction():
+                        query = db.session.get(Query, request.query_id)
+                        if query:
+                            query.decision = "served_scrape"
+                            query.records_returned = len(ingested_lead_ids)
+                            query.records_new = created_leads_count
+                            query.records_updated = len(validated_leads) - created_leads_count
+                            query.served_at = datetime.now(timezone.utc)
+                            
+                            for rank, l_id in enumerate(ingested_lead_ids):
+                                qr = QueryResult(query_id=query.id, lead_id=l_id, rank=rank)
+                                db.session.merge(qr)
+                                
+                            if query.session_id:
+                                msg = AgentMessage(
+                                    session_id=query.session_id,
+                                    sender="system",
+                                    role="system_event",
+                                    text=f"job {job_id} finished: {created_leads_count} new, {len(validated_leads) - created_leads_count} updated"
+                                )
+                                db.session.add(msg)
+                except Exception as ex:
+                    logger.warning("Failed to record query completion metrics: %s", ex)
+
+        except InterruptedError as ie:
+            logger.info("Job cancelled", extra={"metric_name": "scrape_cancelled", "script_id": script_id, "job_id": job_id})
+            try:
+                job_service = JobService()
+                scrape_run_service = ScrapeRunService()
+                job_service.fail(job_id, error_message=str(ie), commit=True)
+                scrape_run_service.fail(run_id, error_message=str(ie), commit=True)
+                DatasetService().update(dataset_id, {"status": "Failed"}, commit=True)
+                job_service.append_log(job_id, f"Job Cancelled: {ie}", level="WARNING", commit=True)
+            except Exception as fe:
+                logger.error(f"Failed to record execution cancellation to database: {fe}")
         except Exception as e:
             # Failure handling: ensure Job and ScrapeRun are marked Failed with error details
             elapsed = int(time.time() - start_time)
             duration_str = f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
             error_msg = str(e)
+            logger.error(f"Worker exception: {e}", exc_info=True, extra={"metric_name": "scrape_failure", "script_id": script_id, "job_id": job_id, "duration_seconds": elapsed})
 
             try:
                 job_service = JobService()

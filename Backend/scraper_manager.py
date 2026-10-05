@@ -95,30 +95,63 @@ class ScraperManager:
         self,
         dataset_id: Optional[str] = None,
         query: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """Return leads from PostgreSQL, optionally filtered by dataset or keyword."""
-        lead_service = LeadService()
-        if dataset_id:
-            db_leads = lead_service.list_by_dataset(dataset_id)
-        else:
-            db_leads = lead_service.list(limit=200)
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
+        """Return leads from PostgreSQL, paginated and optionally filtered."""
+        from Database import db
+        from Database.models.lead import Lead
+        from Database.models.organization import Organization
+        from Database.models.contact import Contact
+        from Database.models.dataset import DatasetRecord
+        from sqlalchemy import select, func, or_
+        from sqlalchemy.orm import selectinload
 
-        serialized = [self._serialize_db_lead(l) for l in db_leads]
+        session = db.session
+        stmt = select(Lead).options(
+            selectinload(Lead.organization),
+            selectinload(Lead.contact).selectinload(Contact.emails),
+            selectinload(Lead.contact).selectinload(Contact.phones),
+        )
+
+        conditions = []
+        if dataset_id:
+            # Join through DatasetRecord
+            stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
+            conditions.append(DatasetRecord.dataset_id == dataset_id)
 
         if query:
-            q = query.lower()
-            serialized = [
-                l for l in serialized
-                if q in (
-                    " ".join([
-                        l.get("name", ""),
-                        l.get("company", ""),
-                        l.get("title", ""),
-                        l.get("location", ""),
-                    ])
-                ).lower()
-            ]
-        return serialized
+            q = f"%{query}%"
+            stmt = stmt.outerjoin(Organization, Lead.organization_id == Organization.id)
+            stmt = stmt.outerjoin(Contact, Lead.contact_id == Contact.id)
+            conditions.append(or_(
+                Contact.full_name.ilike(q),
+                Organization.name.ilike(q),
+                Lead.title.ilike(q),
+                Lead.notes.ilike(q),
+            ))
+
+        if conditions:
+            from sqlalchemy import and_
+            stmt = stmt.where(and_(*conditions))
+
+        # Count total
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = session.scalar(count_stmt) or 0
+
+        # Paginate
+        offset = (page - 1) * page_size
+        stmt = stmt.order_by(Lead.created_at.desc()).offset(offset).limit(page_size)
+        db_leads = list(session.scalars(stmt).all())
+
+        items = [self._serialize_db_lead(l) for l in db_leads]
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+        }
 
     # ------------------------------------------------------------------
     # Job creation — single canonical execution path
@@ -128,6 +161,10 @@ class ScraperManager:
         self,
         script_id: str,
         parameters: Dict[str, Any],
+        created_by: str,
+        department_id: str,
+        query_id: str,
+        idempotency_key: str,
         dataset_id: Optional[str] = None,
     ) -> str:
         """
@@ -151,8 +188,10 @@ class ScraperManager:
         req = ExecutionRequest(
             script_id=script_id,
             parameters=parameters,
-            department_id="dept-sales-1",
-            created_by="usr-ahmed",
+            department_id=department_id,
+            created_by=created_by,
+            query_id=query_id,
+            idempotency_key=idempotency_key,
             dataset_id=dataset_id,
         )
         job_id = job_executor.submit_job(req, background=True)
@@ -188,9 +227,9 @@ class ScraperManager:
             "script_id": j.script_id,
             "scriptName": j.script_name or j.script_id,
             "script_name": j.script_name or j.script_id,
-            "departmentId": j.department_id or "dept-sales-1",
-            "department_id": j.department_id or "dept-sales-1",
-            "departmentName": "Sales 1",
+            "departmentId": j.department_id,
+            "department_id": j.department_id,
+            "departmentName": j.department.name if hasattr(j, "department") and j.department else None,
             "progress": j.progress or 0,
             "status": j.status,
             "currentStep": j.current_step or "",
@@ -203,7 +242,7 @@ class ScraperManager:
             "verifiedCount": j.verified_count or 0,
             "duplicatesCount": j.duplicates_count or 0,
             "errorsCount": j.errors_count or 0,
-            "totalTarget": j.total_target or 20,
+            "totalTarget": j.total_target,
             "datasetId": j.dataset_id or "",
             "dataset_id": j.dataset_id or "",
             "parameters": j.parameters or {},
@@ -216,10 +255,10 @@ class ScraperManager:
         return {
             "id": d.id,
             "name": d.name,
-            "departmentId": d.department_id or "dept-sales-1",
-            "departmentName": "Sales 1",
-            "createdBy": d.created_by or "usr-ahmed",
-            "createdByName": "Ahmed Khan",
+            "departmentId": d.department_id,
+            "departmentName": d.department.name if hasattr(d, "department") and d.department else None,
+            "createdBy": d.created_by,
+            "createdByName": d.creator.name if hasattr(d, "creator") and d.creator else None,
             "recordsCount": d.records_count or 0,
             "verifiedCount": d.verified_count or 0,
             "duplicatesCount": d.duplicates_count or 0,
@@ -262,14 +301,14 @@ class ScraperManager:
             "title": l.title or "",
             "email": email,
             "phone": phone,
-            "location": "USA",
+            "location": None,
             "status": l.status or "New",
-            "assignedTo": l.assigned_to or "usr-ahmed",
-            "assigned_to": l.assigned_to or "usr-ahmed",
-            "assignedToName": "Ahmed Khan",
-            "departmentId": l.department_id or "dept-sales-1",
-            "department_id": l.department_id or "dept-sales-1",
-            "departmentName": "Sales 1",
+            "assignedTo": l.assigned_to,
+            "assigned_to": l.assigned_to,
+            "assignedToName": l.assigned_user.name if hasattr(l, "assigned_user") and l.assigned_user else None,
+            "departmentId": l.department_id,
+            "department_id": l.department_id,
+            "departmentName": l.department.name if hasattr(l, "department") and l.department else None,
             "lastActivity": l.last_activity or "",
             "companySize": "",
             "website": website or "",

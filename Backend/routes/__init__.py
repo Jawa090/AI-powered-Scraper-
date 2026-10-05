@@ -1,7 +1,5 @@
 """
-agents/__init__.py
+routes/__init__.py
 ──────────────────
-Agent orchestration package.
+API router package.
 """
-
-__all__ = []

@@ -10,10 +10,9 @@ closing dates, and details from the City of Dallas Bonfire portal.
 import os
 import sys
 import re
-import json
 import time
 
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Iterator
 from datetime import datetime
 
 from selenium import webdriver
@@ -22,11 +21,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 
+from scrappers.base import BaseScraper, ScrapeParams, RawRecord
+
 BASE_URL = "https://dallascityhall.bonfirehub.com/portal/?tab=openOpportunities"
-OUTPUT_FILE = "dallas_bonfire_data.json"
 
+class DallasBonfireScraper(BaseScraper):
+    source_code = "BONFIRE"
 
-class DallasBonfireScraper:
     def __init__(self, headless: bool = True):
         self.headless = headless
         self.driver: Optional[webdriver.Chrome] = None
@@ -105,25 +106,25 @@ class DallasBonfireScraper:
                 if not link_el and links:
                     link_el = links[0]
 
-                url = link_el.get_attribute("href") if link_el else BASE_URL
+                url = link_el.get_attribute("href") if link_el else ""
+                
+                # P4.2: Never fall back to shared BASE_URL; skip record instead
+                if not url or url == BASE_URL:
+                    print(f"Skipping row {idx} due to missing specific opportunity URL.")
+                    continue
 
                 status = "OPEN"
                 ref_num = f"DAL-{idx+1:04d}"
                 project_title = "Dallas City Procurement"
                 close_date = "Open"
-                days_left = ""
 
                 if cells and len(cells) >= 4:
                     status = cells[0].text.strip() or "OPEN"
                     ref_num = cells[1].text.strip()
-                    # project title might be in cell 2
                     project_title = cells[2].text.strip()
                     if len(cells) >= 4:
                         close_date = cells[3].text.strip()
-                    if len(cells) >= 5:
-                        days_left = cells[4].text.strip()
                 else:
-                    # Parse from text line
                     parts = text.split("\n")
                     if len(parts) >= 2:
                         ref_num = parts[0]
@@ -137,11 +138,9 @@ class DallasBonfireScraper:
                     "status": status,
                     "ref_number": ref_num,
                     "close_date": close_date,
-                    "days_left": days_left,
                     "issuing_organization": "City of Dallas",
                     "location": "Dallas, TX, USA",
                     "url": url,
-                    "extracted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
                 results.append(item)
             except Exception as row_err:
@@ -215,59 +214,46 @@ class DallasBonfireScraper:
 
         return opportunity
 
-    def scrape(
-        self,
-        max_opportunities: Optional[int] = None,
-        output_file: str = OUTPUT_FILE,
-        progress_callback: Optional[Callable[[int, str, Optional[Dict]], None]] = None,
-    ) -> List[Dict[str, Any]]:
-        """Main scraping workflow with progress reporting."""
+    def run(self, params: ScrapeParams) -> Iterator[RawRecord]:
+        """Execute the scrape returning an iterator of RawRecords."""
         if not self.driver:
             if not self.setup_chrome():
-                return []
+                raise RuntimeError("Failed to initialize Chrome driver.")
 
         try:
-            if progress_callback:
-                progress_callback(10, "Connecting to Dallas City Hall Bonfire Hub...", None)
-
+            # Respect params.timeout_s for page loads if needed
+            self.driver.set_page_load_timeout(params.timeout_s)
+            
             opps = self.discover_opportunities()
-            if max_opportunities:
-                opps = opps[:max_opportunities]
+            if params.limit:
+                opps = opps[:params.limit]
 
-            total = len(opps)
-            if total == 0:
-                if progress_callback:
-                    progress_callback(100, "No active opportunities found.", None)
-                return []
-
-            results = []
-            for i, opp in enumerate(opps):
-                pct = 20 + int((i / total) * 75)
-                msg = f"Extracting opportunity {i+1}/{total}: {opp.get('ref_number')} - {opp.get('title')[:40]}..."
-                if progress_callback:
-                    progress_callback(pct, msg, opp)
+            for opp in opps:
+                # Optionally filter by location/keyword here
+                if params.keyword and params.keyword.lower() not in str(opp).lower():
+                    continue
 
                 enriched = self.extract_details(opp)
-                results.append(enriched)
+                
+                # Map to RawRecord
+                record = RawRecord(
+                    external_id=enriched.get("ref_number") or enriched.get("url"),
+                    source_url=enriched.get("url"),
+                    organization_name=enriched.get("issuing_organization"),
+                    contact_name=enriched.get("contact_person"),
+                    email=enriched.get("contact_email"),
+                    title=enriched.get("title"),
+                    location=enriched.get("location"),
+                    notes=enriched.get("description"),
+                    lead_metadata={
+                        "status": enriched.get("status"),
+                        "close_date": enriched.get("close_date"),
+                    }
+                )
+                yield record
                 time.sleep(0.5)
-
-            # Save results
-            self.save(results, output_file)
-
-            if progress_callback:
-                progress_callback(100, f"Extraction completed. {len(results)} opportunities saved.", None)
-
-            return results
         finally:
             self.close()
-
-    def save(self, data: List[Dict[str, Any]], filename: str = OUTPUT_FILE):
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            print(f"Saved {len(data)} opportunities to {filename}")
-        except Exception as e:
-            print(f"Error saving to {filename}: {e}", file=sys.stderr)
 
     def close(self):
         if self.driver:
@@ -276,25 +262,3 @@ class DallasBonfireScraper:
             except Exception:
                 pass
             self.driver = None
-
-
-def main():
-    print("=" * 60)
-    print("  Dallas City Hall Bonfire Scraper")
-    print("=" * 60)
-    scraper = DallasBonfireScraper(headless=True)
-    try:
-        results = scraper.scrape(max_opportunities=10)
-        print(f"\nExtracted {len(results)} opportunities:")
-        for r in results[:5]:
-            print(f"- [{r.get('ref_number')}] {r.get('title')} | Closes: {r.get('close_date')}")
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.")
-    except Exception as e:
-        print(f"Error: {e}")
-    finally:
-        scraper.close()
-
-
-if __name__ == "__main__":
-    main()

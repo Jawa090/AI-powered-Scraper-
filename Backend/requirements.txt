@@ -32,3 +32,15 @@ langgraph>=1.2.0
 langchain-core>=1.6.0
 langchain-google-genai>=4.4.0
 langchain-openai>=1.6.0
+
+# --- Added for P10.6 ---
+redis>=5.0.0
+rq>=1.15.0
+phonenumbers>=8.13.0
+pyjwt>=2.8.0
+passlib[bcrypt]>=1.7.4
+langgraph-checkpoint-postgres>=2.0.0
+psycopg[pool]>=3.1.0
+testcontainers[postgres]>=3.7.1
+
+sentry-sdk==2.14.0

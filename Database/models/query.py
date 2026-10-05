@@ -56,7 +56,7 @@ class Query(Base):
     user: Mapped[Optional["User"]] = relationship("User")
     source: Mapped[Optional["Source"]] = relationship("Source")
     scrape_runs: Mapped[List["ScrapeRun"]] = relationship("ScrapeRun", back_populates="query")
-    jobs: Mapped[List["Job"]] = relationship("Job", back_populates="query")
+    jobs: Mapped[List["Job"]] = relationship("Job", back_populates="query", foreign_keys="[Job.query_id]")
 
     def __repr__(self) -> str:
         return f"<Query(id='{self.id}', status='{self.status}', source_id='{self.source_id}')>"

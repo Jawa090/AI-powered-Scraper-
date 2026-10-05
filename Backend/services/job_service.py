@@ -70,6 +70,8 @@ class JobService(BaseService):
         dataset_id: Optional[str] = None,
         department_id: Optional[str] = None,
         created_by: Optional[str] = None,
+        query_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
         total_target: int = 20,
         commit: bool = True,
@@ -84,6 +86,8 @@ class JobService(BaseService):
             "dataset_id": dataset_id,
             "department_id": department_id,
             "created_by": created_by,
+            "query_id": query_id,
+            "idempotency_key": idempotency_key,
             "parameters": parameters or {},
             "status": "Queued",
             "progress": 0,
@@ -219,8 +223,8 @@ class JobService(BaseService):
     def fail(
         self,
         job_id: str,
-        error_message: str,
         *,
+        error_message: str,
         commit: bool = True,
     ) -> Optional[Job]:
         """Mark a job as Failed."""

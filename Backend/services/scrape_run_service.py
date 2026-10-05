@@ -162,8 +162,8 @@ class ScrapeRunService(BaseService):
     def fail(
         self,
         run_id: str,
-        error_message: str,
         *,
+        error_message: str,
         commit: bool = True,
     ) -> Optional[ScrapeRun]:
         """Mark a scrape run as Failed with error message."""

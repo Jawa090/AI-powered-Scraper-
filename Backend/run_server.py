@@ -5,13 +5,6 @@ Launches Uvicorn on 0.0.0.0:8000.
 """
 
 import os
-import sys
-
-# Ensure project root is in path so `from Database import db` works
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
 import uvicorn
 
 if __name__ == "__main__":
@@ -19,4 +12,8 @@ if __name__ == "__main__":
     print("  Starting DataOps AI FastAPI Backend on http://127.0.0.1:8000")
     print("  Docs: http://127.0.0.1:8000/docs")
     print("=" * 60)
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    
+    # Reload only in development environment
+    should_reload = os.environ.get("ENVIRONMENT", "development").lower() == "development"
+    
+    uvicorn.run("Backend.app:app", host="0.0.0.0", port=8000, reload=should_reload)

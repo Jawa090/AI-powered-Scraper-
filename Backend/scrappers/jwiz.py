@@ -53,7 +53,8 @@ import requests
 from bs4 import BeautifulSoup, Tag
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
+from typing import Iterator
+from scrappers.base import BaseScraper, ScrapeParams, RawRecord
 
 # ============================================================
 # CONFIGURATION
@@ -2771,6 +2772,78 @@ def main():
         )
 
     print("=" * 72)
+
+
+class JWizAdapter(BaseScraper):
+    source_code = "JWIZ"
+
+    def run(self, params: ScrapeParams) -> Iterator[RawRecord]:
+        location = params.location or "new-york"
+        keyword = params.keyword or "contractor"
+        limit = params.limit or 25
+
+        client = HTTPClient()
+        try:
+            found_names = set()
+            page = 0
+            max_pages = max(1, (limit + 99) // 100)
+            yielded = 0
+
+            while yielded < limit and page < max_pages:
+                offset = page * 100
+                url = build_search_url(location, keyword, offset)
+                res = client.get(url)
+                if res is None or res.status_code != 200:
+                    status_code = res.status_code if res else "Connection Error"
+                    if page == 0:
+                        raise RuntimeError(f"JWiz search request failed with status {status_code}")
+                    break
+
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(res.text, "html.parser")
+                cards = find_result_cards(soup)
+                if not cards:
+                    break
+
+                for card in cards:
+                    if yielded >= limit:
+                        break
+
+                    name = extract_company_name(card)
+                    if not name or len(name) < 3 or name in found_names:
+                        continue
+
+                    found_names.add(name)
+                    phone = extract_phone(card)
+                    email = extract_email(card)
+                    loc_line = extract_location_line(card)
+                    city, state = extract_city_state(loc_line)
+                    profile_link = extract_profile_url(card)
+
+                    # P4.2 Stable ID: profile_url
+                    external_id = profile_link if profile_link else f"JWIZ-{name}-{phone}"
+                    if not profile_link:
+                        print(f"Warning: No profile_url found for {name}, generating fallback ID.")
+
+                    yield RawRecord(
+                        external_id=external_id,
+                        source_url=profile_link or url,
+                        organization_name=name,
+                        email=email,
+                        phone=phone,
+                        location=f"{city}, {state}" if city and state else (city or state),
+                        title=f"{keyword.title()} in {location.title()}",
+                        lead_metadata={
+                            "status": "OPEN",
+                            "priority": extract_lead_priority(card)
+                        }
+                    )
+                    yielded += 1
+
+                page += 1
+                time.sleep(1)
+        finally:
+            client.close()
 
 
 if __name__ == "__main__":
