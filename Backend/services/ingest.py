@@ -23,13 +23,16 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from Database.models.contact import Contact
-from Database.models.dataset import DatasetRecord
+from Database.models.dataset import Dataset, DatasetRecord
+from Database.models.department import Department
 from Database.models.email import Email
 from Database.models.lead import Lead
 from Database.models.lead_source import LeadSource
 from Database.models.location import Location
 from Database.models.organization import Organization
 from Database.models.phone import Phone
+from Database.models.scrape_run import ScrapeRun
+from Database.models.source import Source
 from Database.normalize import (
     fingerprint,
     lead_identity,
@@ -125,6 +128,44 @@ def upsert_leads(
     if not record_list:
         return result
 
+    # Validate foreign keys once at top-level
+    valid_source_id: Optional[str] = None
+    if source_id:
+        src_row = session.execute(
+            select(Source.id).where(or_(Source.id == source_id, Source.code == source_id.upper()))
+        ).first()
+        if src_row:
+            valid_source_id = src_row[0]
+
+    valid_department_id: Optional[str] = None
+    if department_id:
+        dept_row = session.execute(
+            select(Department.id).where(Department.id == department_id)
+        ).first()
+        if dept_row:
+            valid_department_id = dept_row[0]
+
+    valid_dataset_id: Optional[str] = None
+    if dataset_id:
+        ds_row = session.execute(
+            select(Dataset.id).where(Dataset.id == dataset_id)
+        ).first()
+        if ds_row:
+            valid_dataset_id = ds_row[0]
+
+    valid_scrape_run_id: Optional[str] = None
+    if scrape_run_id:
+        sr_row = session.execute(
+            select(ScrapeRun.id).where(ScrapeRun.id == scrape_run_id)
+        ).first()
+        if sr_row:
+            valid_scrape_run_id = sr_row[0]
+
+    # Pre-cache known sources by id
+    valid_sources_cache: Set[str] = {
+        s[0] for s in session.execute(select(Source.id)).fetchall()
+    }
+
     # Master map of record index -> lead_id to maintain input order
     input_to_lead_id: Dict[int, Optional[str]] = {}
 
@@ -137,10 +178,11 @@ def upsert_leads(
             batch_offset=batch_start,
             result=result,
             input_to_lead_id=input_to_lead_id,
-            dataset_id=dataset_id,
-            scrape_run_id=scrape_run_id,
-            source_id=source_id,
-            department_id=department_id,
+            dataset_id=valid_dataset_id,
+            scrape_run_id=valid_scrape_run_id,
+            source_id=valid_source_id,
+            department_id=valid_department_id,
+            valid_sources_cache=valid_sources_cache,
         )
 
     # Reconstruct lead_ids in original input order (omitting skipped/failed None entries)
@@ -164,6 +206,7 @@ def _process_batch_with_retry(
     scrape_run_id: Optional[str],
     source_id: Optional[str],
     department_id: Optional[str],
+    valid_sources_cache: Set[str],
 ) -> None:
     """Process a single batch of <= 100 records with deadlock retry."""
     max_attempts = 2
@@ -180,6 +223,7 @@ def _process_batch_with_retry(
                     scrape_run_id=scrape_run_id,
                     source_id=source_id,
                     department_id=department_id,
+                    valid_sources_cache=valid_sources_cache,
                 )
             break
         except Exception as exc:
@@ -204,8 +248,13 @@ def _process_batch(
     scrape_run_id: Optional[str],
     source_id: Optional[str],
     department_id: Optional[str],
+    valid_sources_cache: Set[str],
 ) -> None:
     """Core logic to normalize, dedup, and upsert a batch of leads."""
+    local_skipped = 0
+    local_errors: List[str] = []
+    local_input_to_lead_id: Dict[int, Optional[str]] = {}
+
     # Step 1: Normalize and compute identity keys
     merged_items_by_key: Dict[str, Dict[str, Any]] = {}
     key_to_input_indices: Dict[str, List[int]] = {}
@@ -213,33 +262,97 @@ def _process_batch(
     for idx_in_batch, rec in enumerate(batch):
         global_idx = batch_offset + idx_in_batch
 
-        kind = _get(rec, "record_kind") or _get(rec, "kind") or "opportunity"
+        kind = _get(rec, "record_kind") or _get(rec, "kind")
         src_code = _get(rec, "source_code") or source_id
+        if src_code:
+            src_code = str(src_code).strip().lower()[:50]
         ext_id = _get(rec, "external_id")
+        if ext_id is not None:
+            ext_id = str(ext_id).strip()[:255]
+
         src_url = _get(rec, "source_url")
+        if src_url:
+            src_url = str(src_url).strip()[:1000]
+
         title = _get(rec, "title")
+        if title:
+            title = str(title).strip()[:500]
+
         description = _get(rec, "description") or _get(rec, "notes")
+        if description is not None:
+            description = str(description).strip()
+
         org_name = (
             _get(rec, "organization_name")
             or _get(rec, "company_name")
             or _get(rec, "agency")
             or _get(rec, "buyer")
         )
+        if org_name:
+            org_name = str(org_name).strip()[:255]
+
         contact_name = _get(rec, "contact_name")
+        if contact_name:
+            contact_name = str(contact_name).strip()[:255]
+
         contact_title = _get(rec, "contact_title")
+        if contact_title:
+            contact_title = str(contact_title).strip()[:255]
+
         email = _get(rec, "email")
+        if email:
+            email = str(email).strip()[:255]
+
         phone = _get(rec, "phone")
+        if phone:
+            phone = str(phone).strip()[:100]
+
         website = _get(rec, "website")
+        if website:
+            website = str(website).strip()[:500]
+
         city = _get(rec, "city")
+        if city:
+            city = str(city).strip()[:100]
+
         us_state = _get(rec, "us_state") or _get(rec, "state")
+        if us_state:
+            us_state = str(us_state).strip()[:50]
+
         postal_code = _get(rec, "postal_code") or _get(rec, "postal")
+        if postal_code:
+            postal_code = str(postal_code).strip()[:20]
+
         category = _get(rec, "category") or _get(rec, "industry")
+        if category:
+            category = str(category).strip()[:255]
+
         due_at_raw = _get(rec, "due_at") or _get(rec, "due_date") or _get(rec, "close_date")
         extra = _get(rec, "extra") or _get(rec, "lead_metadata") or {}
+        if not isinstance(extra, dict):
+            extra = {}
+
         email_type = _get(rec, "email_type")
+        if email_type:
+            email_type = str(email_type).strip()[:50]
+        else:
+            email_type = "work"
+
         phone_type = _get(rec, "phone_type")
+        if phone_type:
+            phone_type = str(phone_type).strip()[:50]
+        else:
+            phone_type = "office"
+
         country = _get(rec, "country")
+        if country:
+            country = str(country).strip()[:50]
+        else:
+            country = "USA"
+
         raw_loc = _get(rec, "location") or _get(rec, "raw_location")
+        if raw_loc is not None:
+            raw_loc = str(raw_loc).strip()[:255]
 
         # Parse location string if city/state/postal not explicit
         if raw_loc and (not city or not us_state or not postal_code):
@@ -274,11 +387,11 @@ def _process_batch(
         )
 
         if not id_key:
-            result.skipped += 1
-            result.errors.append(
+            local_skipped += 1
+            local_errors.append(
                 f"Record #{global_idx} missing identity: kind={kind}, src={src_code}, ext_id={ext_id}, fp={fp}"
             )
-            input_to_lead_id[global_idx] = None
+            local_input_to_lead_id[global_idx] = None
             continue
 
         # Compute organization dedup key
@@ -332,30 +445,49 @@ def _process_batch(
             key_to_input_indices[id_key] = [global_idx]
 
     if not merged_items_by_key:
+        result.skipped += local_skipped
+        result.errors.extend(local_errors)
+        input_to_lead_id.update(local_input_to_lead_id)
         return
 
     merged_items = list(merged_items_by_key.values())
+
+    # Helper to resolve per-item source_id
+    def resolve_source_id(item_src: Optional[str]) -> Optional[str]:
+        if source_id:
+            return source_id
+        if item_src and item_src.lower() in valid_sources_cache:
+            return item_src.lower()
+        return None
 
     # Step 2: Organizations Upsert
     org_id_by_key: Dict[str, str] = {}
     unique_orgs: Dict[str, Dict[str, Any]] = {}
     for item in merged_items:
         dedup_k = item.get("org_dedup")
-        if dedup_k and dedup_k not in unique_orgs:
-            unique_orgs[dedup_k] = {
-                "id": str(uuid.uuid4()),
-                "name": item["organization_name"].strip(),
-                "normalized_name": normalize_name(item["organization_name"]),
-                "dedup_key": dedup_k,
-                "website": item.get("website"),
-                "domain": item.get("norm_domain"),
-                "industry": item.get("category"),
-                "primary_source_id": source_id,
-                "source_scrape_run_id": scrape_run_id,
-            }
+        if dedup_k:
+            if dedup_k not in unique_orgs:
+                unique_orgs[dedup_k] = {
+                    "id": str(uuid.uuid4()),
+                    "name": item["organization_name"].strip(),
+                    "normalized_name": normalize_name(item["organization_name"]),
+                    "dedup_key": dedup_k,
+                    "website": item.get("website"),
+                    "domain": item.get("norm_domain"),
+                    "industry": item.get("category"),
+                    "primary_source_id": resolve_source_id(item.get("source_code")),
+                    "source_scrape_run_id": scrape_run_id,
+                }
+            else:
+                existing_org = unique_orgs[dedup_k]
+                for fld in ("website", "domain", "industry"):
+                    if not existing_org.get(fld) and item.get(fld):
+                        existing_org[fld] = item.get(fld)
 
     if unique_orgs:
-        org_stmt = pg_insert(Organization).values(list(unique_orgs.values()))
+        # Sort by dedup_key for deterministic lock order
+        sorted_orgs = sorted(unique_orgs.values(), key=lambda o: o["dedup_key"])
+        org_stmt = pg_insert(Organization).values(sorted_orgs)
         org_stmt = org_stmt.on_conflict_do_update(
             index_elements=["dedup_key"],
             set_={
@@ -371,8 +503,8 @@ def _process_batch(
 
     # Step 3: Contacts, Emails, Phones, Locations
     # 3a. Contacts
-    contacts_to_insert = []
-    seen_contacts = set()
+    candidate_contacts: List[Dict[str, Any]] = []
+    seen_contacts: Set[Tuple[Optional[str], str]] = set()
     for item in merged_items:
         c_name = item.get("contact_name")
         if c_name and c_name.strip():
@@ -382,33 +514,47 @@ def _process_batch(
             c_key = (org_id, norm_name)
             if c_key not in seen_contacts:
                 seen_contacts.add(c_key)
-                contacts_to_insert.append({
+                candidate_contacts.append({
                     "id": str(uuid.uuid4()),
                     "organization_id": org_id,
                     "full_name": clean_name,
                     "normalized_full_name": norm_name,
                     "title": item.get("contact_title"),
-                    "primary_source_id": source_id,
+                    "primary_source_id": resolve_source_id(item.get("source_code")),
                     "source_scrape_run_id": scrape_run_id,
                 })
 
     contact_map: Dict[Tuple[Optional[str], str], str] = {}
-    if contacts_to_insert:
-        c_stmt = pg_insert(Contact).values(contacts_to_insert).on_conflict_do_nothing()
-        session.execute(c_stmt)
-
-        # Select IDs by natural key (organization_id, normalized_full_name)
-        norm_names = [c["normalized_full_name"] for c in contacts_to_insert]
-        c_rows = session.execute(
+    if candidate_contacts:
+        norm_names = [c["normalized_full_name"] for c in candidate_contacts]
+        c_existing_rows = session.execute(
             select(Contact.id, Contact.organization_id, Contact.normalized_full_name).where(
                 Contact.normalized_full_name.in_(norm_names)
             )
         ).fetchall()
-        contact_map = {(r.organization_id, r.normalized_full_name): r.id for r in c_rows}
+        for r in c_existing_rows:
+            contact_map[(r.organization_id, r.normalized_full_name)] = r.id
+
+        contacts_to_insert = [
+            c for c in candidate_contacts
+            if (c["organization_id"], c["normalized_full_name"]) not in contact_map
+        ]
+        if contacts_to_insert:
+            contacts_to_insert.sort(key=lambda c: (c["organization_id"] or "", c["normalized_full_name"]))
+            c_stmt = pg_insert(Contact).values(contacts_to_insert).on_conflict_do_nothing()
+            session.execute(c_stmt)
+
+            c_new_rows = session.execute(
+                select(Contact.id, Contact.organization_id, Contact.normalized_full_name).where(
+                    Contact.normalized_full_name.in_([c["normalized_full_name"] for c in contacts_to_insert])
+                )
+            ).fetchall()
+            for r in c_new_rows:
+                contact_map[(r.organization_id, r.normalized_full_name)] = r.id
 
     # 3b. Emails
-    emails_to_insert = []
-    seen_emails = set()
+    candidate_emails: List[Dict[str, Any]] = []
+    seen_emails: Set[Tuple[str, Optional[str], Optional[str]]] = set()
     for item in merged_items:
         if item.get("norm_email"):
             org_id = org_id_by_key.get(item["org_dedup"]) if item.get("org_dedup") else None
@@ -417,24 +563,39 @@ def _process_batch(
             e_key = (item["norm_email"], org_id, c_id)
             if e_key not in seen_emails:
                 seen_emails.add(e_key)
-                emails_to_insert.append({
+                candidate_emails.append({
                     "id": str(uuid.uuid4()),
                     "organization_id": org_id,
                     "contact_id": c_id,
                     "email": item["email"].strip(),
                     "normalized_email": item["norm_email"],
                     "email_type": item.get("email_type"),
-                    "source_id": source_id,
+                    "source_id": resolve_source_id(item.get("source_code")),
                     "is_primary": True,
                 })
 
-    if emails_to_insert:
-        e_stmt = pg_insert(Email).values(emails_to_insert).on_conflict_do_nothing()
-        session.execute(e_stmt)
+    if candidate_emails:
+        norm_emails = [e["normalized_email"] for e in candidate_emails]
+        existing_e_rows = session.execute(
+            select(Email.normalized_email, Email.organization_id, Email.contact_id).where(
+                Email.normalized_email.in_(norm_emails)
+            )
+        ).fetchall()
+        existing_emails_set = {
+            (r.normalized_email, r.organization_id, r.contact_id) for r in existing_e_rows
+        }
+        emails_to_insert = [
+            e for e in candidate_emails
+            if (e["normalized_email"], e["organization_id"], e["contact_id"]) not in existing_emails_set
+        ]
+        if emails_to_insert:
+            emails_to_insert.sort(key=lambda e: (e["normalized_email"], e["organization_id"] or "", e["contact_id"] or ""))
+            e_stmt = pg_insert(Email).values(emails_to_insert).on_conflict_do_nothing()
+            session.execute(e_stmt)
 
     # 3c. Phones
-    phones_to_insert = []
-    seen_phones = set()
+    candidate_phones: List[Dict[str, Any]] = []
+    seen_phones: Set[Tuple[str, Optional[str], Optional[str]]] = set()
     for item in merged_items:
         if item.get("norm_phone"):
             org_id = org_id_by_key.get(item["org_dedup"]) if item.get("org_dedup") else None
@@ -443,48 +604,80 @@ def _process_batch(
             p_key = (item["norm_phone"], org_id, c_id)
             if p_key not in seen_phones:
                 seen_phones.add(p_key)
-                phones_to_insert.append({
+                candidate_phones.append({
                     "id": str(uuid.uuid4()),
                     "organization_id": org_id,
                     "contact_id": c_id,
                     "phone_raw": item["phone"].strip(),
                     "normalized_phone": item["norm_phone"],
                     "phone_type": item.get("phone_type"),
-                    "source_id": source_id,
+                    "source_id": resolve_source_id(item.get("source_code")),
                     "is_primary": True,
                 })
 
-    if phones_to_insert:
-        p_stmt = pg_insert(Phone).values(phones_to_insert).on_conflict_do_nothing()
-        session.execute(p_stmt)
+    if candidate_phones:
+        norm_phones = [p["normalized_phone"] for p in candidate_phones]
+        existing_p_rows = session.execute(
+            select(Phone.normalized_phone, Phone.organization_id, Phone.contact_id).where(
+                Phone.normalized_phone.in_(norm_phones)
+            )
+        ).fetchall()
+        existing_phones_set = {
+            (r.normalized_phone, r.organization_id, r.contact_id) for r in existing_p_rows
+        }
+        phones_to_insert = [
+            p for p in candidate_phones
+            if (p["normalized_phone"], p["organization_id"], p["contact_id"]) not in existing_phones_set
+        ]
+        if phones_to_insert:
+            phones_to_insert.sort(key=lambda p: (p["normalized_phone"], p["organization_id"] or "", p["contact_id"] or ""))
+            p_stmt = pg_insert(Phone).values(phones_to_insert).on_conflict_do_nothing()
+            session.execute(p_stmt)
 
     # 3d. Locations
-    locs_to_insert = []
-    seen_locs = set()
+    candidate_locs: List[Dict[str, Any]] = []
+    seen_locs: Set[Tuple[Optional[str], Optional[str], Optional[str]]] = set()
     for item in merged_items:
         if item.get("city") or item.get("us_state") or item.get("postal_code") or item.get("raw_loc"):
             org_id = org_id_by_key.get(item["org_dedup"]) if item.get("org_dedup") else None
             city = item.get("city")
             st = item.get("norm_state") or item.get("us_state")
-            l_key = (org_id, city or "", st or "")
+            l_key = (org_id, city, st)
             if l_key not in seen_locs:
                 seen_locs.add(l_key)
                 norm_loc = f"{city or ''}, {st or ''}".strip(", ").lower() or None
-                locs_to_insert.append({
+                candidate_locs.append({
                     "id": str(uuid.uuid4()),
                     "organization_id": org_id,
                     "city": city,
                     "state": st,
                     "postal_code": item.get("postal_code"),
-                    "country": item.get("country"),
+                    "country": item.get("country") or "USA",
                     "raw_location": item.get("raw_loc"),
                     "normalized_location": norm_loc,
-                    "source_id": source_id,
+                    "source_id": resolve_source_id(item.get("source_code")),
                 })
 
-    if locs_to_insert:
-        l_stmt = pg_insert(Location).values(locs_to_insert).on_conflict_do_nothing()
-        session.execute(l_stmt)
+    if candidate_locs:
+        org_ids = [l["organization_id"] for l in candidate_locs if l.get("organization_id")]
+        existing_locs_set = set()
+        if org_ids:
+            existing_l_rows = session.execute(
+                select(Location.organization_id, Location.city, Location.state).where(
+                    Location.organization_id.in_(org_ids)
+                )
+            ).fetchall()
+            existing_locs_set = {
+                (r.organization_id, r.city, r.state) for r in existing_l_rows
+            }
+        locs_to_insert = [
+            l for l in candidate_locs
+            if (l["organization_id"], l["city"], l["state"]) not in existing_locs_set
+        ]
+        if locs_to_insert:
+            locs_to_insert.sort(key=lambda l: (l["organization_id"] or "", l["city"] or "", l["state"] or ""))
+            l_stmt = pg_insert(Location).values(locs_to_insert).on_conflict_do_nothing()
+            session.execute(l_stmt)
 
     # Step 4: Leads Upsert
     # Documented Method: Pre-select existing identity_keys in the same transaction
@@ -507,7 +700,7 @@ def _process_batch(
             "contact_id": c_id,
             "dataset_id": dataset_id,
             "department_id": department_id,
-            "source_id": source_id,
+            "source_id": resolve_source_id(item.get("source_code")),
             "source_code": item.get("source_code"),
             "external_id": item.get("external_id"),
             "fingerprint": item.get("fingerprint"),
@@ -516,19 +709,22 @@ def _process_batch(
             "title": item.get("title"),
             "notes": item.get("description"),
             "due_at": item.get("due_at"),
-            "lead_metadata": item.get("extra") or {},
+            "lead_metadata": item.get("extra") if item.get("extra") else None,
             "first_seen_at": func.now(),
             "last_seen_at": func.now(),
             "created_at": func.now(),
             "updated_at": func.now(),
         })
 
+    # Sort lead_values by identity_key for deterministic lock ordering
+    lead_values.sort(key=lambda l: l["identity_key"])
+
     lead_stmt = pg_insert(Lead).values(lead_values)
     lead_stmt = lead_stmt.on_conflict_do_update(
         index_elements=["identity_key"],
         set_={
             "last_seen_at": func.now(),
-            "scrape_run_id": lead_stmt.excluded.scrape_run_id,
+            "scrape_run_id": func.coalesce(lead_stmt.excluded.scrape_run_id, Lead.scrape_run_id),
             "department_id": func.coalesce(Lead.department_id, lead_stmt.excluded.department_id),
             "due_at": func.coalesce(lead_stmt.excluded.due_at, Lead.due_at),
             "title": func.coalesce(lead_stmt.excluded.title, Lead.title),
@@ -536,25 +732,13 @@ def _process_batch(
             "lead_metadata": func.coalesce(lead_stmt.excluded.lead_metadata, Lead.lead_metadata),
             "organization_id": func.coalesce(Lead.organization_id, lead_stmt.excluded.organization_id),
             "contact_id": func.coalesce(Lead.contact_id, lead_stmt.excluded.contact_id),
+            "source_id": func.coalesce(Lead.source_id, lead_stmt.excluded.source_id),
             "updated_at": func.now(),
         },
     ).returning(Lead.id, Lead.identity_key)
 
     lead_rows = session.execute(lead_stmt).fetchall()
     lead_id_by_key = {r.identity_key: r.id for r in lead_rows}
-
-    # Record counts
-    for k in batch_keys:
-        if k in existing_keys:
-            result.updated += 1
-        else:
-            result.inserted += 1
-
-    # Map back to original input indices
-    for id_k, indices in key_to_input_indices.items():
-        lid = lead_id_by_key.get(id_k)
-        for idx in indices:
-            input_to_lead_id[idx] = lid
 
     # Step 5: lead_sources and dataset_records
     lead_sources_to_insert = []
@@ -585,7 +769,7 @@ def _process_batch(
                 "lead_id": lid,
                 "organization_id": org_id,
                 "contact_id": c_id,
-                "record_metadata": item.get("extra") or {},
+                "record_metadata": item.get("extra") if item.get("extra") else None,
                 "created_at": func.now(),
             })
 
@@ -597,6 +781,7 @@ def _process_batch(
             if ls_key not in seen_ls:
                 seen_ls.add(ls_key)
                 uniq_ls.append(ls)
+        uniq_ls.sort(key=lambda x: (x["source_code"], x["external_id"]))
         ls_stmt = pg_insert(LeadSource).values(uniq_ls).on_conflict_do_nothing()
         session.execute(ls_stmt)
 
@@ -608,8 +793,34 @@ def _process_batch(
             if dr_key not in seen_dr:
                 seen_dr.add(dr_key)
                 uniq_dr.append(dr)
+        uniq_dr.sort(key=lambda x: (x["dataset_id"], x["lead_id"]))
         dr_stmt = pg_insert(DatasetRecord).values(uniq_dr).on_conflict_do_nothing()
         session.execute(dr_stmt)
+
+    # Step 6: Finalize counts and map back to input indices
+    batch_inserted = 0
+    batch_updated = 0
+    batch_unchanged = 0
+
+    for k in batch_keys:
+        if k in existing_keys:
+            batch_updated += 1
+        else:
+            batch_inserted += 1
+
+    for id_k, indices in key_to_input_indices.items():
+        lid = lead_id_by_key.get(id_k)
+        for idx in indices:
+            local_input_to_lead_id[idx] = lid
+        if len(indices) > 1:
+            batch_unchanged += (len(indices) - 1)
+
+    result.skipped += local_skipped
+    result.errors.extend(local_errors)
+    result.inserted += batch_inserted
+    result.updated += batch_updated
+    result.unchanged += batch_unchanged
+    input_to_lead_id.update(local_input_to_lead_id)
 
 
 __all__ = ["upsert_leads", "UpsertResult"]

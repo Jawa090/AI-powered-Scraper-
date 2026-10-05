@@ -113,11 +113,12 @@ def normalize_name(s: Optional[str]) -> Optional[str]:
     if not s or not isinstance(s, str) or not s.strip():
         return None
     # NFKC normalization
-    result = unicodedata.normalize("NFKC", s)
-    result = result.lower()
+    result = unicodedata.normalize("NFKC", s).lower()
+    # Remove legal suffixes with punctuation (e.g. "l.l.c.", "d/b/a", "p.l.l.c.")
+    result = _LEGAL_SUFFIXES.sub("", result)
     # Remove punctuation
     result = _NON_ALNUM.sub(" ", result)
-    # Remove legal suffixes
+    # Remove bare legal suffixes in case punctuation removal left them exposed
     result = _LEGAL_SUFFIXES.sub("", result)
     # Collapse whitespace
     result = _MULTI_SPACE.sub(" ", result).strip()
@@ -141,14 +142,15 @@ def normalize_domain(url: Optional[str]) -> Optional[str]:
         host = parsed.hostname
         if not host:
             return None
+        host = host.lower()
         # Strip www. prefix
         if host.startswith("www."):
             host = host[4:]
         # Must have at least one dot
         if "." not in host:
             return None
-        return host.lower()
-    except ValueError:
+        return host
+    except (ValueError, AttributeError):
         return None
 
 
@@ -166,7 +168,7 @@ def normalize_phone(raw: Optional[str], region: str = "US") -> Optional[str]:
         if phonenumbers.is_valid_number(parsed):
             return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
         return None
-    except NumberParseException:
+    except (NumberParseException, ValueError, TypeError):
         return None
 
 
