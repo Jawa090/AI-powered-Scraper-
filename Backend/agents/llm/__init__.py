@@ -16,6 +16,14 @@ from agents.llm.provider import LLMProvider
 from agents.llm.openai_compatible import OpenAICompatibleProvider
 from agents.llm.factory import FallbackLLMProvider, get_llm_provider
 from agents.llm.config import ProviderConfig, ProviderStatus
+from agents.llm.chat_model import (
+    LLMUnavailable,
+    get_chat_model,
+    invoke_llm,
+    invoke_structured,
+    probe,
+    llm_health_check,
+)
 
 __all__ = [
     "LLMProvider",
@@ -24,4 +32,10 @@ __all__ = [
     "get_llm_provider",
     "ProviderConfig",
     "ProviderStatus",
+    "LLMUnavailable",
+    "get_chat_model",
+    "invoke_llm",
+    "invoke_structured",
+    "probe",
+    "llm_health_check",
 ]

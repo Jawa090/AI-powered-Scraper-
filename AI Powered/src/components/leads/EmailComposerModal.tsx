@@ -21,9 +21,10 @@ export const EmailComposerModal: React.FC<EmailComposerModalProps> = ({
 
   useEffect(() => {
     if (lead) {
-      const firstName = lead.name.split(' ')[0];
-      setSubject(`Solution for ${lead.company} operations`);
-      setBody(`Hi ${firstName},\n\nI noticed ${lead.company} has been scaling its operations. Our enterprise data platform assists teams like yours in automating data verification and compliance workflows.\n\nWould you have 10 minutes next Tuesday for a quick introductory discussion?\n\nBest regards,\nOperations Team`);
+      const firstName = (lead.name || 'there').split(' ')[0];
+      const company = lead.company || 'your organization';
+      setSubject(`Solution for ${company} operations`);
+      setBody(`Hi ${firstName},\n\nI noticed ${company} has been scaling its operations. Our enterprise data platform assists teams like yours in automating data verification and compliance workflows.\n\nWould you have 10 minutes next Tuesday for a quick introductory discussion?\n\nBest regards,\nOperations Team`);
     }
   }, [lead]);
 

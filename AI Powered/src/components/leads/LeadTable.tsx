@@ -47,11 +47,11 @@ export const LeadTable: React.FC<LeadTableProps> = ({
       if (searchTerm) {
         const q = searchTerm.toLowerCase();
         return (
-          l.name.toLowerCase().includes(q) ||
-          l.company.toLowerCase().includes(q) ||
-          l.title.toLowerCase().includes(q) ||
-          l.email.toLowerCase().includes(q) ||
-          l.location.toLowerCase().includes(q)
+          Boolean(l.name?.toLowerCase().includes(q)) ||
+          Boolean(l.company?.toLowerCase().includes(q)) ||
+          Boolean(l.title?.toLowerCase().includes(q)) ||
+          Boolean(l.email?.toLowerCase().includes(q)) ||
+          Boolean(l.location?.toLowerCase().includes(q))
         );
       }
       return true;
@@ -226,31 +226,31 @@ export const LeadTable: React.FC<LeadTableProps> = ({
                       />
                     </td>
                     <td className="py-2 px-3 font-semibold text-gray-900 whitespace-nowrap">
-                      {lead.name}
+                      {lead.name || lead.company || '—'}
                     </td>
                     <td className="py-2 px-3 text-gray-700 whitespace-nowrap">
-                      {lead.company}
+                      {lead.company || '—'}
                     </td>
                     <td className="py-2 px-3 text-gray-600 truncate max-w-[150px]">
-                      {lead.title}
+                      {lead.title || '—'}
                     </td>
                     <td className="py-2 px-3 text-gray-600 truncate max-w-[160px]">
-                      <span className="font-mono text-[11px]">{lead.email}</span>
+                      <span className="font-mono text-[11px]">{lead.email || '—'}</span>
                     </td>
                     <td className="py-2 px-3 text-gray-600 font-mono text-[11px] whitespace-nowrap">
-                      {lead.phone}
+                      {lead.phone || '—'}
                     </td>
                     <td className="py-2 px-3 text-gray-600 whitespace-nowrap">
-                      {lead.location}
+                      {lead.location || '—'}
                     </td>
                     <td className="py-2 px-3 whitespace-nowrap">
-                      <StatusBadge status={lead.status} />
+                      <StatusBadge status={lead.status || 'New'} />
                     </td>
                     <td className="py-2 px-3 text-gray-700 whitespace-nowrap">
-                      {lead.assignedToName}
+                      {lead.assignedToName || 'Unassigned'}
                     </td>
                     <td className="py-2 px-3 text-gray-500 whitespace-nowrap">
-                      {lead.lastActivity}
+                      {lead.lastActivity || '—'}
                     </td>
                     <td
                       className="py-2 px-3 text-right whitespace-nowrap"

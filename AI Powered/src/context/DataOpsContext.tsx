@@ -14,6 +14,7 @@ import {
 } from '../types';
 import { agentService } from '../services/agent.service';
 import { apiService } from '../services/api.service';
+import { useAuth } from './AuthContext';
 
 export const SYSTEM_USERS: User[] = [
   {
@@ -205,7 +206,37 @@ interface DataOpsContextType {
 const DataOpsContext = createContext<DataOpsContextType | undefined>(undefined);
 
 export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User>(SYSTEM_USERS[0]); // Ahmed (Sales)
+  const { user: authUser } = useAuth();
+  const [currentUser, setCurrentUser] = useState<User>(() => {
+    if (authUser) {
+      return {
+        id: authUser.id,
+        username: authUser.username,
+        name: authUser.name || authUser.username || 'User',
+        email: authUser.email || `${authUser.username || 'user'}@company.internal`,
+        role: authUser.role,
+        roleTitle: authUser.role === 'admin' ? 'Head of Enterprise Intelligence (Admin)' : 'Outbound Specialist',
+        departmentName: authUser.role === 'admin' ? 'State Contracts & Regulatory' : 'Procurement & Municipal Bids',
+      };
+    }
+    return SYSTEM_USERS[0];
+  });
+
+  useEffect(() => {
+    if (authUser) {
+      setCurrentUser(prev => ({
+        ...prev,
+        id: authUser.id,
+        username: authUser.username,
+        name: authUser.name || authUser.username || 'User',
+        email: authUser.email || `${authUser.username || 'user'}@company.internal`,
+        role: authUser.role,
+        roleTitle: authUser.role === 'admin' ? 'Head of Enterprise Intelligence (Admin)' : 'Outbound Specialist',
+        departmentName: authUser.role === 'admin' ? 'State Contracts & Regulatory' : (prev.departmentName || 'Procurement & Municipal Bids'),
+      }));
+    }
+  }, [authUser]);
+
   const [leads, setLeads] = useState<Lead[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -363,13 +394,13 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
     const newAct: Activity = {
       id: `act-${Date.now()}`,
       type: 'call',
-      title: `Call logged with ${lead.name}`,
-      description: `${currentUser.name} completed call with ${lead.name} (${lead.company}). Outcome: ${outcome}.${notes ? ` Note: "${notes}"` : ''}`,
+      title: `Call logged with ${lead.name || lead.company || 'Lead'}`,
+      description: `${currentUser.name} completed call with ${lead.name || 'contact'} (${lead.company || 'organization'}). Outcome: ${outcome}.${notes ? ` Note: "${notes}"` : ''}`,
       user: currentUser.name,
       department: currentUser.departmentName || 'General',
       timestamp: 'Just now',
       leadId: lead.id,
-      leadName: lead.name,
+      leadName: lead.name || undefined,
       badgeColor: outcome === 'Interested' ? '#10B981' : outcome === 'Follow Up' ? '#F59E0B' : '#3B82F6',
     };
     setActivities(prev => [newAct, ...prev]);
@@ -408,13 +439,13 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
     const newAct: Activity = {
       id: `act-${Date.now()}`,
       type: 'email',
-      title: `Email sent to ${lead.name}`,
-      description: `${currentUser.name} sent "${subject}" to ${lead.email} (${lead.company}).`,
+      title: `Email sent to ${lead.name || lead.company || 'Lead'}`,
+      description: `${currentUser.name} sent "${subject}" to ${lead.email || 'recipient'} (${lead.company || 'organization'}).`,
       user: currentUser.name,
       department: currentUser.departmentName || 'General',
       timestamp: 'Just now',
       leadId: lead.id,
-      leadName: lead.name,
+      leadName: lead.name || undefined,
       badgeColor: '#8B5CF6',
     };
     setActivities(prev => [newAct, ...prev]);

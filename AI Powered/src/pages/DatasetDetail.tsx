@@ -76,12 +76,12 @@ export const DatasetDetail: React.FC<DatasetDetailProps> = ({ id, onNavigate }) 
             {datasetLeads.slice(0, 5).map(lead => (
               <div key={lead.id} className="p-3 flex items-center justify-between hover:bg-gray-50 text-xs">
                 <div>
-                  <span className="font-semibold text-gray-900">{lead.name}</span>
-                  <span className="text-gray-500 ml-2">{lead.title} at {lead.company}</span>
+                  <span className="font-semibold text-gray-900">{lead.name || lead.company || '—'}</span>
+                  <span className="text-gray-500 ml-2">{lead.title ? `${lead.title} at ` : ''}{lead.company || '—'}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-mono text-gray-500 text-[11px]">{lead.email}</span>
-                  <StatusBadge status={lead.status} />
+                  <span className="font-mono text-gray-500 text-[11px]">{lead.email || '—'}</span>
+                  <StatusBadge status={lead.status || 'New'} />
                 </div>
               </div>
             ))}

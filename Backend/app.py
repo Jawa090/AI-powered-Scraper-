@@ -151,6 +151,16 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
+from agents.llm.chat_model import LLMUnavailable
+
+
+@app.exception_handler(LLMUnavailable)
+async def llm_unavailable_exception_handler(request: Request, exc: LLMUnavailable):
+    """Handles LLM unavailable errors conforming to Decision D4 (HTTP 503)."""
+    logger.error("LLM unavailable (%s): %s", exc.reason, exc.detail)
+    return exc.to_response()
+
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     """Centralized safety net preventing stack traces or secrets from leaking in responses."""
@@ -172,10 +182,10 @@ async def generic_exception_handler(request: Request, exc: Exception):
 # ---------------------------------------------------------------------------
 
 @app.get("/health/llm")
-def llm_health():
+def llm_health(probe: bool = Query(False, description="Run probe call")):
     """Return LLM provider configuration status (never exposes keys)."""
-    from agents.llm.chat_models import llm_health_check
-    return llm_health_check()
+    from agents.llm.chat_model import llm_health_check
+    return llm_health_check(probe_mode=probe)
 
 
 # ---------------------------------------------------------------------------

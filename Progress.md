@@ -28,6 +28,7 @@
 | P3.6 | DONE | f32a9aa | Authorization matrix enforced across all routes |
 | P3.7 | DONE | 2b53371 | Full auth & visibility tests passing, expired token check added |
 | P6.0 | DONE | eab0e7e | Modular scraper framework; contract, fixture, registration, and import isolation tests passing (32/32) |
+| P8.0 | DONE | Pending | Single provider LLM layer with D4 error format and bounded retries; 31 unit tests passing |
 | P4-P14 | WIP | wip: timeout | Timeout reached at 3500s limit; subagents drafted P4-P14 implementations |
 
 ## Baseline Test Failures (at Phase P3 start)
@@ -393,3 +394,30 @@ All criteria verified against real PostgreSQL database and real auth:
   - Verified idempotency of `close()`.
   - Verified complete registration in `REGISTERED_SCRAPERS`.
   - Verified Rule 9 (zero direct scraper module imports outside `Backend/scrappers/`).
+
+### Phase P8.0: Single Provider LLM Layer with D4 Error Format
+- **1. Offending state identified:**
+  - `Backend/agents/llm/chat_models.py` constructed fallback provider chains (`primary.with_fallbacks([fallback])`, DeepSeek, NVIDIA) violating Decision D3 (no fallbacks).
+  - `Backend/agents/graph/graph.py` caught LLM exceptions and returned degraded mode fallback text ("use the filters") instead of surfacing the failure.
+  - Absence of centralized HTTP 503 `LLM_UNAVAILABLE` format per Decision D4.
+- **2. Implementation:**
+  - Implemented `Backend/agents/llm/chat_model.py`:
+    - `LLMUnavailable(Exception)` conforming to Decision D4 (`to_dict()` and `to_response()` returning HTTP 503 `{"success": false, "error": {"code": "LLM_UNAVAILABLE", "reason": "<reason>", "message": "The AI API is not responding. Please try again."}}`).
+    - `get_chat_model()`: instantiates single configured provider (`ChatGoogleGenerativeAI` with `thinking_budget` mapping for `LLM_THINKING_LEVEL`, or `ChatOpenAI`), strictly without `.with_fallbacks()`.
+    - `invoke_llm()` and `invoke_structured()`: bounded retries up to `LLM_MAX_RETRIES` on transient errors (`timeout`, `429`, `5xx`) only; zero retries on `auth_error` and unclassified errors; maps failures to `LLMUnavailable`.
+    - `probe()`: test invocation returning `{provider, model, reachable, latency_ms, reason}`, never leaking credentials.
+    - `llm_health_check()`: returns `{provider, model, configured}` without keys.
+  - Updated `Backend/agents/graph/graph.py` `call_model` to invoke `get_chat_model()` and `invoke_llm()`, raising `LLMUnavailable` per D4 rather than falling back to degraded mode.
+  - Updated `Backend/app.py` with global exception handler `@app.exception_handler(LLMUnavailable)` returning HTTP 503 D4 response format, and wired `/health/llm` to `llm_health_check`.
+- **3. Evidence:**
+  - Wrote 31 unit tests in `Backend/tests/unit/test_chat_model.py` covering:
+    - Empty key / unconfigured provider -> `LLMUnavailable("not_configured")`
+    - Single provider instantiation (Gemini & OpenAI-compatible) with zero `.fallbacks` attributes
+    - Thinking level (`low` -> 1024, `high` -> 8192) configuration on Gemini
+    - Error classification table (auth -> `auth_error`, timeout -> `timeout`, 429 -> `rate_limited`, 5xx -> `provider_error`, unclassified -> `provider_error`)
+    - Bounded retries: 0 retries on auth_error, bounded retries on transient errors, recovery on retry
+    - Structured output invocation error mapping and retry bounds
+    - Probe and health check reachability and credential masking
+    - FastAPI HTTP 503 integration with Decision D4 JSON format
+  - `python -m pytest Backend/tests/unit/test_chat_model.py -v`: 31 passed in 8.32s with 0 warnings.
+  - `python -m pytest Backend/tests/test_chat_models.py -v`: 7 passed in 5.12s.

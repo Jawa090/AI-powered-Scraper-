@@ -79,7 +79,7 @@ def _get_system_prompt() -> str:
 
 def call_model(state: AgentState) -> dict:
     """Call the LLM with tools bound. This is the 'agent' node."""
-    from agents.llm.chat_models import build_chat_model
+    from agents.llm.chat_model import get_chat_model, invoke_llm
 
     messages = state.get("messages", [])
     tool_steps = state.get("tool_steps", 0)
@@ -88,27 +88,13 @@ def call_model(state: AgentState) -> dict:
     system_text = _get_system_prompt()
     system_msg = SystemMessage(content=system_text)
 
-    try:
-        model = build_chat_model(tools=ALL_TOOLS)
-        response = model.invoke([system_msg, *messages])
-        return {
-            "messages": [response],
-            "tool_steps": tool_steps + 1,
-            "degraded": False,
-        }
-    except Exception as e:
-        logger.error("LLM call failed: %s", e, exc_info=True)
-        # Degraded mode — return a plain text response
-        from langchain_core.messages import AIMessage
-        fallback_msg = AIMessage(content=(
-            "I'm having trouble connecting to the AI service right now. "
-            "You can still search for leads using the filters panel. "
-            "Please try again in a moment."
-        ))
-        return {
-            "messages": [fallback_msg],
-            "degraded": True,
-        }
+    model = get_chat_model(tools=ALL_TOOLS)
+    response = invoke_llm(model, [system_msg, *messages])
+    return {
+        "messages": [response],
+        "tool_steps": tool_steps + 1,
+        "degraded": False,
+    }
 
 
 def scrape_gate(state: AgentState) -> dict:

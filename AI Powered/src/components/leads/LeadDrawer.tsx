@@ -46,10 +46,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
           <div className="p-5 border-b border-[#E5E7EB] bg-[#F8F9FA]/60">
             <div className="flex items-start justify-between">
               <div>
-                <StatusBadge status={lead.status} />
-                <h2 className="text-base font-bold text-gray-900 mt-2">{lead.name}</h2>
+                <StatusBadge status={lead.status || 'New'} />
+                <h2 className="text-base font-bold text-gray-900 mt-2">{lead.name || lead.company || 'Unnamed Lead'}</h2>
                 <p className="text-xs text-gray-600 font-medium">
-                  {lead.title} at <span className="text-gray-900">{lead.company}</span>
+                  {lead.title ? `${lead.title} at ` : ''}<span className="text-gray-900">{lead.company || '—'}</span>
                 </p>
               </div>
               <button
@@ -95,17 +95,21 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               <div className="space-y-2 text-xs">
                 <div className="flex items-center gap-2.5 text-gray-700">
                   <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <a href={`mailto:${lead.email}`} className="text-blue-600 hover:underline">
-                    {lead.email}
-                  </a>
+                  {lead.email ? (
+                    <a href={`mailto:${lead.email}`} className="text-blue-600 hover:underline">
+                      {lead.email}
+                    </a>
+                  ) : (
+                    <span className="text-gray-400 italic">No email address</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2.5 text-gray-700">
                   <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <span>{lead.phone}</span>
+                  <span>{lead.phone || <span className="text-gray-400 italic">No phone number</span>}</span>
                 </div>
                 <div className="flex items-center gap-2.5 text-gray-700">
                   <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <span>{lead.location}</span>
+                  <span>{lead.location || <span className="text-gray-400 italic">Location not specified</span>}</span>
                 </div>
                 {lead.linkedin && (
                   <div className="flex items-center gap-2.5 text-gray-700">
