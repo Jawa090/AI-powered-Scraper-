@@ -103,10 +103,12 @@ app.add_middleware(
 from routes.auth import router as auth_router
 from routes.admin import router as admin_router
 from routes.bot import router as bot_router
+from routes.rag_proxy import router as rag_proxy_router
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(admin_router)
 app.include_router(bot_router)
+app.include_router(rag_proxy_router)
 
 import uuid
 
