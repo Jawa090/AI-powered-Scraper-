@@ -48,6 +48,24 @@ from Database.repositories.sources import SourceRepository
 
 logger = logging.getLogger(__name__)
 
+class Repositories:
+    def __init__(self, session: Session):
+        self.session = session
+        self.agent_sessions = AgentSessionRepository(session)
+        self.contacts = ContactRepository(session)
+        self.datasets = DatasetRepository(session)
+        self.dataset_records = DatasetRecordRepository(session)
+        self.emails = EmailRepository(session)
+        self.jobs = JobRepository(session)
+        self.leads = LeadRepository(session)
+        self.locations = LocationRepository(session)
+        self.organizations = OrganizationRepository(session)
+        self.phones = PhoneRepository(session)
+        self.queries = QueryRepository(session)
+        self.requirements = RequirementRepository(session)
+        self.scrape_runs = ScrapeRunRepository(session)
+        self.sources = SourceRepository(session)
+
 class DBError(Exception):
     pass
 
