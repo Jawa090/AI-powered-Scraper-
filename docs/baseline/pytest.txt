@@ -1,0 +1,9 @@
+................................................                         [100%]
+============================== warnings summary ===============================
+tests/test_chat_models.py::TestBuildChatModel::test_gemini_only
+  C:\Users\adil.zia\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\google\genai\types.py:42: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+    VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+48 passed, 1 warning in 10.70s
+
