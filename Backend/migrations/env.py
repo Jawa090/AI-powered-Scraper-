@@ -59,9 +59,18 @@ def run_migrations_online() -> None:
     connectable = create_engine(DATABASE_URL)
 
     with connectable.connect() as connection:
+        def include_object(object, name, type_, reflected, compare_to):
+            if type_ == "table" and name.startswith("checkpoint"):
+                return False
+            if type_ == "table" and object.schema == "rag":
+                return False
+            return True
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            include_object=include_object,
+            include_schemas=False,
         )
 
         with context.begin_transaction():

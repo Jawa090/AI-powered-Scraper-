@@ -22,7 +22,7 @@ class Agent(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    model: Mapped[str] = mapped_column(String(100), default="gpt-4o")
+    model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="idle", index=True)  # active, idle, busy
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     capabilities: Mapped[List[str]] = mapped_column(

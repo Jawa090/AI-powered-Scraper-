@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+logger = logging.getLogger(__name__)
 import os
 import traceback
 from pathlib import Path
@@ -243,6 +244,8 @@ _compiled_graph = None
 
 def get_compiled_graph():
     """Return the compiled LangGraph (lazy singleton)."""
+    import logging
+    logger = logging.getLogger(__name__)
     global _compiled_graph
     if _compiled_graph is None:
         _compiled_graph = build_agent_graph()

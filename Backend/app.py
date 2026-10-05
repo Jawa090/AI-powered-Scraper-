@@ -15,7 +15,7 @@ import _paths
 from settings import settings
 
 from fastapi import Depends
-from services.auth import get_current_user, require_admin, enforce_scrape_limit
+from services.auth import get_current_user, require_admin
 from Database.models.user import User
 
 from typing import Any, Dict, List, Optional
@@ -61,6 +61,12 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from Database.controller import session_scope
+    from services.auth import sync_env_users
+    
+    with session_scope() as session:
+        sync_env_users(session)
+
     """Start a background task to fail jobs whose heartbeat is > 5 min old."""
     async def reap_stale_jobs():
         while True:
@@ -121,7 +127,11 @@ app.add_middleware(
 )
 
 # ── Register routers ─────────────────────────────────────────────────────
+from routes.auth import router as auth_router
+from routes.users import router as users_router
 app.include_router(admin_router)
+app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
+app.include_router(users_router, prefix="/api/admin/users", tags=["Admin Users"])
 
 import uuid
 
@@ -311,7 +321,7 @@ def get_script_detail(script_id: str, current_user: User = Depends(get_current_u
 
 
 @app.post("/api/scripts/run", tags=["Scripts"])
-def run_script(req: RunScriptRequest, current_user: User = Depends(require_admin), _: None = Depends(enforce_scrape_limit)):
+def run_script(req: RunScriptRequest, current_user: User = Depends(require_admin)):
     """Triggers any of the 4 scripts in the background and returns a jobId."""
     script = scraper_manager.get_script(req.scriptId)
     if not script:
@@ -341,16 +351,34 @@ def run_script(req: RunScriptRequest, current_user: User = Depends(require_admin
 @app.get("/api/jobs", tags=["Jobs"])
 def list_jobs(current_user: User = Depends(get_current_user)):
     """Returns list of all scraper jobs (both active and completed)."""
-    return {"jobs": scraper_manager.get_jobs()}
+    return {"jobs": scraper_manager.get_jobs(current_user)}
 
 
 @app.get("/api/jobs/{job_id}", tags=["Jobs"])
 def get_job(job_id: str, current_user: User = Depends(get_current_user)):
     """Returns real-time status, progress, records count, and logs for a job."""
-    job = scraper_manager.get_job(job_id)
+    job = scraper_manager.get_job(job_id, current_user)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
     return {"job": job}
+
+
+@app.post("/api/jobs/{job_id}/cancel", tags=["Jobs"])
+def cancel_job(job_id: str, current_user: User = Depends(get_current_user)):
+    """Cancels a job if it belongs to the user or if the user is an admin."""
+    job = scraper_manager.get_job(job_id, current_user)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    
+    from Database.controller import session_scope
+    from Database.models.job import Job
+    with session_scope() as session:
+        db_job = session.get(Job, job_id)
+        if db_job.status in ["Queued", "Running", "WaitingForUser"]:
+            db_job.status = "Cancelled"
+            session.commit()
+            return {"message": "Job cancelled successfully."}
+        return {"message": "Job cannot be cancelled in its current state."}
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +388,7 @@ def get_job(job_id: str, current_user: User = Depends(get_current_user)):
 @app.get("/api/datasets", tags=["Datasets"])
 def list_datasets(current_user: User = Depends(get_current_user)):
     """Returns datasets created from scraper runs."""
-    return {"datasets": scraper_manager.get_datasets()}
+    return {"datasets": scraper_manager.get_datasets(current_user)}
 
 
 @app.get("/api/leads", tags=["Leads"])
@@ -372,7 +400,7 @@ def list_leads(
     page_size: int = Query(20, ge=1, le=100),
 ):
     """Returns leads and opportunities extracted by scrapers."""
-    result = scraper_manager.get_leads(dataset_id=datasetId, query=query, page=page, page_size=page_size)
+    result = scraper_manager.get_leads(current_user, dataset_id=datasetId, query=query, page=page, page_size=page_size)
     # Maintain existing shape for frontend compatibility while adding pagination fields
     return {
         "leads": result["items"],
@@ -393,6 +421,13 @@ def bot_chat(req: BotChatRequest, current_user: User = Depends(get_current_user)
     """
     Multi-turn conversational agent endpoint (LangGraph v2).
     """
+    from Database.controller import session_scope
+    from Database.models.session import AgentSession
+    with session_scope() as db_session:
+        db_sess = db_session.get(AgentSession, req.sessionId)
+        if db_sess and db_sess.user_id != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Session does not belong to you.")
+
     return run_turn(current_user, req.sessionId, req.message)
 
 
@@ -402,6 +437,13 @@ def bot_confirm_and_generate(req: BotConfirmRequest, current_user: User = Depend
     Called when the user confirms or rejects a scrape proposal.
     Resumes the LangGraph interrupt.
     """
+    from Database.controller import session_scope
+    from Database.models.session import AgentSession
+    with session_scope() as db_session:
+        db_sess = db_session.get(AgentSession, req.sessionId)
+        if db_sess and db_sess.user_id != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Session does not belong to you.")
+
     from agents.graph.graph import get_compiled_graph
     from langgraph.types import Command
     from agents.graph.runner import to_api_response, _get_lock

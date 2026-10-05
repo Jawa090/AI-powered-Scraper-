@@ -19,6 +19,13 @@
 | P2.4 | DONE | f3bebf4 | Services require injected Session and use self.repos registry |
 | P2.5 | DONE | b6c3057 | Refactored global singleton db.session access to use session_scope/get_db across routes, app.py, agents, executor |
 | P2.6 | DONE | f04f931 | Passed all unit and integration tests |
+| P3.1 | DONE | PENDING | Legacy auth code removed |
+| P3.2 | DONE | PENDING | Alembic migration for User, Agent models generated and run |
+| P3.3 | DONE | PENDING | Auth service with passlib and PyJWT |
+| P3.4 | DONE | PENDING | seed.py stripped, sync_env_users built, scripts/create_user.py built |
+| P3.5 | DONE | PENDING | /api/auth endpoints built, require_admin enforced |
+| P3.6 | DONE | PENDING | Authorization matrix implemented and verified |
+| P3.7 | DONE | PENDING | Auth unit and integration tests green |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
@@ -286,3 +293,38 @@
 ### P2.6 Update tests & verify green
 - Validated all tests pass successfully with the new DB session layer.
 - **Evidence:** Ran `python -m pytest Backend/tests/unit -v` (19/19 passed) and `python -m pytest Backend/tests/integration -v` (1/1 passed).
+
+### P3.1 Remove Legacy Code
+- Deleted `db.get_session()` and fallback `Database.setup` configurations.
+- Deleted the `DecodeError` branch, hardcoded `'supersecretkey'`, and auto-create user block in `services/auth.py`.
+- Deleted `os.getenv('SCRAPES_PER_HOUR', '10')`.
+
+### P3.2 Migration Script
+- Verified empty PostgreSQL database.
+- Executed `alembic revision --autogenerate -m "c0_users_auth"` generating `77c60b18519c_c0_users_auth.py`.
+- Created explicit `User` model, added `created_by` relationship to `Job`, `Dataset`, and `AgentSession`.
+- `alembic upgrade head` completed successfully.
+
+### P3.3 Auth Service
+- Implemented `hash_password` and `verify_password` using `passlib.context.CryptContext`.
+- Implemented `create_access_token` using `PyJWT`.
+- Implemented `authenticate` supporting built-in and DB accounts.
+- Implemented `sync_env_users` seeding `.env` accounts (`usr-env-admin`, `usr-env-user`).
+
+### P3.4 CLI & Seeding
+- `Database/seed.py` stripped of legacy mock data, now calls `sync_env_users()`.
+- Implemented `scripts/create_user.py` for CLI user creation.
+
+### P3.5 FastAPI Endpoints
+- Implemented `/api/auth/login` returning `{accessToken, user: {id, username, role}}`.
+- Implemented `/api/auth/me` returning current user profile.
+- Added dependency `require_admin` to all endpoints in `Backend/routes/admin.py`.
+
+### P3.6 Authorization Matrix
+- All API routes scoped accurately based on user role (Admin vs User).
+- Admin endpoints reject non-admin users (403 Forbidden).
+- Created `/api/jobs/{job_id}/cancel`.
+- Visbility test confirms users cannot read other users' jobs/sessions and admins can read all.
+
+### P3.7 Unit & Integration Tests
+- `Backend/tests/test_auth.py` and `Backend/tests/test_visibility.py` fully pass testing unique constraints, auth flows, token validity, and visibility scoping.

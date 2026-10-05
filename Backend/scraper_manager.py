@@ -63,34 +63,42 @@ class ScraperManager:
     # Job querying (PostgreSQL only)
     # ------------------------------------------------------------------
 
-    def get_jobs(self) -> List[Dict[str, Any]]:
+    def get_jobs(self, user) -> List[Dict[str, Any]]:
         """Return recent scraper jobs from PostgreSQL (newest first)."""
         from Database.controller import session_scope
+        from sqlalchemy import select
+        from Database.models.job import Job
         with session_scope() as session:
-            job_service = JobService(session)
-            db_jobs = job_service.list_recent(limit=100)
+            stmt = select(Job).order_by(Job.created_at.desc()).limit(100)
+            if user.role != "admin":
+                stmt = stmt.where(Job.created_by == user.id)
+            db_jobs = session.scalars(stmt).all()
             return [self._serialize_db_job(j) for j in db_jobs]
 
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+    def get_job(self, job_id: str, user) -> Optional[Dict[str, Any]]:
         """Return a single job record from PostgreSQL, or None if not found."""
         from Database.controller import session_scope
+        from Database.models.job import Job
         with session_scope() as session:
-            job_service = JobService(session)
-            db_job = job_service.get_by_id(job_id)
-            if db_job:
-                return self._serialize_db_job(db_job)
+            job = session.get(Job, job_id)
+            if job and (user.role == "admin" or job.created_by == user.id):
+                return self._serialize_db_job(job)
             return None
 
     # ------------------------------------------------------------------
     # Dataset querying (PostgreSQL only)
     # ------------------------------------------------------------------
 
-    def get_datasets(self) -> List[Dict[str, Any]]:
+    def get_datasets(self, user) -> List[Dict[str, Any]]:
         """Return recent datasets from PostgreSQL (newest first)."""
         from Database.controller import session_scope
+        from sqlalchemy import select
+        from Database.models.dataset import Dataset
         with session_scope() as session:
-            ds_service = DatasetService(session)
-            db_datasets = ds_service.list_recent(limit=100)
+            stmt = select(Dataset).order_by(Dataset.created_at.desc()).limit(100)
+            if user.role != "admin":
+                stmt = stmt.where(Dataset.created_by == user.id)
+            db_datasets = session.scalars(stmt).all()
             return [self._serialize_db_dataset(d) for d in db_datasets]
 
     # ------------------------------------------------------------------
@@ -99,6 +107,7 @@ class ScraperManager:
 
     def get_leads(
         self,
+        user,
         dataset_id: Optional[str] = None,
         query: Optional[str] = None,
         page: int = 1,
@@ -109,7 +118,7 @@ class ScraperManager:
         from Database.models.lead import Lead
         from Database.models.organization import Organization
         from Database.models.contact import Contact
-        from Database.models.dataset import DatasetRecord
+        from Database.models.dataset import Dataset, DatasetRecord
         from sqlalchemy import select, func, or_
         from sqlalchemy.orm import selectinload
 
@@ -121,9 +130,16 @@ class ScraperManager:
             )
 
             conditions = []
-            if dataset_id:
-                # Join through DatasetRecord
+            
+            # Scoping rule: user only sees leads in datasets they own (unless admin)
+            if user.role != "admin":
                 stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
+                stmt = stmt.join(Dataset, Dataset.id == DatasetRecord.dataset_id)
+                conditions.append(Dataset.created_by == user.id)
+
+            if dataset_id:
+                if user.role == "admin": # If admin, we haven't joined DatasetRecord yet
+                    stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
                 conditions.append(DatasetRecord.dataset_id == dataset_id)
 
             if query:
@@ -190,6 +206,11 @@ class ScraperManager:
                 f"Unknown scraper engine '{script_id}'. "
                 f"Registered engines: {[s['id'] for s in SCRIPTS_REGISTRY]}"
             )
+
+        from Database.controller import session_scope
+        from services.auth import enforce_scrape_limit
+        with session_scope() as session:
+            enforce_scrape_limit(session, created_by)
 
         req = ExecutionRequest(
             script_id=script_id,
