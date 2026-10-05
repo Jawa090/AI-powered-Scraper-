@@ -10,6 +10,6 @@ Usage from anywhere in the project:
     rows = db._fetch_all("SELECT * FROM leads")
 """
 
-from Database.controller import db, DBController, DBError
+from Database.controller import db, DBController, DBError, engine, SessionLocal, session_scope, get_db
 
-__all__ = ["db", "DBController", "DBError"]
+__all__ = ["db", "DBController", "DBError", "engine", "SessionLocal", "session_scope", "get_db"]

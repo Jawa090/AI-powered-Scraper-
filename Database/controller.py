@@ -6,6 +6,31 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, scoped_session
 
+try:
+    import _paths
+except ImportError:
+    from Backend import _paths
+from settings import settings
+
+engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+@contextmanager
+def session_scope():
+    s = SessionLocal()
+    try:
+        yield s
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()
+
+def get_db():
+    with session_scope() as s:
+        yield s
+
 # Import all repositories
 from Database.repositories.agent_sessions import AgentSessionRepository
 from Database.repositories.contacts import ContactRepository
