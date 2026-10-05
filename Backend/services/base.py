@@ -24,6 +24,9 @@ from typing import Generator
 logger = logging.getLogger(__name__)
 
 
+from sqlalchemy.orm import Session
+from Database.controller import Repositories
+
 class BaseService:
     """
     Base class for all platform services.
@@ -46,29 +49,30 @@ class BaseService:
             return result
     """
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self, session: Session) -> None:
+        self.session = session
+        self.repos = Repositories(session)
 
     def _commit(self) -> None:
         """Commit the current transaction."""
-        from Database import db
-        db.session.commit()
+        self.session.commit()
 
     def _rollback(self) -> None:
         """Roll back the current transaction."""
-        from Database import db
-        db.session.rollback()
+        self.session.rollback()
 
     def _flush(self) -> None:
         """Flush pending changes without committing."""
-        from Database import db
-        db.session.flush()
+        self.session.flush()
 
     @contextmanager
     def _transaction(self) -> Generator[None, None, None]:
         """
         Context manager that commits on success or rolls back on any exception.
         """
-        from Database import db
-        with db.transaction():
+        try:
             yield
+            self._commit()
+        except Exception:
+            self._rollback()
+            raise

@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional
 
 
 from Database.models.job import Job
-from Database import db
 from services.base import BaseService
 
 
@@ -21,10 +20,10 @@ class JobService(BaseService):
     Business service for managing scraping/processing jobs and their lifecycle events.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.job_repo = db.jobs
-        self.dataset_repo = db.datasets
+    def __init__(self, session) -> None:
+        super().__init__(session)
+        self.job_repo = self.repos.jobs
+        self.dataset_repo = self.repos.datasets
 
     # ------------------------------------------------------------------
     # Lookups & Queries
