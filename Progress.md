@@ -8,7 +8,8 @@
 | P0.3 | DONE | 1fe619b | pgvector verified on local PostgreSQL; human confirmed/acknowledged empty DB and instructed to continue |
 | P0.4 | DONE | ca1b1aa | Test infrastructure: .env.test.example, conftest.py, fakes (chat model, scraper, RAG), pytest.ini, integration tests passing |
 | P0.5 | DONE | 379405a | S1 checkpoint: NYSCR password rotation acknowledged by human |
-| P1.1 | DONE | pending | Centralized settings module with strict validation, config audit script, zero direct env access |
+| P1.1 | DONE | 6c6ad81 | Centralized settings module with strict validation, config audit script, zero direct env access |
+| P1.2 | DONE | pending | Environment example template matching specification and secrets generation |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
@@ -130,3 +131,25 @@
   - [x] No defaults in code for configurable settings
   - [x] Replaced every `os.getenv`, `os.environ.get`, `load_dotenv` in `Backend/` and `Database/`
   - [x] `python scripts/audit_patterns.py --only config` shows 0 hits (VERIFIED: 0 violations)
+
+### P1.2 Environment Template & Configuration Alignment
+- **1. Offending state identified:**
+  - `Backend/.env.example` was cluttered with obsolete, deprecated fallback provider configurations (`LLM_PRIMARY_PROVIDER`, `LLM_FALLBACK_PROVIDERS`, `GEMINI_*`, `DEEPSEEK_*`, `NVIDIA_*`, `PORT`, `HOST`).
+  - Missing standardized P1.2 configuration keys (`LANGGRAPH_STRICT_MSGPACK`, `SUMMARY_TRIGGER_MESSAGES`, `FRESHNESS_DAYS`, `SCRAPES_PER_HOUR`, `SENTRY_TRACES_SAMPLE_RATE`, etc.).
+- **2. Implementation:**
+  - Re-wrote `Backend/.env.example` with exact canonical structure and all 26 environment keys across Database, Auth, LLM, Agent, RAG, Scrapers/Worker, and Monitoring.
+  - Generated cryptographically secure 48-byte `JWT_SECRET` via `python -c "import secrets; print(secrets.token_urlsafe(48))"` into local `Backend/.env`.
+  - Removed deprecated fallback provider keys from local configuration.
+  - Verified git ignore status with `git check-ignore Backend/.env Backend/.env.test RAG/.env` (all properly ignored).
+- **3. Evidence:**
+  - `.gitignore` verification output:
+    ```
+    Backend/.env
+    Backend/.env.test
+    RAG/.env
+    ```
+  - `git status` verifies no `.env` secret files tracked or committed.
+- **4. Self-check:**
+  - [x] Generated `JWT_SECRET` into local `Backend/.env`
+  - [x] Removed old keys (`LLM_PRIMARY_PROVIDER`, `LLM_FALLBACK_PROVIDERS`, `GEMINI_*`, etc.)
+  - [x] `.gitignore` ignores `Backend/.env`, `Backend/.env.test`, `RAG/.env`
