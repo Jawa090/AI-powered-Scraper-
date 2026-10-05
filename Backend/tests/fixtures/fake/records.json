@@ -1,0 +1,42 @@
+[
+  {
+    "source_code": "fake_source",
+    "record_kind": "opportunity",
+    "external_id": "opp-001",
+    "source_url": "https://example.com/bids/001",
+    "title": "Roof Replacement Project",
+    "description": "Roof repair and replacement for city hall",
+    "organization_name": "City of Dallas",
+    "contact_name": "Jane Doe",
+    "contact_title": "Procurement Officer",
+    "email": "jane.doe@example.com",
+    "phone": "+1-214-555-0100",
+    "website": "https://example.com",
+    "city": "Dallas",
+    "us_state": "TX",
+    "postal_code": "75201",
+    "category": "Roofing",
+    "due_at": "2026-12-31T17:00:00Z",
+    "extra": {"procurement_method": "RFP"}
+  },
+  {
+    "source_code": "fake_source",
+    "record_kind": "company",
+    "external_id": "comp-002",
+    "source_url": "https://example.com/companies/002",
+    "title": "Apex Roofing Contractors",
+    "description": "Commercial and residential roofing services",
+    "organization_name": "Apex Roofing LLC",
+    "contact_name": "John Smith",
+    "contact_title": "Managing Director",
+    "email": "contact@apexroofing.example",
+    "phone": "+1-214-555-0200",
+    "website": "https://apexroofing.example",
+    "city": "Dallas",
+    "us_state": "TX",
+    "postal_code": "75202",
+    "category": "Contractor",
+    "due_at": null,
+    "extra": {"employees": 25}
+  }
+]
