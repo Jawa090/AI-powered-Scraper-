@@ -12,7 +12,7 @@
 | P1.2 | DONE | 2d28cb4 | Environment example template matching specification and secrets generation |
 | P1.3 | DONE | d525440 | Centralized _paths module and entrypoints; verified startup from root and Backend/ |
 | P1.4 | DONE | 0798b32 | Sentry initialization with PII masking, traces sample rate, and conditional activation |
-| P1.5 | DONE | pending | Structured JSON logging using settings.LOG_LEVEL and request_id context variable |
+| P1.5 | DONE | 0e91edf | Structured JSON logging using settings.LOG_LEVEL and request_id context variable |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
