@@ -27,7 +27,7 @@
 | P3.5 | DONE | f32a9aa | seed.py cleaned up and synced |
 | P3.6 | DONE | f32a9aa | Authorization matrix enforced across all routes |
 | P3.7 | DONE | 2b53371 | Full auth & visibility tests passing, expired token check added |
-| P6.0 | DONE | 740be32 | Modular scraper framework; contract, fixture, registration, and import isolation tests passing (32/32) |
+| P6.0 | DONE | eab0e7e | Modular scraper framework; contract, fixture, registration, and import isolation tests passing (32/32) |
 | P4-P14 | WIP | wip: timeout | Timeout reached at 3500s limit; subagents drafted P4-P14 implementations |
 
 ## Baseline Test Failures (at Phase P3 start)
