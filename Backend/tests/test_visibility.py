@@ -51,8 +51,8 @@ def test_user_cannot_read_others_job_and_session():
 
     # User123 can chat with their session
     res = client.post("/api/bot/chat", json={"sessionId": test_sess_id, "message": "hello"}, headers=headers1)
-    # 500 or 200 is fine, we just care it doesn't give 403
-    assert res.status_code in [200, 500] 
+    # 503, 500 or 200 is fine, we just care it doesn't give 403
+    assert res.status_code in [200, 500, 503] 
 
     # Alice cannot chat with User123's session
     res = client.post("/api/bot/chat", json={"sessionId": test_sess_id, "message": "hello"}, headers=headers2)

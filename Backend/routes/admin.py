@@ -92,7 +92,7 @@ def list_users(
     ]
 
 
-@router.post("/users", status_code=status.HTTP_201_CREATED)
+@router.post("/users")
 def create_user(
     req: UserCreate,
     session: Session = Depends(get_db),

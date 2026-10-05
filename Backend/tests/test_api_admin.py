@@ -121,6 +121,7 @@ class TestAdminAPI:
             )
             session.add(user)
             session.add(job)
+            session.flush()
             session.add(query)
             session.commit()
 
@@ -165,6 +166,9 @@ class TestAdminAPI:
                 text="Proposal generated",
                 tool_trace=[{"tool": "propose_scrape", "args": {"source": "dasny"}}],
             )
+            session.add_all([user, org, lead, job, agent_sess, msg])
+            session.flush()
+
             query = Query(
                 id=test_qid,
                 user_id=test_uid,
@@ -181,7 +185,7 @@ class TestAdminAPI:
             )
             qr = QueryResult(query_id=test_qid, lead_id=test_lid, rank=1)
 
-            session.add_all([user, org, lead, job, agent_sess, msg, query, qr])
+            session.add_all([query, qr])
             session.commit()
 
         # Non-existent request returns 404
