@@ -33,6 +33,18 @@ def test_login_failures():
     res = client.get("/api/auth/me", headers={"Authorization": "Bearer usr-env-admin"})
     assert res.status_code == 401
 
+    # Expired token
+    import jwt
+    import time
+    from settings import settings
+    expired_token = jwt.encode(
+        {"sub": "usr-env-user", "role": "user", "iat": int(time.time()) - 200, "exp": int(time.time()) - 100},
+        settings.JWT_SECRET,
+        algorithm="HS256"
+    )
+    res = client.get("/api/auth/me", headers={"Authorization": f"Bearer {expired_token}"})
+    assert res.status_code == 401
+
 def test_admin_routes_forbidden_for_users():
     # Get user token
     res = client.post("/api/auth/login", json={"username": "User123", "password": "User123"})
@@ -43,6 +55,11 @@ def test_admin_routes_forbidden_for_users():
     assert res.status_code == 403
 
 def test_admin_creates_user():
+    # Clean up test user alice if already exists from prior test runs
+    with session_scope() as session:
+        session.execute(text("DELETE FROM users WHERE lower(username) = 'alice'"))
+        session.commit()
+
     # Get admin token
     res = client.post("/api/auth/login", json={"username": "Admin", "password": "Admin"})
     token = res.json()["accessToken"]
@@ -75,6 +92,10 @@ def test_second_admin_api_fails():
     assert "Only one admin is allowed" in res.json()["detail"]
 
 def test_second_admin_sql_fails():
+    with session_scope() as session:
+        session.execute(text("DELETE FROM users WHERE lower(username) = 'testadmin2'"))
+        session.commit()
+
     from sqlalchemy.exc import IntegrityError
     with pytest.raises(IntegrityError):
         with session_scope() as session:
