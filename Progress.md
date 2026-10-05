@@ -9,7 +9,8 @@
 | P0.4 | DONE | ca1b1aa | Test infrastructure: .env.test.example, conftest.py, fakes (chat model, scraper, RAG), pytest.ini, integration tests passing |
 | P0.5 | DONE | 379405a | S1 checkpoint: NYSCR password rotation acknowledged by human |
 | P1.1 | DONE | 6c6ad81 | Centralized settings module with strict validation, config audit script, zero direct env access |
-| P1.2 | DONE | pending | Environment example template matching specification and secrets generation |
+| P1.2 | DONE | 2d28cb4 | Environment example template matching specification and secrets generation |
+| P1.3 | DONE | pending | Centralized _paths module and entrypoints; verified startup from root and Backend/ |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
@@ -153,3 +154,40 @@
   - [x] Generated `JWT_SECRET` into local `Backend/.env`
   - [x] Removed old keys (`LLM_PRIMARY_PROVIDER`, `LLM_FALLBACK_PROVIDERS`, `GEMINI_*`, etc.)
   - [x] `.gitignore` ignores `Backend/.env`, `Backend/.env.test`, `RAG/.env`
+
+### P1.3 Centralized Paths & Server Entrypoint
+- **1. Offending state identified:**
+  - Multiple files performed ad-hoc `sys.path.insert(0, ...)` with varied relative path navigations (`conftest.py`, `migrations/env.py`, `tests/test_normalize.py`).
+  - `run_server.py` lacked explicit `app_dir` and did not use centralized `settings`.
+- **2. Implementation:**
+  - Created `Backend/_paths.py` adding `PROJECT_ROOT` and `BACKEND_DIR` to `sys.path` idempotently.
+  - Replaced ad-hoc `sys.path.insert` in `Backend/conftest.py`, `Backend/migrations/env.py`, and `Backend/tests/test_normalize.py` with `import _paths`.
+  - Configured `Backend/run_server.py`:
+    ```python
+    uvicorn.run(
+        "app:app",
+        app_dir=str(BACKEND_DIR),
+        host=settings.API_HOST,
+        port=settings.API_PORT,
+        reload=(settings.ENVIRONMENT == "development"),
+    )
+    ```
+- **3. Evidence:**
+  - Server start from repo root:
+    ```
+    INFO: Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+    GET http://localhost:8000/health -> 200 OK
+    {"status": "healthy", "service": "DataOps AI Backend", "registeredScripts": 4}
+    ```
+  - Server start from `Backend/` directory:
+    ```
+    INFO: Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+    GET http://localhost:8000/health -> 200 OK
+    {"status": "healthy", "service": "DataOps AI Backend", "registeredScripts": 4}
+    ```
+  - Full test suite passes: `python -m pytest Backend/`: 63 passed in 4.27s.
+- **4. Self-check:**
+  - [x] `Backend/_paths.py` adds repo root + `Backend/` to `sys.path` once
+  - [x] All other `sys.path.insert` removed in favor of `import _paths`
+  - [x] `run_server.py` uses `uvicorn.run("app:app", app_dir=str(BACKEND_DIR), ...)`
+  - [x] Server starts from repo root and `Backend/`; `/health` returns 200

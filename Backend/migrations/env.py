@@ -6,13 +6,6 @@ from pathlib import Path
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Ensure backend root and project root are in sys.path
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-PROJECT_ROOT = BACKEND_DIR.parent
-for _p in [str(PROJECT_ROOT), str(BACKEND_DIR)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 import _paths
 from settings import settings
 from Database.base import Base
