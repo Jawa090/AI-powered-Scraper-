@@ -67,46 +67,19 @@ async def lifespan(app: FastAPI):
     with session_scope() as session:
         sync_env_users(session)
 
-    """Start a background task to fail jobs whose heartbeat is > 5 min old."""
-    async def reap_stale_jobs():
-        while True:
-            try:
-                from Database.models.dataset import Dataset
-                from Database.models.job import Job
-                from services.job_service import JobService
-                from Database.controller import session_scope
-                
-                with session_scope() as session:
-                    now = datetime.now(timezone.utc)
-                    cutoff = now - timedelta(minutes=5)
-                    stale = (
-                        session.query(Job)
-                        .filter(Job.status.in_(["Queued", "Running"]))
-                        .filter((Job.heartbeat_at == None) | (Job.heartbeat_at < cutoff))
-                        .all()
-                    )
-                    
-                    if stale:
-                        service = JobService(session)
-                        for job in stale:
-                            if job.status == "Queued" and job.created_at >= cutoff:
-                                continue
-                            
-                            service.fail(job.id, error_message="Job stalled (heartbeat timeout)", commit=False)
-                            if job.dataset_id:
-                                ds = session.get(Dataset, job.dataset_id)
-                                if ds is not None and ds.status == "Running":
-                                    ds.status = "Failed"
-                        session.commit()
-                        logger.info("Reaped %d stalled job(s)", len(stale))
-            except Exception as e:
-                logger.warning("Error in stale job reaper: %s", e)
-            
-            await asyncio.sleep(60)
+    try:
+        from agents.graph.checkpointer import setup_checkpointer
+        setup_checkpointer()
+    except Exception as e:
+        logger.warning("Checkpointer setup warning: %s", e)
 
-    task = asyncio.create_task(reap_stale_jobs())
     yield
-    task.cancel()
+
+    try:
+        from agents.graph.checkpointer import pool
+        pool.close()
+    except Exception:
+        pass
 
 app = FastAPI(
     title="DataOps AI Extraction Backend",
@@ -128,10 +101,12 @@ app.add_middleware(
 
 # ── Register routers ─────────────────────────────────────────────────────
 from routes.auth import router as auth_router
-from routes.users import router as users_router
-app.include_router(admin_router)
+from routes.admin import router as admin_router
+from routes.bot import router as bot_router
+
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
-app.include_router(users_router, prefix="/api/admin/users", tags=["Admin Users"])
+app.include_router(admin_router)
+app.include_router(bot_router)
 
 import uuid
 
@@ -147,13 +122,6 @@ async def context_injection_middleware(request: Request, call_next):
     response.headers["x-request-id"] = req_id
     
     request_id_var.reset(req_id_token)
-    return response
-
-# Session cleanup middleware — ensures the scoped_session is removed after
-# every request so stale sessions never leak across requests on the same thread.
-@app.middleware("http")
-async def db_session_cleanup(request: Request, call_next):
-    response = await call_next(request)
     return response
 
 
@@ -227,43 +195,6 @@ class RunScriptRequest(BaseModel):
     )
 
 
-class BotChatRequest(BaseModel):
-    sessionId: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="Session identifier",
-    )
-    message: str = Field(
-        ...,
-        min_length=1,
-        max_length=10000,
-        description="User message text",
-    )
-    currentRequirement: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Optional current requirement state",
-    )
-
-
-class BotConfirmRequest(BaseModel):
-    sessionId: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="Session identifier",
-    )
-    requirement: Dict[str, Any] = Field(
-        ...,
-        description="Requirement dictionary",
-    )
-    preferredScriptId: Optional[str] = Field(
-        default=None,
-        max_length=50,
-        description="Optional preferred script identifier",
-    )
-
-
 # ---------------------------------------------------------------------------
 # Health & Readiness Endpoints
 # ---------------------------------------------------------------------------
@@ -318,30 +249,6 @@ def get_script_detail(script_id: str, current_user: User = Depends(get_current_u
     if not script:
         raise HTTPException(status_code=404, detail=f"Script '{script_id}' not found.")
     return {"script": script}
-
-
-@app.post("/api/scripts/run", tags=["Scripts"])
-def run_script(req: RunScriptRequest, current_user: User = Depends(require_admin)):
-    """Triggers any of the 4 scripts in the background and returns a jobId."""
-    script = scraper_manager.get_script(req.scriptId)
-    if not script:
-        raise HTTPException(status_code=404, detail=f"Unknown script '{req.scriptId}'")
-
-    import uuid
-    job_id = scraper_manager.create_job(
-        script_id=req.scriptId,
-        parameters=req.parameters,
-        created_by=current_user.id,
-        department_id="dept-sales-1",
-        query_id="",
-        idempotency_key=str(uuid.uuid4())
-    )
-    return {
-        "success": True,
-        "message": f"Execution started for {script['name']}",
-        "jobId": job_id,
-        "scriptId": req.scriptId,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -401,7 +308,6 @@ def list_leads(
 ):
     """Returns leads and opportunities extracted by scrapers."""
     result = scraper_manager.get_leads(current_user, dataset_id=datasetId, query=query, page=page, page_size=page_size)
-    # Maintain existing shape for frontend compatibility while adding pagination fields
     return {
         "leads": result["items"],
         "total": result["total"],
@@ -410,60 +316,93 @@ def list_leads(
     }
 
 
-# ---------------------------------------------------------------------------
-# AI Agent Bot Integration Endpoints — Layer 5 & 12: routed through AgentOrchestrator
-# ---------------------------------------------------------------------------
-
-from agents.graph.runner import run_turn
-
-@app.post("/api/bot/chat", tags=["AI Bot"])
-def bot_chat(req: BotChatRequest, current_user: User = Depends(get_current_user)):
-    """
-    Multi-turn conversational agent endpoint (LangGraph v2).
-    """
+@app.get("/api/leads/export.csv", tags=["Leads"])
+def export_leads_csv(
+    current_user: User = Depends(get_current_user),
+    datasetId: Optional[str] = Query(None, description="Filter by dataset ID"),
+    query: Optional[str] = Query(None, description="Search keyword"),
+):
+    """Streams leads as a CSV export scoped per D9."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
     from Database.controller import session_scope
-    from Database.models.session import AgentSession
-    with session_scope() as db_session:
-        db_sess = db_session.get(AgentSession, req.sessionId)
-        if db_sess and db_sess.user_id != current_user.id and current_user.role != "admin":
-            raise HTTPException(status_code=403, detail="Session does not belong to you.")
+    from Database.models.lead import Lead
+    from Database.models.organization import Organization
+    from Database.models.contact import Contact
+    from Database.models.dataset import DatasetRecord
+    from services.visibility import apply_lead_scope
+    from routes.serializers import serialize_lead
+    from sqlalchemy import select, or_
+    from sqlalchemy.orm import selectinload
 
-    return run_turn(current_user, req.sessionId, req.message)
+    with session_scope() as session:
+        stmt = select(Lead).options(
+            selectinload(Lead.organization).selectinload(Organization.locations),
+            selectinload(Lead.organization).selectinload(Organization.emails),
+            selectinload(Lead.organization).selectinload(Organization.phones),
+            selectinload(Lead.contact).selectinload(Contact.emails),
+            selectinload(Lead.contact).selectinload(Contact.phones),
+        )
+        stmt = apply_lead_scope(stmt, current_user)
 
+        if datasetId:
+            stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
+            stmt = stmt.where(DatasetRecord.dataset_id == datasetId)
 
-@app.post("/api/bot/confirm-and-generate", tags=["AI Bot"])
-def bot_confirm_and_generate(req: BotConfirmRequest, current_user: User = Depends(get_current_user)):
-    """
-    Called when the user confirms or rejects a scrape proposal.
-    Resumes the LangGraph interrupt.
-    """
-    from Database.controller import session_scope
-    from Database.models.session import AgentSession
-    with session_scope() as db_session:
-        db_sess = db_session.get(AgentSession, req.sessionId)
-        if db_sess and db_sess.user_id != current_user.id and current_user.role != "admin":
-            raise HTTPException(status_code=403, detail="Session does not belong to you.")
+        if query:
+            q = f"%{query}%"
+            stmt = stmt.outerjoin(Organization, Lead.organization_id == Organization.id)
+            stmt = stmt.outerjoin(Contact, Lead.contact_id == Contact.id)
+            stmt = stmt.where(or_(
+                Contact.full_name.ilike(q),
+                Organization.name.ilike(q),
+                Lead.title.ilike(q),
+                Lead.notes.ilike(q),
+            ))
 
-    from agents.graph.graph import get_compiled_graph
-    from langgraph.types import Command
-    from agents.graph.runner import to_api_response, _get_lock
+        db_leads = list(session.scalars(stmt.order_by(Lead.created_at.desc())).all())
+        serialized_items = [serialize_lead(l) for l in db_leads]
 
-    graph = get_compiled_graph()
-    config = {"configurable": {"thread_id": req.sessionId}, "recursion_limit": 25}
-    decision = {"decision": "approve", "edits": None, "text": "User clicked Confirm & Generate Data."}
+    def generate_csv():
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "ID", "Name", "Company", "Title", "Email", "Phone",
+            "Location", "City", "State", "Source Code", "Due At",
+            "Status", "Website", "Industry", "Created At"
+        ])
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
 
-    with _get_lock(req.sessionId):
-        out = graph.invoke(Command(resume=decision), config)
-        state_dict = graph.get_state(config).values
-        job_id = state_dict.get("job_id")
-        
-        return {
-            "success": bool(job_id),
-            "jobId": job_id or f"job-{req.sessionId}",
-            "scriptId": req.preferredScriptId or "auto",
-            "datasetId": f"ds-{req.sessionId}",
-            "message": "Scraper initialized successfully." if job_id else "No job was generated."
-        }
+        for item in serialized_items:
+            writer.writerow([
+                item.get("id") or "",
+                item.get("name") or "",
+                item.get("company") or "",
+                item.get("title") or "",
+                item.get("email") or "",
+                item.get("phone") or "",
+                item.get("location") or "",
+                item.get("city") or "",
+                item.get("state") or "",
+                item.get("sourceCode") or "",
+                item.get("dueAt") or "",
+                item.get("status") or "",
+                item.get("website") or "",
+                item.get("industry") or "",
+                item.get("createdAt") or "",
+            ])
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
+    return StreamingResponse(
+        generate_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=leads_export.csv"},
+    )
 
 
 if __name__ == "__main__":

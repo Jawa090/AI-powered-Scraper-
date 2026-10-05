@@ -1,23 +1,16 @@
 import React from 'react';
 import { useDataOps } from '../../context/DataOpsContext';
+import { useAuth } from '../../context/AuthContext';
 import {
-  LayoutDashboard,
   Bot,
-  FileSpreadsheet,
   Database,
   Users2,
-  Megaphone,
-  CalendarRange,
-  BarChart3,
-  Building2,
-  UserCheck,
-  Code2,
-  GitBranch,
   ActivitySquare,
   Settings,
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  UserCheck,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -37,9 +30,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile,
   onCloseMobile,
 }) => {
-  const { currentUser, leads, kpis } = useDataOps();
-  const isAdmin = currentUser.role === 'admin';
-  const isManager = currentUser.role === 'manager' || isAdmin;
+  const { leads } = useDataOps();
+  const { role } = useAuth();
+  const isAdmin = role === 'admin';
 
   interface NavItem {
     label: string;
@@ -48,29 +41,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
     badge?: string | number;
     badgeColor?: string;
     adminOnly?: boolean;
-    managerOnly?: boolean;
   }
 
+  // P13.6: Keep Agent, Leads, Datasets, Jobs, Settings, and Admin pages
   const primaryNav: NavItem[] = [
-    { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { label: 'AI Agent', path: '/agent', icon: Bot, badge: 'Active', badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    { label: 'Data Requests', path: '/data-requests', icon: FileSpreadsheet },
-    { label: 'Datasets', path: '/datasets', icon: Database },
     { label: 'Leads', path: '/leads', icon: Users2, badge: leads.length },
-    { label: 'Campaigns', path: '/campaigns', icon: Megaphone },
-    { label: 'Gantt Timeline', path: '/gantt', icon: CalendarRange },
+    { label: 'Datasets', path: '/datasets', icon: Database },
+    { label: 'Jobs', path: '/jobs', icon: ActivitySquare, badge: 'Live', badgeColor: 'bg-sky-50 text-sky-700 border-sky-200' },
   ];
 
-  const organizationNav: NavItem[] = [
-    { label: 'Analytics', path: '/analytics', icon: BarChart3, managerOnly: true },
-    { label: 'Departments', path: '/departments', icon: Building2, managerOnly: true },
-    { label: 'Employees', path: '/employees', icon: UserCheck, managerOnly: true },
-  ];
-
-  const infrastructureNav: NavItem[] = [
-    { label: 'Scripts', path: '/scripts', icon: Code2, adminOnly: true },
-    { label: 'Workflows', path: '/workflows', icon: GitBranch, adminOnly: true },
-    { label: 'Jobs', path: '/jobs', icon: ActivitySquare, adminOnly: true, badge: 'Live', badgeColor: 'bg-sky-50 text-sky-700 border-sky-200' },
+  const adminNav: NavItem[] = [
+    { label: 'Users', path: '/admin/users', icon: UserCheck, adminOnly: true },
+    { label: 'Activity Logs', path: '/admin/activity', icon: ActivitySquare, adminOnly: true },
+    { label: 'Knowledge Base', path: '/admin/kb', icon: Database, adminOnly: true },
   ];
 
   const handleItemClick = (path: string) => {
@@ -81,7 +65,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const renderNavList = (items: NavItem[], sectionTitle?: string) => {
     const visibleItems = items.filter(item => {
       if (item.adminOnly && !isAdmin) return false;
-      if (item.managerOnly && !isManager) return false;
       return true;
     });
 
@@ -96,7 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
         <div className="space-y-0.5">
           {visibleItems.map(item => {
-            const isActive = currentPath === item.path || (item.path !== '/dashboard' && currentPath.startsWith(item.path));
+            const isActive = currentPath === item.path || (item.path !== '/agent' && currentPath.startsWith(item.path));
             const Icon = item.icon;
 
             return (
@@ -104,24 +87,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.path}
                 onClick={() => handleItemClick(item.path)}
                 title={isCollapsed ? item.label : undefined}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all group ${isActive
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all group cursor-pointer ${
+                  isActive
                     ? 'bg-[#2D4351] text-white shadow-sm'
                     : 'text-gray-700 hover:bg-gray-100/80 hover:text-gray-900'
-                  }`}
+                }`}
               >
                 <Icon
-                  className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? 'text-white' : 'text-gray-500 group-hover:text-gray-800'
-                    }`}
+                  className={`w-4 h-4 flex-shrink-0 transition-colors ${
+                    isActive ? 'text-white' : 'text-gray-500 group-hover:text-gray-800'
+                  }`}
                 />
                 {!isCollapsed && (
                   <span className="flex-1 text-left truncate">{item.label}</span>
                 )}
-                {!isCollapsed && item.badge && (
+                {!isCollapsed && item.badge !== undefined && (
                   <span
-                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ml-auto ${isActive
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ml-auto ${
+                      isActive
                         ? 'bg-white/20 text-white border-transparent'
                         : item.badgeColor || 'bg-gray-100 text-gray-600 border-gray-200'
-                      }`}
+                    }`}
                   >
                     {item.badge}
                   </span>
@@ -146,16 +132,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 bg-white/90 backdrop-blur-md border-r border-[#E5E7EB]/80 flex flex-col transition-all duration-200 ${isCollapsed ? 'w-16' : 'w-60'
-          } ${isOpenMobile ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+        className={`fixed top-0 bottom-0 left-0 z-40 bg-white/90 backdrop-blur-md border-r border-[#E5E7EB]/80 flex flex-col transition-all duration-200 ${
+          isCollapsed ? 'w-16' : 'w-60'
+        } ${isOpenMobile ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         {/* Brand Header */}
         <div className="h-14 flex items-center justify-between px-4 border-b border-[#E5E7EB]">
           <div
-            onClick={() => handleItemClick('/dashboard')}
+            onClick={() => handleItemClick('/agent')}
             className="flex items-center gap-2.5 cursor-pointer select-none"
           >
-            {/* Abstract Minimal Logo Mark */}
             <div className="w-8 h-8 rounded-lg bg-[#2D4351] flex items-center justify-center text-white shadow-sm flex-shrink-0">
               <Sparkles className="w-4 h-4 text-emerald-400" />
             </div>
@@ -173,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <button
             onClick={onToggleCollapse}
-            className="hidden md:flex p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="hidden md:flex p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
             title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {isCollapsed ? (
@@ -187,8 +173,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Scrollable Navigation List */}
         <div className="flex-1 overflow-y-auto px-3 py-4">
           {renderNavList(primaryNav, 'Operations')}
-          {renderNavList(organizationNav, 'Organization')}
-          {renderNavList(infrastructureNav, 'Admin & Workflows')}
+          {isAdmin && renderNavList(adminNav, 'Admin Center')}
         </div>
 
         {/* Bottom Navigation / Settings */}
@@ -196,10 +181,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={() => handleItemClick('/settings')}
             title={isCollapsed ? 'Settings' : undefined}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all ${currentPath === '/settings'
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              currentPath === '/settings'
                 ? 'bg-[#2D4351] text-white'
                 : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
-              }`}
+            }`}
           >
             <Settings className="w-4 h-4 flex-shrink-0 text-gray-500" />
             {!isCollapsed && <span>Settings</span>}

@@ -15,6 +15,11 @@ from Database.normalize import (
     normalize_domain,
     normalize_phone,
     normalize_email,
+    normalize_state,
+    parse_location,
+    parse_due_date,
+    org_key,
+    lead_identity,
     fingerprint,
 )
 
@@ -164,3 +169,138 @@ class TestFingerprint:
         fp_no_phone = fingerprint(name="Acme")
         fp_with_phone = fingerprint(name="Acme", phone="(212) 555-1234")
         assert fp_no_phone != fp_with_phone
+
+
+class TestNormalizeState:
+    """Test state normalization to 2-letter uppercase USPS code."""
+
+    def test_full_state_name(self):
+        assert normalize_state("Texas") == "TX"
+        assert normalize_state("new york") == "NY"
+        assert normalize_state("CALIFORNIA") == "CA"
+
+    def test_abbreviation(self):
+        assert normalize_state("TX") == "TX"
+        assert normalize_state("ny") == "NY"
+        assert normalize_state("Tx.") == "TX"
+
+    def test_dc_and_territories(self):
+        assert normalize_state("District of Columbia") == "DC"
+        assert normalize_state("Puerto Rico") == "PR"
+        assert normalize_state("guam") == "GU"
+
+    def test_invalid_and_none(self):
+        assert normalize_state(None) is None
+        assert normalize_state("") is None
+        assert normalize_state("   ") is None
+        assert normalize_state("Atlantis") is None
+
+
+class TestParseLocation:
+    """Test parsing location string into (city, state, postal)."""
+
+    def test_city_state_zip(self):
+        assert parse_location("Dallas, TX 75201") == ("Dallas", "TX", "75201")
+        assert parse_location("Dallas, TX, 75201") == ("Dallas", "TX", "75201")
+
+    def test_city_full_state_zip(self):
+        assert parse_location("Dallas, Texas 75201") == ("Dallas", "TX", "75201")
+
+    def test_city_state_only(self):
+        assert parse_location("Dallas, TX") == ("Dallas", "TX", None)
+        assert parse_location("Albany, New York") == ("Albany", "NY", None)
+
+    def test_city_only(self):
+        assert parse_location("Houston") == ("Houston", None, None)
+
+    def test_state_only(self):
+        assert parse_location("Texas") == (None, "TX", None)
+        assert parse_location("TX") == (None, "TX", None)
+
+    def test_zip_only(self):
+        assert parse_location("75201") == (None, None, "75201")
+
+    def test_trailing_country_stripped(self):
+        assert parse_location("Dallas, TX, USA") == ("Dallas", "TX", None)
+        assert parse_location("New York, NY, US") == ("New York", "NY", None)
+
+    def test_zip_plus_four(self):
+        assert parse_location("New York, NY 10001-1234") == ("New York", "NY", "10001-1234")
+
+    def test_none_and_empty(self):
+        assert parse_location(None) == (None, None, None)
+        assert parse_location("") == (None, None, None)
+        assert parse_location("   ") == (None, None, None)
+
+
+class TestParseDueDate:
+    """Test parsing due date string into datetime object."""
+
+    def test_iso_format(self):
+        dt = parse_due_date("2026-11-15T14:30:00Z")
+        assert dt is not None
+        assert dt.year == 2026
+        assert dt.month == 11
+        assert dt.day == 15
+
+    def test_us_date_format(self):
+        dt = parse_due_date("10/25/2026")
+        assert dt is not None
+        assert dt.year == 2026
+        assert dt.month == 10
+        assert dt.day == 25
+
+    def test_natural_date_format(self):
+        dt = parse_due_date("November 1, 2026 5:00 PM")
+        assert dt is not None
+        assert dt.year == 2026
+        assert dt.month == 11
+        assert dt.day == 1
+        assert dt.hour == 17
+
+    def test_invalid_and_empty(self):
+        assert parse_due_date(None) is None
+        assert parse_due_date("") is None
+        assert parse_due_date("not-a-date") is None
+
+
+class TestOrgKey:
+    """Test organization deduplication key generation."""
+
+    def test_same_org_same_key(self):
+        k1 = org_key(name="Acme Inc.", domain="acme.com", phone="214-555-0100")
+        k2 = org_key(name="ACME", domain="www.acme.com", phone="(214) 555-0100")
+        assert k1 == k2
+
+    def test_missing_name_returns_none(self):
+        assert org_key(name=None) is None
+        assert org_key(name="") is None
+
+    def test_returns_64_char_hex(self):
+        k = org_key(name="City of Dallas Procurement")
+        assert k is not None
+        assert len(k) == 64
+        assert all(c in "0123456789abcdef" for c in k)
+
+
+class TestLeadIdentity:
+    """Test lead identity_key generation according to D7."""
+
+    def test_opportunity_source_and_external_id(self):
+        id_key = lead_identity(kind="opportunity", source_code="bonfire", external_id="BID-12345")
+        assert id_key == "src:bonfire:BID-12345"
+
+    def test_opportunity_strips_legacy_prefix(self):
+        id_key = lead_identity(kind="opportunity", source_code="nyscr", external_id="nyscr_9988")
+        assert id_key == "src:nyscr:9988"
+
+    def test_company_fingerprint(self):
+        fp = fingerprint(name="Acme Inc.", phone="214-555-0100")
+        id_key = lead_identity(kind="company", fingerprint=fp)
+        assert id_key == f"fp:{fp}"
+
+    def test_opportunity_missing_external_id_returns_none(self):
+        assert lead_identity(kind="opportunity", source_code="bonfire", external_id=None) is None
+
+    def test_company_missing_fingerprint_returns_none(self):
+        assert lead_identity(kind="company", fingerprint=None) is None

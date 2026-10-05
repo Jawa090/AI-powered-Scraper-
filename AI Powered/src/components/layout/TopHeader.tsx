@@ -1,9 +1,9 @@
 import React from 'react';
 import { useDataOps } from '../../context/DataOpsContext';
+import { useAuth } from '../../context/AuthContext';
 import { NotificationsDropdown } from './NotificationsDropdown';
-import { RoleSwitcher } from './RoleSwitcher';
 import { SystemHealthBadge } from '../common/SystemHealthBadge';
-import { Search, Menu, Building2 } from 'lucide-react';
+import { Search, Menu, Building2, LogOut, Shield, User as UserIcon } from 'lucide-react';
 
 interface TopHeaderProps {
   onToggleSidebar: () => void;
@@ -17,10 +17,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   breadcrumb,
 }) => {
   const { currentUser, globalSearch, setGlobalSearch } = useDataOps();
+  const { role, logout } = useAuth();
 
-  // Dynamic time greeting
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+
+  const displayName = currentUser.name || currentUser.username || 'User';
 
   return (
     <header className="h-14 bg-white/85 backdrop-blur-md border-b border-[#E5E7EB]/80 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-subtle">
@@ -28,7 +30,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       <div className="flex items-center gap-3">
         <button
           onClick={onToggleSidebar}
-          className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 md:hidden"
+          className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 md:hidden cursor-pointer"
           title="Toggle Navigation"
         >
           <Menu className="w-5 h-5" />
@@ -44,10 +46,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             )}
           </div>
           <p className="text-[11px] text-[#848485] hidden md:block">
-            {greeting}, <span className="font-medium text-gray-700">{currentUser.name.split(' ')[0]}</span> •{' '}
+            {greeting}, <span className="font-medium text-gray-700">{displayName.split(' ')[0]}</span> •{' '}
             <span className="inline-flex items-center gap-1">
               <Building2 className="w-3 h-3 inline text-gray-400" />
-              {currentUser.departmentName}
+              {currentUser.departmentName || 'Operations'}
             </span>
           </p>
         </div>
@@ -61,26 +63,40 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             type="text"
             value={globalSearch}
             onChange={e => setGlobalSearch(e.target.value)}
-            placeholder="Search leads, datasets, campaigns... (Press /)"
+            placeholder="Search leads, datasets... (Press /)"
             className="w-full bg-[#F8F9FA] border border-[#E5E7EB] rounded-lg pl-9 pr-4 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-[#2D4351] focus:border-[#2D4351] transition-all"
           />
         </div>
       </div>
 
-      {/* Right: Actions, Health Badge, Notifications, Role Switcher */}
+      {/* Right: Actions, Health Badge, Notifications, Role Badge & Logout */}
       <div className="flex items-center gap-2.5">
         <SystemHealthBadge />
         <NotificationsDropdown />
-        <RoleSwitcher />
 
-        {/* User Profile Pill */}
-        <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-          <img
-            src={currentUser.avatar}
-            alt={currentUser.name}
-            className="w-7 h-7 rounded-full object-cover ring-1 ring-gray-200"
-          />
+        {/* User Role Badge */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-gray-50 text-xs">
+          {role === 'admin' ? (
+            <Shield className="w-3.5 h-3.5 text-amber-600" />
+          ) : (
+            <UserIcon className="w-3.5 h-3.5 text-indigo-600" />
+          )}
+          <span className="font-semibold text-gray-800">{displayName}</span>
+          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
+            role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'
+          }`}>
+            {role}
+          </span>
         </div>
+
+        {/* Logout Button */}
+        <button
+          onClick={logout}
+          title="Sign out of DataOps"
+          className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </header>
   );

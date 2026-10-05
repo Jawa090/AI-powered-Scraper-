@@ -64,24 +64,25 @@ class ScraperManager:
     # ------------------------------------------------------------------
 
     def get_jobs(self, user) -> List[Dict[str, Any]]:
-        """Return recent scraper jobs from PostgreSQL (newest first)."""
+        """Return recent scraper jobs from PostgreSQL (newest first) scoped per D9."""
         from Database.controller import session_scope
         from sqlalchemy import select
         from Database.models.job import Job
+        from services.visibility import apply_job_scope
         with session_scope() as session:
             stmt = select(Job).order_by(Job.created_at.desc()).limit(100)
-            if user.role != "admin":
-                stmt = stmt.where(Job.created_by == user.id)
+            stmt = apply_job_scope(stmt, user)
             db_jobs = session.scalars(stmt).all()
             return [self._serialize_db_job(j) for j in db_jobs]
 
     def get_job(self, job_id: str, user) -> Optional[Dict[str, Any]]:
-        """Return a single job record from PostgreSQL, or None if not found."""
+        """Return a single job record from PostgreSQL, or None if not found or unauthorized."""
         from Database.controller import session_scope
         from Database.models.job import Job
+        from services.visibility import is_job_visible
         with session_scope() as session:
             job = session.get(Job, job_id)
-            if job and (user.role == "admin" or job.created_by == user.id):
+            if job and is_job_visible(job, user, session):
                 return self._serialize_db_job(job)
             return None
 
@@ -90,14 +91,14 @@ class ScraperManager:
     # ------------------------------------------------------------------
 
     def get_datasets(self, user) -> List[Dict[str, Any]]:
-        """Return recent datasets from PostgreSQL (newest first)."""
+        """Return recent datasets from PostgreSQL (newest first) scoped per D9."""
         from Database.controller import session_scope
         from sqlalchemy import select
         from Database.models.dataset import Dataset
+        from services.visibility import apply_dataset_scope
         with session_scope() as session:
             stmt = select(Dataset).order_by(Dataset.created_at.desc()).limit(100)
-            if user.role != "admin":
-                stmt = stmt.where(Dataset.created_by == user.id)
+            stmt = apply_dataset_scope(stmt, user)
             db_datasets = session.scalars(stmt).all()
             return [self._serialize_db_dataset(d) for d in db_datasets]
 
@@ -113,33 +114,31 @@ class ScraperManager:
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
-        """Return leads from PostgreSQL, paginated and optionally filtered."""
+        """Return leads from PostgreSQL, paginated and scoped per D9."""
         from Database.controller import session_scope
         from Database.models.lead import Lead
         from Database.models.organization import Organization
         from Database.models.contact import Contact
-        from Database.models.dataset import Dataset, DatasetRecord
+        from Database.models.dataset import DatasetRecord
+        from services.visibility import apply_lead_scope
         from sqlalchemy import select, func, or_
         from sqlalchemy.orm import selectinload
 
         with session_scope() as session:
             stmt = select(Lead).options(
-                selectinload(Lead.organization),
+                selectinload(Lead.organization).selectinload(Organization.locations),
+                selectinload(Lead.organization).selectinload(Organization.emails),
+                selectinload(Lead.organization).selectinload(Organization.phones),
                 selectinload(Lead.contact).selectinload(Contact.emails),
                 selectinload(Lead.contact).selectinload(Contact.phones),
             )
 
-            conditions = []
-            
-            # Scoping rule: user only sees leads in datasets they own (unless admin)
-            if user.role != "admin":
-                stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
-                stmt = stmt.join(Dataset, Dataset.id == DatasetRecord.dataset_id)
-                conditions.append(Dataset.created_by == user.id)
+            # Apply D9 scoping
+            stmt = apply_lead_scope(stmt, user)
 
+            conditions = []
             if dataset_id:
-                if user.role == "admin": # If admin, we haven't joined DatasetRecord yet
-                    stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
+                stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
                 conditions.append(DatasetRecord.dataset_id == dataset_id)
 
             if query:
@@ -231,119 +230,18 @@ class ScraperManager:
 
     def _serialize_db_job(self, j: Any) -> Dict[str, Any]:
         """Serialize a Job ORM object to the API response dict shape."""
-        started_str = ""
-        duration_val = j.duration or "00:00"
-
-        if j.started_at:
-            started_str = j.started_at.strftime("%Y-%m-%d %I:%M %p")
-            if j.status == "Running":
-                now = datetime.now(timezone.utc)
-                job_start = (
-                    j.started_at
-                    if j.started_at.tzinfo
-                    else j.started_at.replace(tzinfo=timezone.utc)
-                )
-                secs = max(0, int((now - job_start).total_seconds()))
-                duration_val = f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
-
-        return {
-            "id": j.id,
-            "name": j.name,
-            "type": j.type or "Scraper Job",
-            "scriptId": j.script_id,
-            "script_id": j.script_id,
-            "scriptName": j.script_name or j.script_id,
-            "script_name": j.script_name or j.script_id,
-            "departmentId": j.department_id,
-            "department_id": j.department_id,
-            "departmentName": j.department.name if hasattr(j, "department") and j.department else None,
-            "progress": j.progress or 0,
-            "status": j.status,
-            "currentStep": j.current_step or "",
-            "current_step": j.current_step or "",
-            "startedAt": started_str,
-            "started_at": started_str,
-            "duration": duration_val,
-            "recordsFound": j.records_found or 0,
-            "records_found": j.records_found or 0,
-            "verifiedCount": j.verified_count or 0,
-            "duplicatesCount": j.duplicates_count or 0,
-            "errorsCount": j.errors_count or 0,
-            "totalTarget": j.total_target,
-            "datasetId": j.dataset_id or "",
-            "dataset_id": j.dataset_id or "",
-            "parameters": j.parameters or {},
-            "logs": j.logs or [],
-        }
+        from routes.serializers import serialize_job
+        return serialize_job(j)
 
     def _serialize_db_dataset(self, d: Any) -> Dict[str, Any]:
         """Serialize a Dataset ORM object to the API response dict shape."""
-        created_str = d.created_at.strftime("%Y-%m-%d %I:%M %p") if d.created_at else ""
-        return {
-            "id": d.id,
-            "name": d.name,
-            "departmentId": d.department_id,
-            "departmentName": d.department.name if hasattr(d, "department") and d.department else None,
-            "createdBy": d.created_by,
-            "createdByName": d.creator.name if hasattr(d, "creator") and d.creator else None,
-            "recordsCount": d.records_count or 0,
-            "verifiedCount": d.verified_count or 0,
-            "duplicatesCount": d.duplicates_count or 0,
-            "status": d.status or "Completed",
-            "createdAt": created_str,
-            "tags": d.tags or [],
-            "workflowId": d.workflow_id or "",
-            "workflowName": d.workflow_name or "",
-        }
+        from routes.serializers import serialize_dataset
+        return serialize_dataset(d)
 
     def _serialize_db_lead(self, l: Any) -> Dict[str, Any]:
         """Serialize a Lead ORM object (with related Org/Contact) to API dict shape."""
-        created_str = l.created_at.strftime("%Y-%m-%d %I:%M %p") if l.created_at else ""
-        org_name = l.organization.name if l.organization else ""
-        contact_name = l.contact.full_name if l.contact else ""
-
-        # Contact email — None if not present (no fabrication)
-        email: Optional[str] = None
-        if l.contact and l.contact.emails:
-            email = l.contact.emails[0].email
-        elif l.organization and l.organization.emails:
-            email = l.organization.emails[0].email
-
-        # Contact phone — None if not present (no fabrication)
-        phone: Optional[str] = None
-        if l.contact and l.contact.phones:
-            phone = l.contact.phones[0].phone_raw
-        elif l.organization and l.organization.phones:
-            phone = l.organization.phones[0].phone_raw
-
-        website: Optional[str] = l.organization.website if l.organization else None
-        industry: Optional[str] = l.organization.industry if l.organization else None
-
-        return {
-            "id": l.id,
-            "datasetId": l.dataset_id or "",
-            "dataset_id": l.dataset_id or "",
-            "name": contact_name or "",
-            "company": org_name or "",
-            "title": l.title or "",
-            "email": email,
-            "phone": phone,
-            "location": None,
-            "status": l.status or "New",
-            "assignedTo": l.assigned_to,
-            "assigned_to": l.assigned_to,
-            "assignedToName": l.assigned_user.name if hasattr(l, "assigned_user") and l.assigned_user else None,
-            "departmentId": l.department_id,
-            "department_id": l.department_id,
-            "departmentName": l.department.name if hasattr(l, "department") and l.department else None,
-            "lastActivity": l.last_activity or "",
-            "companySize": "",
-            "website": website or "",
-            "industry": industry or "",
-            "createdAt": created_str,
-            "created_at": created_str,
-            "notes": l.notes or "",
-        }
+        from routes.serializers import serialize_lead
+        return serialize_lead(l)
 
 
 # ---------------------------------------------------------------------------

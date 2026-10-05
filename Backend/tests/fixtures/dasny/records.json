@@ -1,0 +1,54 @@
+[
+  {
+    "solicitation_number": "DASNY-RFP-2026-050",
+    "source_url": "https://www.dasny.org/opportunities/rfps-bids/2026/dasny-rfp-2026-050",
+    "title": "Architectural and Engineering Services for SUNY Albany",
+    "description": "The Dormitory Authority State of New York (DASNY) seeks architectural and engineering consulting services.",
+    "due_date_raw": "2026-11-20",
+    "issuing_organization": "Dormitory Authority of the State of New York (DASNY)",
+    "location_raw": "Albany, NY, 12203",
+    "location_city": "Albany",
+    "location_state": "NY",
+    "location_zip": "12203",
+    "contacts": [
+      {
+        "role": "Design Designated Contact",
+        "name": "Robert Miller",
+        "title": "Project Director",
+        "email": "rmiller@dasny.example.org",
+        "phone": "518-555-0199"
+      }
+    ],
+    "header_fields": {
+      "Solicitation #": "DASNY-RFP-2026-050",
+      "Due Date": "2026-11-20",
+      "Type": "RFP"
+    }
+  },
+  {
+    "solicitation_number": "DASNY-BID-2026-088",
+    "source_url": "https://www.dasny.org/opportunities/rfps-bids/2026/dasny-bid-2026-088",
+    "title": "General Construction Services for CUNY Hunter College",
+    "description": "Furnish all labor, material, and equipment necessary for general construction renovation.",
+    "due_date_raw": "2026-12-05",
+    "issuing_organization": "Dormitory Authority of the State of New York (DASNY)",
+    "location_raw": "New York, NY, 10065",
+    "location_city": "New York",
+    "location_state": "NY",
+    "location_zip": "10065",
+    "contacts": [
+      {
+        "role": "Procurement Contact",
+        "name": "Patricia Clark",
+        "title": "Procurement Analyst",
+        "email": "pclark@dasny.example.org",
+        "phone": "212-555-0122"
+      }
+    ],
+    "header_fields": {
+      "Solicitation #": "DASNY-BID-2026-088",
+      "Due Date": "2026-12-05",
+      "Type": "Construction Bid"
+    }
+  }
+]

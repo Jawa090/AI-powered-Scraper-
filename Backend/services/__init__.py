@@ -23,6 +23,7 @@ Usage pattern:
 from services.base import BaseService
 from services.contact_service import ContactService
 from services.dataset_service import DatasetService
+from services.ingest import UpsertResult, upsert_leads
 from services.job_service import JobService
 from services.lead_service import LeadService
 from services.organization_service import OrganizationService
@@ -38,4 +39,6 @@ __all__ = [
     "LeadService",
     "DatasetService",
     "JobService",
+    "upsert_leads",
+    "UpsertResult",
 ]

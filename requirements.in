@@ -1,0 +1,38 @@
+# ============================================================
+# DataOps Autonomous Intelligence Platform - Production Requirements
+# ============================================================
+
+# Web Framework & API Server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+
+# Database & Migrations
+sqlalchemy>=2.0.0
+psycopg[binary]>=3.1.0
+psycopg[pool]>=3.1.0
+alembic>=1.13.0
+pgvector>=0.2.0
+
+# Web Scraping & Browser Automation (Remote Selenium Grid)
+selenium>=4.15.0
+
+# HTTP Client & Utilities
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+urllib3>=2.0.0
+httpx>=0.25.0
+python-dateutil>=2.8.0
+python-dotenv>=1.0.0
+
+# LangGraph Agent Orchestration & LLM
+langgraph>=1.2.0
+langchain-core>=1.6.0
+langchain-google-genai>=4.4.0
+langchain-openai>=1.6.0
+langgraph-checkpoint-postgres>=2.0.0
+
+# Phone Numbers, Security & Observability
+phonenumbers>=8.13.0
+pyjwt>=2.8.0
+sentry-sdk>=2.14.0

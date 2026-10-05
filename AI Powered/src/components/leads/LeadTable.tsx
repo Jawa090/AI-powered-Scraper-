@@ -17,10 +17,11 @@ import {
 
 interface LeadTableProps {
   leads: Lead[];
-  onSelectLead: (lead: Lead) => void;
-  onCallLead: (lead: Lead) => void;
-  onEmailLead: (lead: Lead) => void;
-  onOpenBulkEmail: (selectedLeads: Lead[]) => void;
+  onSelectLead?: (lead: Lead) => void;
+  onCallLead?: (lead: Lead) => void;
+  onEmailLead?: (lead: Lead) => void;
+  onOpenBulkEmail?: (selectedLeads: Lead[]) => void;
+  compact?: boolean;
 }
 
 export const LeadTable: React.FC<LeadTableProps> = ({
@@ -29,6 +30,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
   onCallLead,
   onEmailLead,
   onOpenBulkEmail,
+  compact = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
@@ -147,13 +149,15 @@ export const LeadTable: React.FC<LeadTableProps> = ({
             {selectedIds.length} lead{selectedIds.length > 1 ? 's' : ''} selected
           </span>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => onOpenBulkEmail(selectedLeadObjects)}
-              className="px-3 py-1 rounded-md text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] transition-colors flex items-center gap-1.5 shadow-sm"
-            >
-              <Mail className="w-3.5 h-3.5 text-purple-300" />
-              <span>Email Selected ({selectedIds.length})</span>
-            </button>
+            {onOpenBulkEmail && (
+              <button
+                onClick={() => onOpenBulkEmail(selectedLeadObjects)}
+                className="px-3 py-1 rounded-md text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                <Mail className="w-3.5 h-3.5 text-purple-300" />
+                <span>Email Selected ({selectedIds.length})</span>
+              </button>
+            )}
             <button
               onClick={() => setSelectedIds([])}
               className="px-2.5 py-1 text-xs text-gray-600 hover:text-gray-900"
@@ -205,7 +209,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
                 return (
                   <tr
                     key={lead.id}
-                    onClick={() => onSelectLead(lead)}
+                    onClick={() => onSelectLead?.(lead)}
                     className={`hover:bg-[#F8F9FA]/80 transition-colors cursor-pointer ${
                       isSelected ? 'bg-[#EAEFF2]/40' : ''
                     }`}
@@ -253,24 +257,28 @@ export const LeadTable: React.FC<LeadTableProps> = ({
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onCallLead(lead)}
-                          className="px-2 py-1 rounded bg-[#2D4351] text-white hover:bg-[#20313C] font-semibold text-[11px] inline-flex items-center gap-1 transition-colors shadow-sm"
-                          title="Call Lead"
-                        >
-                          <Phone className="w-3 h-3" />
-                          Call
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onEmailLead(lead)}
-                          className="px-2 py-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold text-[11px] inline-flex items-center gap-1 transition-colors shadow-sm"
-                          title="Email Lead"
-                        >
-                          <Mail className="w-3 h-3 text-purple-600" />
-                          Email
-                        </button>
+                        {onCallLead && (
+                          <button
+                            type="button"
+                            onClick={() => onCallLead(lead)}
+                            className="px-2 py-1 rounded bg-[#2D4351] text-white hover:bg-[#20313C] font-semibold text-[11px] inline-flex items-center gap-1 transition-colors shadow-sm"
+                            title="Call Lead"
+                          >
+                            <Phone className="w-3 h-3" />
+                            Call
+                          </button>
+                        )}
+                        {onEmailLead && (
+                          <button
+                            type="button"
+                            onClick={() => onEmailLead(lead)}
+                            className="px-2 py-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold text-[11px] inline-flex items-center gap-1 transition-colors shadow-sm"
+                            title="Email Lead"
+                          >
+                            <Mail className="w-3 h-3 text-purple-600" />
+                            Email
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

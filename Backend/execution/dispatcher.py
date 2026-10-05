@@ -32,53 +32,43 @@ def dispatch_scraper(
     telemetry: TelemetryCallback,
 ) -> List[Dict[str, Any]]:
     """
-    Dispatch execution to the registered scraper adapter using the common BaseScraper interface.
+    Dispatch execution to the registered scraper adapter using scrappers.controller.
     """
+    from scrappers import controller
+
     clean_id = script_id.strip().lower()
-    # Ensure script is registered
-    get_registered_script(clean_id)
 
-    # 1. Instantiate Scraper
-    if clean_id == "bonfire":
-        from scrappers.bonfire import DallasBonfireScraper
-        scraper = DallasBonfireScraper(headless=True)
-    elif clean_id == "jwiz":
-        from scrappers.jwiz import JWizAdapter
-        scraper = JWizAdapter()
-    elif clean_id == "dasny":
-        from scrappers.dasny import DasnyScraper
-        scraper = DasnyScraper()
-    elif clean_id == "nyscr":
-        from scrappers.nyscr import NYSCRScraper
-        scraper = NYSCRScraper()
-    else:
-        raise ValueError(f"No execution handler registered for script '{script_id}'")
-
-    # 2. Pre-flight check
-    ok, reason = scraper.check_credentials()
+    # Pre-flight check
+    ok, reason = controller.check_ready(clean_id)
     if not ok:
         telemetry(25, "BLOCKED — Missing Credentials", reason or "Authentication required.", "error")
         raise RuntimeError(f"Credentials check failed for {script_id}: {reason}")
 
-    # 3. Parameter setup
-    from scrappers.base import ScrapeParams
     limit = int(parameters.get("limit") or 20)
-    
-    scrape_params = ScrapeParams(
-        limit=limit,
-        location=parameters.get("location"),
-        keyword=parameters.get("keyword"),
-        timeout_s=int(parameters.get("timeout_s") or 60)
-    )
 
-    # 4. Run loop
+    class TelemetryContext:
+        def log(self, level: str, msg: str) -> None:
+            lvl = getattr(logging, level.upper(), logging.INFO)
+            logger.log(lvl, msg)
+
+        def progress(self, pct: float, step: str) -> None:
+            telemetry(int(pct), f"Progress: {clean_id.upper()}", step, "info")
+
+        def should_cancel(self) -> bool:
+            return False
+
+        def wait_for_user(self, reason: str) -> bool:
+            telemetry(25, f"WAITING — User Action ({reason})", f"Please solve {reason} in the browser window", "warning")
+            return True
+
+    ctx = TelemetryContext()
     telemetry(15, f"Initializing {script_id.upper()} scraper", "Initializing browser/client...", "info")
     records = []
-    
+
     try:
-        iterator = scraper.run(scrape_params)
         telemetry(30, f"Scraping {script_id.upper()} portal", "Collecting opportunities...", "info")
-        
+        iterator = controller.run(clean_id, parameters, ctx=ctx)
+
         for i, rec in enumerate(iterator):
             pct = 30 + int(((i + 1) / max(limit, 1)) * 65)
             telemetry(
@@ -87,13 +77,12 @@ def dispatch_scraper(
                 f"Extracted: {rec.title or rec.organization_name}",
                 "info",
             )
-            
-            # Map RawRecord to the legacy dict expected by standardize_records
+
             records.append({
                 "source_id": rec.external_id,
                 "url": rec.source_url,
                 "issuing_organization": rec.organization_name,
-                "company_name": rec.organization_name, 
+                "company_name": rec.organization_name,
                 "contact_name": rec.contact_name,
                 "contact_person": rec.contact_name,
                 "email": rec.email,
@@ -101,19 +90,18 @@ def dispatch_scraper(
                 "phone": rec.phone,
                 "contact_phone": rec.phone,
                 "title": rec.title,
-                "location": rec.location,
+                "location": f"{rec.city}, {rec.us_state}" if rec.city and rec.us_state else (rec.city or rec.us_state),
                 "website": rec.website,
-                "industry": rec.industry,
-                "description": rec.notes,
-                "notes": rec.notes,
-                "close_date": rec.lead_metadata.get("close_date") or rec.lead_metadata.get("bid_deadline"),
-                **rec.lead_metadata
+                "industry": rec.category,
+                "description": rec.description,
+                "notes": rec.description,
+                "close_date": rec.due_at.isoformat() if rec.due_at else None,
+                **rec.extra,
             })
-            
-    finally:
-        if hasattr(scraper, 'close') and callable(scraper.close):
-            scraper.close()
-            
+    except Exception as e:
+        logger.error("Scraper execution error for %s: %s", script_id, e)
+        raise
+
     telemetry(95, f"Completed {script_id.upper()} extraction", f"Extracted {len(records)} records.", "info", records_found=len(records))
     return records
 

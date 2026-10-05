@@ -250,31 +250,18 @@ class JobExecutor:
                         commit=False,
                     )
 
-                # Atomically ingest validated leads only
-                ingested_lead_ids = []
-                for lead_item in validated_leads:
-                    try:
-                        lead_obj, created = lead_service.ingest_lead_atomic(
-                            organization_name=lead_item.get("organization_name"),
-                            contact_name=lead_item.get("contact_name"),
-                            email=lead_item.get("email"),
-                            phone=lead_item.get("phone"),
-                            title=lead_item.get("title"),
-                            location=lead_item.get("location"),
-                            website=lead_item.get("website"),
-                            industry=lead_item.get("industry"),
-                            notes=lead_item.get("notes"),
-                            dataset_id=dataset_id,
-                            source_id=script_id,
-                            scrape_run_id=run_id,
-                            lead_metadata=lead_item.get("lead_metadata"),
-                            commit=False,
-                        )
-                        ingested_lead_ids.append(lead_obj.id)
-                        if created:
-                            created_leads_count += 1
-                    except Exception as le:
-                        logger.warning("Error ingesting lead: %s", le)
+                # Atomically ingest validated leads via upsert_leads (P5)
+                from services.ingest import upsert_leads
+                upsert_res = upsert_leads(
+                    session,
+                    validated_leads,
+                    dataset_id=dataset_id,
+                    scrape_run_id=run_id,
+                    source_id=script_id,
+                    department_id=request.department_id or "dept-default",
+                )
+                ingested_lead_ids = upsert_res.lead_ids
+                created_leads_count = upsert_res.inserted
 
                 # Recalculate dataset counts and close out the dataset
                 ds_service.update_counts(dataset_id, commit=False)

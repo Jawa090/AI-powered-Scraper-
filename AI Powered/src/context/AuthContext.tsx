@@ -1,40 +1,86 @@
-import React, { createContext, useContext } from 'react';
-import { useDataOps } from './DataOpsContext';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
+import { apiService } from '../services/api.service';
 
 interface AuthContextType {
-  user: User;
+  user: User | null;
   role: UserRole;
   isAuthenticated: boolean;
-  login: (email: string) => void;
+  isLoading: boolean;
+  token: string | null;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
-  switchUser: (userId: string) => void;
-  switchRole: (role: UserRole) => void;
+  switchUser?: (userId: string) => void;
+  switchRole?: (role: UserRole) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, switchUser, switchRole } = useDataOps();
-
-  const login = (email: string) => {
-    // In mock mode, login always succeeds
-  };
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(() => apiService.getToken());
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(apiService.getToken()));
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const logout = () => {
-    // Return to login
+    apiService.logout();
+    setToken(null);
+    setUser(null);
+    setIsAuthenticated(false);
   };
+
+  useEffect(() => {
+    // Register 401 handler for automatic logout
+    apiService.setOnUnauthorized(() => {
+      logout();
+    });
+
+    // Check existing session
+    const initAuth = async () => {
+      const existingToken = apiService.getToken();
+      if (existingToken) {
+        try {
+          const me = await apiService.getMe();
+          if (me) {
+            setUser(me);
+            setIsAuthenticated(true);
+            setToken(existingToken);
+          } else {
+            logout();
+          }
+        } catch {
+          logout();
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+      setIsLoading(false);
+    };
+
+    initAuth();
+  }, []);
+
+  const login = async (username: string, password: string) => {
+    const res = await apiService.login(username, password);
+    setToken(res.accessToken);
+    setUser(res.user);
+    setIsAuthenticated(true);
+  };
+
+  const role: UserRole = user?.role === 'admin' ? 'admin' : 'user';
 
   return (
     <AuthContext.Provider
       value={{
-        user: currentUser,
-        role: currentUser.role,
-        isAuthenticated: true,
+        user,
+        role,
+        isAuthenticated,
+        isLoading,
+        token,
         login,
         logout,
-        switchUser,
-        switchRole,
+        switchUser: () => {},
+        switchRole: () => {},
       }}
     >
       {children}

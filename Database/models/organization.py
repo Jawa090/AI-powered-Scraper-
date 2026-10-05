@@ -23,6 +23,7 @@ class Organization(Base):
     id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     normalized_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    dedup_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)
     website: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, index=True)
     domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     industry: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)

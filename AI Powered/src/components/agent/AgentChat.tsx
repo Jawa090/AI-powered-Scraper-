@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useDataOps } from '../../context/DataOpsContext';
 import { AgentMessage, ProposedAction } from '../../types';
 import { MultiAgentWorkflowVisualizer } from './MultiAgentWorkflowVisualizer';
+import { LeadTable } from '../leads/LeadTable';
 import {
   Send,
   Bot,
@@ -9,12 +10,12 @@ import {
   RotateCcw,
   Zap,
   CheckCircle,
-  ExternalLink,
-  Target,
   Database,
   Search,
   Mail,
   TrendingUp,
+  AlertCircle,
+  Target,
 } from 'lucide-react';
 
 interface AgentChatProps {
@@ -45,7 +46,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
   onResetSession,
   onExecuteAction,
 }) => {
-  const { currentUser } = useDataOps();
+  const { currentUser, confirmBotDecision, retryBotMessage } = useDataOps();
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -89,20 +90,26 @@ export const AgentChat: React.FC<AgentChatProps> = ({
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-semibold text-gray-900">
-                {currentUser.departmentName} AI Agent
+                {currentUser.departmentName || 'Enterprise'} AI Agent
               </span>
               <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-semibold">
-                Online (Layer 12/13)
+                Online
               </span>
             </div>
             <p className="text-[11px] text-[#848485]">
-              Autonomous 4-engine scraper & multi-agent collaboration specialist
+              Autonomous 4-engine scraper & LangGraph intelligence agent
             </p>
           </div>
         </div>
 
-        {/* Header Actions */}
+        {/* Header Actions & KB status */}
         <div className="flex items-center gap-2">
+          {/* KB Status Chip */}
+          <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 flex items-center gap-1">
+            <Database className="w-3 h-3 text-purple-600" />
+            <span>KB Ready</span>
+          </span>
+
           {onResetSession && (
             <button
               onClick={onResetSession}
@@ -167,15 +174,13 @@ export const AgentChat: React.FC<AgentChatProps> = ({
           return (
             <div
               key={msg.id}
-              className={`flex gap-3 max-w-[88%] ${isUser ? 'ml-auto flex-row-reverse' : ''}`}
+              className={`flex gap-3 max-w-[92%] ${isUser ? 'ml-auto flex-row-reverse' : ''}`}
             >
               {/* Avatar */}
               {isUser ? (
-                <img
-                  src={currentUser.avatar}
-                  alt={currentUser.name}
-                  className="w-7 h-7 rounded-full object-cover ring-1 ring-gray-200 flex-shrink-0"
-                />
+                <div className="w-7 h-7 rounded-full bg-[#2D4351] text-white flex items-center justify-center flex-shrink-0 text-xs font-semibold ring-1 ring-gray-200">
+                  {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                </div>
               ) : (
                 <div className="w-7 h-7 rounded-full bg-[#2D4351] text-white flex items-center justify-center flex-shrink-0 text-xs shadow-sm">
                   <Bot className="w-3.5 h-3.5 text-emerald-300" />
@@ -184,15 +189,31 @@ export const AgentChat: React.FC<AgentChatProps> = ({
 
               {/* Message Bubble Container */}
               <div className="space-y-2 flex-1 min-w-0">
-                {/* Agent Attribution Badge (if not user) */}
-                {!isUser && agentBadge && (
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${agentBadge.bg} ${agentBadge.text}`}
-                    >
-                      <BadgeIcon className="w-3 h-3" />
-                      {agentBadge.label}
-                    </span>
+                {/* Attribution and Badges */}
+                {!isUser && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {agentBadge && (
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${agentBadge.bg} ${agentBadge.text}`}
+                      >
+                        <BadgeIcon className="w-3 h-3" />
+                        {agentBadge.label}
+                      </span>
+                    )}
+
+                    {/* KB Status Chip on message */}
+                    {msg.kb && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700">
+                        <Database className="w-3 h-3 text-purple-600" />
+                        <span>KB: {msg.kb.available ? 'Ready' : (msg.kb.state || 'Active')}</span>
+                        {msg.kb.hits && msg.kb.hits.length > 0 && (
+                          <span className="bg-purple-200/60 px-1 rounded text-[9px] font-mono">
+                            {msg.kb.hits.length} hit{msg.kb.hits.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </span>
+                    )}
+
                     {msg.decision && (
                       <span className="text-[9px] font-mono uppercase bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">
                         {msg.decision}
@@ -201,23 +222,94 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                   </div>
                 )}
 
-                {/* Bubble Text */}
-                <div
-                  className={`rounded-xl px-4 py-2.5 text-xs leading-relaxed ${
-                    isUser
-                      ? 'bg-[#2D4351] text-white rounded-tr-none shadow-sm'
-                      : 'bg-white border border-[#E5E7EB] text-gray-900 rounded-tl-none shadow-subtle'
-                  }`}
-                >
-                  <div className="whitespace-pre-wrap">
-                    {msg.text
-                      ? msg.text
-                          .replace(/\*\*([^*]+)\*\*/g, '$1')
-                          .replace(/^#+\s*/gm, '')
-                          .replace(/`([^`]+)`/g, '$1')
-                      : ''}
+                {/* 503 Error State */}
+                {msg.is503 ? (
+                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-800 space-y-2 shadow-subtle">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                      <span>The AI API is not responding</span>
+                    </div>
+                    <p className="text-[11px] text-rose-700">
+                      The AI API is not responding. Please try again.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => retryBotMessage?.(sessionId, msg.failedClientMessageId || msg.id, msg.failedText || '')}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer mt-1"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Retry</span>
+                    </button>
                   </div>
-                </div>
+                ) : (
+                  /* Standard Bubble Text */
+                  <div
+                    className={`rounded-xl px-4 py-2.5 text-xs leading-relaxed ${
+                      isUser
+                        ? 'bg-[#2D4351] text-white rounded-tr-none shadow-sm'
+                        : 'bg-white border border-[#E5E7EB] text-gray-900 rounded-tl-none shadow-subtle'
+                    }`}
+                  >
+                    <div className="whitespace-pre-wrap">
+                      {msg.text
+                        ? msg.text
+                            .replace(/\*\*([^*]+)\*\*/g, '$1')
+                            .replace(/^#+\s*/gm, '')
+                            .replace(/`([^`]+)`/g, '$1')
+                        : ''}
+                    </div>
+                  </div>
+                )}
+
+                {/* LeadTable Rendering for Discovered Records */}
+                {!isUser && msg.records && msg.records.length > 0 && (
+                  <div className="mt-2.5 bg-white rounded-xl border border-gray-200 overflow-hidden shadow-subtle">
+                    <div className="px-3.5 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                        Extracted Lead Records ({msg.records.length})
+                      </span>
+                      {msg.total !== undefined && msg.total > msg.records.length && (
+                        <span className="text-[10px] text-gray-500 font-mono">Total available: {msg.total}</span>
+                      )}
+                    </div>
+                    <div className="max-h-72 overflow-y-auto">
+                      <LeadTable leads={msg.records} compact={true} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Pending Action: Approve / Reject Buttons */}
+                {!isUser && msg.pendingAction && (
+                  <div className="mt-2.5 p-3 rounded-xl bg-amber-50/80 border border-amber-200 text-xs space-y-2">
+                    <div className="flex items-center gap-1.5 font-semibold text-amber-900">
+                      <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      <span>Confirmation Required</span>
+                    </div>
+                    <p className="text-amber-800 text-[11px]">
+                      {typeof msg.pendingAction === 'string'
+                        ? msg.pendingAction
+                        : msg.pendingAction?.label || 'The agent proposed running a targeted scrape. Would you like to proceed?'}
+                    </p>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => confirmBotDecision?.(sessionId, 'approve')}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>Approve</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => confirmBotDecision?.(sessionId, 'reject')}
+                        className="px-3 py-1.5 rounded-lg bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-semibold text-xs transition-colors cursor-pointer"
+                      >
+                        <span>Reject</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Layer 12 Multi-Agent Collaboration DAG Visualizer */}
                 {!isUser && (msg.collaborationId || (msg.agentSteps && msg.agentSteps.length > 1)) && (

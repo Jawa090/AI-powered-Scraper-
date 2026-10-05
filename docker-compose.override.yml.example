@@ -1,0 +1,21 @@
+# Development override file for Docker Compose
+# Copy this file to docker-compose.override.yml for local live reloading and bind mounts:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+
+version: "3.8"
+
+services:
+  api:
+    volumes:
+      - ./Backend:/app/Backend
+      - ./Database:/app/Database
+    command: ["uvicorn", "app:app", "--app-dir", "/app/Backend", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  worker:
+    volumes:
+      - ./Backend:/app/Backend
+      - ./Database:/app/Database
+
+  rag:
+    volumes:
+      - ./RAG:/app

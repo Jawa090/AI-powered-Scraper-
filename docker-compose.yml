@@ -1,80 +1,102 @@
 version: "3.8"
 
 services:
-  api:
-    build: 
-      context: ./Backend
-    ports:
-      - "8000:8000"
-    environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=dataops
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - REDIS_URL=redis://redis:6379/0
-      - CHROME_WS_URL=ws://chrome:3000
-      - LOG_LEVEL=INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    volumes:
-      - ./Backend:/app
-    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-
-  worker:
-    build:
-      context: ./Backend
-    environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=dataops
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - REDIS_URL=redis://redis:6379/0
-      - CHROME_WS_URL=ws://chrome:3000
-      - LOG_LEVEL=INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    volumes:
-      - ./Backend:/app
-    # If the app natively uses ThreadPoolExecutor inside the API, we can just run a headless worker script here,
-    # or just keep it as a placeholder for when Celery is introduced.
-    command: python -c "import time; print('Worker ready'); time.sleep(86400)"
-
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=dataops
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-dataops}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d dataops"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-dataops}"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
-  redis:
-    image: redis:7-alpine
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    env_file:
+      - Backend/.env
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
+      - CHECKPOINT_DB_URL=postgresql://postgres:postgres@postgres:5432/dataops
+      - RAG_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "python Database/setup.py && python -m RAG.migrate"]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "6379:6379"
+      - "8000:8000"
+    env_file:
+      - Backend/.env
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
+      - CHECKPOINT_DB_URL=postgresql://postgres:postgres@postgres:5432/dataops
+      - RAG_SERVICE_URL=http://rag:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["uvicorn", "app:app", "--app-dir", "/app/Backend", "--host", "0.0.0.0", "--port", "8000"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - Backend/.env
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
+      - CHECKPOINT_DB_URL=postgresql://postgres:postgres@postgres:5432/dataops
+      - SELENIUM_MODE=remote
+      - SELENIUM_REMOTE_URL=http://chrome:4444/wd/hub
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chrome:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "worker"]
+
+  rag:
+    build:
+      context: ./RAG
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    env_file:
+      - RAG/.env
+    environment:
+      - RAG_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
+      - RAG_PORT=8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "RAG"]
 
   chrome:
-    image: browserless/chrome:latest
-    environment:
-      - TIMEOUT=120000
-      - MAX_CONCURRENT_SESSIONS=10
+    image: selenium/standalone-chrome:4.18.1
+    shm_size: 2g
     ports:
-      - "3000:3000"
+      - "4444:4444"
+      - "7900:7900"
 
 volumes:
   postgres_data:

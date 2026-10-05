@@ -136,24 +136,57 @@ def _parse_date(raw):
 # Main scraper class
 # ---------------------------------------------------------------------------
 
-from scrappers.base import BaseScraper, ScrapeParams, RawRecord
+import logging
+from scrappers.base import BaseScraper, ScrapeParams, ScrapeContext, ScraperMeta, StandardRecord, RawRecord
+from scrappers.driver import make_driver, retry_driver_call
 
-class NYSCRScraper(BaseScraper):
+logger = logging.getLogger(__name__)
+
+
+class NyscrScraper(BaseScraper):
     source_code = "NYSCR"
 
-    def __init__(self):
+    meta = ScraperMeta(
+        id="nyscr",
+        name="New York State Contract Reporter",
+        description="Extracts state procurement contracts, RFPs, and bid opportunities from the New York State Contract Reporter portal.",
+        record_kind="opportunity",
+        category="Statewide Contracts",
+        version="1.0.0",
+        coverage={"state": "NY"},
+        supports=["limit", "keyword", "location"],
+        fields=[
+            "source_code",
+            "record_kind",
+            "external_id",
+            "source_url",
+            "title",
+            "description",
+            "organization_name",
+            "contact_name",
+            "contact_title",
+            "email",
+            "phone",
+            "website",
+            "city",
+            "us_state",
+            "postal_code",
+            "category",
+            "due_at",
+        ],
+        required_env=["NYSCR_USERNAME", "NYSCR_PASSWORD"],
+        default_limit=20,
+        max_limit=100,
+    )
+
+    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: bool = True) -> None:
+        super().__init__(ctx)
+        self.headless = headless
         self.driver = None
         from settings import settings
-        self.username = settings.NYSCR_USERNAME
-        self.password = settings.NYSCR_PASSWORD
-        if not self.username or not self.password:
-            raise EnvironmentError(
-                "NYSCR_USERNAME and NYSCR_PASSWORD must be set in environment variables. "
-                "See .env.example for details."
-            )
-        # Job ID is set by the dispatcher so captcha_manager can track this job
+        self.username = getattr(settings, "NYSCR_USERNAME", None)
+        self.password = getattr(settings, "NYSCR_PASSWORD", None)
         self.job_id = None
-        # Telemetry callback is set by the dispatcher for status updates
         self._telemetry = None
 
     def check_credentials(self) -> tuple[bool, str | None]:
@@ -162,45 +195,35 @@ class NYSCRScraper(BaseScraper):
         return True, None
 
     # ------------------------------------------------------------------ setup
-    def setup_chrome(self):
-        print("Setting up Chrome...")
-        opts = Options()
-        opts.add_argument("--no-sandbox")
-        opts.add_argument("--disable-dev-shm-usage")
-        opts.add_argument("--disable-blink-features=AutomationControlled")
-        opts.add_experimental_option("excludeSwitches", ["enable-automation"])
-        opts.add_experimental_option("useAutomationExtension", False)
+    def setup_chrome(self) -> bool:
+        if self.driver:
+            return True
+        logger.info("Setting up Chrome for NYSCR...")
         try:
-            try:
-                from webdriver_manager.chrome import ChromeDriverManager
-                svc = Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=svc, options=opts)
-            except Exception:
-                self.driver = webdriver.Chrome(options=opts)
+            self.driver = make_driver(headless=self.headless)
             self.wait = WebDriverWait(self.driver, 30)
-            print("Chrome ready.")
+            logger.info("Chrome ready for NYSCR.")
             return True
         except Exception as e:
-            print(f"Chrome setup failed: {e}")
+            logger.error("Chrome setup failed for NYSCR: %s", e)
             return False
 
     # -------------------------------------------------------- reCAPTCHA detection
-    def _detect_recaptcha(self):
+    def _detect_recaptcha(self) -> bool:
         """Check if a reCAPTCHA challenge is present on the current page."""
+        if not self.driver:
+            return False
         try:
-            # Google reCAPTCHA v2 iframe
             recaptcha_iframes = self.driver.find_elements(
                 By.CSS_SELECTOR, 'iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"]'
             )
             if recaptcha_iframes:
                 return True
-            # reCAPTCHA div containers
             recaptcha_divs = self.driver.find_elements(
                 By.CSS_SELECTOR, '.g-recaptcha, .recaptcha-checkbox, #recaptcha'
             )
             if recaptcha_divs:
                 return True
-            # Check page source for reCAPTCHA markers
             page_src = self.driver.page_source.lower()
             if 'recaptcha' in page_src or 'g-recaptcha' in page_src:
                 return True
@@ -208,89 +231,42 @@ class NYSCRScraper(BaseScraper):
         except Exception:
             return False
 
-    def _wait_for_captcha_resolution(self, context="login"):
+    def _wait_for_captcha_resolution(self, context: str = "login") -> bool:
         """
-        If reCAPTCHA is detected, pause and notify the user through the chat
-        to solve it manually, then wait for their 'done' signal.
-        
-        Returns True if captcha was resolved (or wasn't present), False on timeout.
+        If reCAPTCHA is detected, request user intervention via ScrapeContext protocol.
+        Single path per P6.4 / S10.
         """
         if not self._detect_recaptcha():
-            return True  # No captcha, continue normally
+            return True
 
-        print(f"[NYSCR] reCAPTCHA detected during {context}!")
+        logger.warning("[NYSCR] reCAPTCHA detected during %s!", context)
 
-        # Notify via telemetry (updates the job status in the DB)
-        if self._telemetry:
-            self._telemetry(
-                25,
-                "WAITING — reCAPTCHA Challenge",
-                f"reCAPTCHA detected during {context}. Please solve it in the browser window and type 'done' in the chat.",
-                "warning",
-            )
+        if self.ctx and hasattr(self.ctx, "wait_for_user"):
+            self.ctx.log("warning", f"reCAPTCHA detected during {context}. Waiting for user resolution.")
+            solved = self.ctx.wait_for_user("captcha")
+            if solved:
+                logger.info("[NYSCR] User signaled captcha solved. Resuming %s...", context)
+                time.sleep(3)
+                return True
+            else:
+                logger.error("[NYSCR] Captcha wait cancelled or failed.")
+                return False
 
-        # If we have a job_id, use CaptchaWaitManager to pause this thread
-        if self.job_id:
-            try:
-                from execution.captcha_manager import captcha_manager
-                from services.job_service import JobService
-
-                # Update job status to WAITING_FOR_USER
-                try:
-                    js = JobService()
-                    js.update_progress(
-                        self.job_id,
-                        progress=25,
-                        current_step="WAITING_FOR_USER",
-                        commit=True,
-                    )
-                    js.append_log(
-                        self.job_id,
-                        f"reCAPTCHA challenge detected during {context}. "
-                        "Waiting for user to solve it in the browser window. "
-                        "Type 'done' or 'continue' in the chat after solving.",
-                        level="WARNING",
-                        commit=True,
-                    )
-                except Exception as e:
-                    print(f"[NYSCR] Could not update job status: {e}")
-
-                # Register this job as waiting and block the thread
-                captcha_manager.register_wait(
-                    self.job_id,
-                    "nyscr",
-                    f"reCAPTCHA detected during {context}. "
-                    "Please solve it in the browser window and type 'done' in the chat.",
-                )
-
-                print(f"[NYSCR] Thread paused — waiting for user to solve reCAPTCHA (job={self.job_id})...")
-                # Wait up to 5 minutes for the user to solve it
-                user_signaled = captcha_manager.wait_for_user(self.job_id, timeout=300.0)
-
-                if user_signaled:
-                    print(f"[NYSCR] User signaled 'done' — resuming {context}...")
-                    # Give a few seconds for the page to process after captcha solve
-                    time.sleep(3)
-                    return True
-                else:
-                    print(f"[NYSCR] Timed out waiting for user to solve reCAPTCHA (5 min)")
-                    return False
-
-            except ImportError:
-                print("[NYSCR] CaptchaWaitManager not available, falling back to polling")
-
-        # Fallback: poll for up to 120 seconds hoping user solves it
-        print("[NYSCR] Polling for reCAPTCHA resolution (fallback mode, 120s)...")
-        for i in range(40):
+        # Standalone fallback: wait up to CAPTCHA_WAIT_SECONDS
+        from settings import settings
+        timeout_s = getattr(settings, "CAPTCHA_WAIT_SECONDS", 300)
+        logger.info("[NYSCR] Polling for manual reCAPTCHA resolution (timeout %ds)...", timeout_s)
+        start_t = time.time()
+        while time.time() - start_t < timeout_s:
             time.sleep(3)
             if not self._detect_recaptcha():
-                print(f"[NYSCR] reCAPTCHA resolved after ~{(i+1)*3}s")
+                logger.info("[NYSCR] reCAPTCHA resolved.")
                 return True
             current_url = self.driver.current_url.lower()
             if "login" not in current_url and "account" not in current_url:
-                print(f"[NYSCR] Page redirected (reCAPTCHA likely solved)")
+                logger.info("[NYSCR] Page navigated away from login.")
                 return True
-        print("[NYSCR] reCAPTCHA was not resolved within 120 seconds")
+        logger.error("[NYSCR] reCAPTCHA resolution timed out after %ds", timeout_s)
         return False
 
     # ------------------------------------------------------------------ login
@@ -1732,67 +1708,105 @@ class NYSCRScraper(BaseScraper):
     # ------------------------------------------------------------------
     # Run scrape loop (P4.1 Interface)
     # ------------------------------------------------------------------
-    def run(self, params: ScrapeParams) -> Iterator[RawRecord]:
+    # ------------------------------------------------------------------
+    # Modular Scraper Implementation (P6.4)
+    # ------------------------------------------------------------------
+    def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
+        """
+        Executes scrape of NYSCR portal with keyword and location filtering.
+        Yields raw extracted opportunity dictionaries.
+        """
         if not self.setup_chrome():
-            raise RuntimeError("Failed to initialize Chrome.")
+            raise RuntimeError("Failed to initialize Chrome for NYSCR.")
 
         try:
             if not self.login():
                 raise RuntimeError("NYSCR login failed.")
 
-            # Respect params.timeout_s
             self.driver.set_page_load_timeout(params.timeout_s)
 
-            opps = self.get_open_opportunities(max_count=params.limit or 999_999)
+            opps = self.get_open_opportunities(max_count=999_999)
             if not opps:
                 return
 
-            if params.limit:
-                opps = opps[:params.limit]
+            kw = (params.keyword or "").strip().lower()
+            target_city = (params.city or "").strip().lower()
+            yielded = 0
 
             for opp in opps:
-                # Optionally filter by location/keyword here
-                if params.keyword and params.keyword.lower() not in opp.get('id', '').lower():
-                    # NYSCR usually doesn't give much context before clicking in, but leaving space for keyword filter if needed.
-                    pass
+                if yielded >= params.limit or self.ctx.should_cancel():
+                    break
 
                 try:
-                    data = self.extract_clean_data(opp['id'])
+                    data = self.extract_clean_data(opp["id"])
                     if not data:
                         continue
 
-                    contact = data.get("contact_details", {})
-                    
-                    record = RawRecord(
-                        external_id=data.get("source_id"),
-                        source_url=data.get("url"),
-                        organization_name=data.get("issuing_organization"),
-                        contact_name=contact.get("name"),
-                        email=contact.get("email"),
-                        phone=contact.get("phone"),
-                        title=data.get("title"),
-                        location=data.get("location_city") or data.get("location_address"),
-                        notes=data.get("description"),
-                        lead_metadata={
-                            "status": "OPEN",
-                            "bid_deadline": data.get("bid_deadline"),
-                            "issue_date": data.get("issue_date"),
-                            "project_type": data.get("project_type"),
-                            "business_type": data.get("business_type"),
-                            "categories": data.get("categories"),
-                            "documents": data.get("documents"),
-                            "bid_results": data.get("bid_results"),
-                        }
-                    )
-                    yield record
+                    # Keyword filter (P6.4 requirement: implement keyword filter)
+                    if kw:
+                        text_corpus = f"{data.get('title', '')} {data.get('description', '')} {data.get('categories', '')} {data.get('issuing_organization', '')}".lower()
+                        if kw not in text_corpus:
+                            continue
+
+                    # Location filter
+                    if target_city:
+                        loc = f"{data.get('location_city', '')} {data.get('location_address', '')}".lower()
+                        if target_city not in loc:
+                            continue
+
+                    data["opp_id"] = str(opp["id"])
+                    yield data
+                    yielded += 1
                 except Exception as e:
-                    print(f"Error parsing NYSCR {opp['id']}: {e}")
-                    
-                time.sleep(0.8)
+                    logger.warning("Error parsing NYSCR opp %s: %s", opp.get("id"), e)
+
+                time.sleep(0.5)
         finally:
             self.close()
 
-    def close(self):
+    def to_standard(self, raw: Dict[str, Any]) -> StandardRecord:
+        """Transform raw NYSCR dictionary into canonical StandardRecord."""
+        contact = raw.get("contact_details") or {}
+        opp_id = str(raw.get("opp_id") or raw.get("id") or raw.get("source_id") or "").replace("nyscr_", "").strip()
+        due_at = _parse_date(raw.get("bid_deadline"))
+
+        return StandardRecord(
+            source_code=self.meta.id,
+            record_kind=self.meta.record_kind,
+            external_id=opp_id,
+            source_url=raw.get("url"),
+            title=raw.get("title"),
+            description=raw.get("description"),
+            organization_name=raw.get("issuing_organization") or "New York State Agency",
+            contact_name=contact.get("name"),
+            contact_title=contact.get("title"),
+            email=contact.get("email"),
+            phone=contact.get("phone"),
+            website=raw.get("url"),
+            city=raw.get("location_city"),
+            us_state="NY",
+            postal_code=None,
+            category=raw.get("categories") or "State Contracting",
+            due_at=due_at,
+            extra={
+                "opp_id": opp_id,
+                "bid_deadline": raw.get("bid_deadline"),
+                "issue_date": raw.get("issue_date"),
+                "project_type": raw.get("project_type"),
+                "categories": raw.get("categories"),
+            },
+        )
+
+    def close(self) -> None:
+        """Safely close driver instance."""
         if self.driver:
-            self.driver.quit()
-            print("Browser closed.")
+            try:
+                self.driver.quit()
+            except Exception as e:
+                logger.debug("Error closing NYSCR driver: %s", e)
+            self.driver = None
+        super().close()
+
+
+# Backwards compatibility alias
+NYSCRScraper = NyscrScraper

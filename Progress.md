@@ -27,20 +27,21 @@
 | P3.5 | DONE | f32a9aa | seed.py cleaned up and synced |
 | P3.6 | DONE | f32a9aa | Authorization matrix enforced across all routes |
 | P3.7 | DONE | 2b53371 | Full auth & visibility tests passing, expired token check added |
-| P4 | IN_PROGRESS | Subagent 0cd44638 | Schema migrations & data cleanup (c1_jobs_identity, c2_unique_indexes, backfill/merge scripts) |
-| P5 | IN_PROGRESS | Subagent 3bde9dd1 | Duplicate-free ingestion (normalize.py, upsert_leads) |
-| P6 | IN_PROGRESS | Subagent bd82b525 | Modular scraper framework (StandardRecord, ScraperBase, driver, controller) |
-| P7 | IN_PROGRESS | Subagent 62ef6d1e | Job queue & worker (Postgres SKIP LOCKED, worker process) |
-| P8 | IN_PROGRESS | Subagent fdce618c | LLM layer: single provider, no fallback (ChatGoogleGenerativeAI, D4 error format) |
-| P9 | IN_PROGRESS | Subagent 9fb9de72 | Remove fallbacks & manual paths |
-| P10 | IN_PROGRESS | Subagent 06abc783 | RAG module as a separate service |
-| P11 | IN_PROGRESS | Subagent 603bf1c8 | Agent graph (LangGraph StateGraph, checkpointer, tools) |
-| P12 | IN_PROGRESS | Subagent 15a7a52c | API & admin panel |
-| P13 | IN_PROGRESS | Subagent 646cc897 | Frontend (AI Powered/ React application) |
-| P14 | IN_PROGRESS | Subagent da0bc67a | Docker & deployment (Dockerfile, docker-compose.yml) |
+| P4-P14 | WIP | wip: timeout | Timeout reached at 3500s limit; subagents drafted P4-P14 implementations |
 
 ## Baseline Test Failures (at Phase P3 start)
 - `Backend\tests\test_api_admin.py::TestAdminAPI::test_admin_access_allowed`: `AttributeError: <module 'routes.admin'> does not have the attribute '_db'` (pre-existing mock expectation from before P2 refactor).
+
+## Timeout State (3500s Limit Reached)
+- **Phase P3:** 100% DONE. All 6 "Done when" integration criteria verified against real Postgres with evidence documented.
+- **Phases P4 through P14:** Dedicated subagents were spawned and generated foundational implementations across:
+  - Docker deployment (`Dockerfile`, `docker-compose.yml`, `requirements.txt` split)
+  - Modular scrapers (`Backend/scrappers/controller.py`, `driver.py`, tests)
+  - Duplicate-free ingestion (`Backend/services/ingest.py`, `Database/normalize.py`)
+  - Frontend auth and admin pages (`AI Powered/src/pages/AdminUsers.tsx`, `AdminActivity.tsx`, `AdminKnowledgeBase.tsx`)
+  - Standalone RAG directory structure (`RAG/`)
+  - API bot and serializer routes (`Backend/routes/bot.py`, `serializers.py`)
+- Work stopped at 3500s limit per operating instructions; all changes staged and committed as `wip: timeout`.
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).

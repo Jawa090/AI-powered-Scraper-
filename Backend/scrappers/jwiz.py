@@ -52,9 +52,18 @@ from urllib.parse import quote_plus, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup, Tag
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from typing import Iterator
-from scrappers.base import BaseScraper, ScrapeParams, RawRecord
+from typing import Iterator, Dict, Any, List, Optional
+from scrappers.base import BaseScraper, ScrapeParams, ScrapeContext, ScraperMeta, StandardRecord, RawRecord
+
+def build_location_slug(params: ScrapeParams) -> str:
+    """Derive search location slug from city, us_state, or raw location."""
+    if params.city and params.us_state:
+        return f"{params.city.strip()}-{params.us_state.strip()}".lower().replace(" ", "-")
+    if params.city:
+        return params.city.strip().lower().replace(" ", "-")
+    if params.location:
+        return params.location.strip().lower().replace(",", "").replace(" ", "-")
+    return "new-york"
 
 # ============================================================
 # CONFIGURATION
@@ -1814,26 +1823,8 @@ def make_fallback_key(
     company: str,
     phone: str,
 ) -> str:
-
-    company = normalize_key(
-        company
-    )
-
-    phone = normalize_phone(
-        phone
-    )
-
-    if not company:
-        return ""
-
-    if phone:
-        return (
-            f"name_phone::{company}::{phone}"
-        )
-
-    return (
-        f"name::{company}"
-    )
+    # Removed fallback ID generation per P6.4
+    return ""
 
 
 class MasterStore:
@@ -2774,22 +2765,58 @@ def main():
     print("=" * 72)
 
 
-class JWizAdapter(BaseScraper):
-    source_code = "JWIZ"
+class JWizScraper(BaseScraper):
+    """Modular scraper for JWiz Commercial & Services Directory."""
 
-    def run(self, params: ScrapeParams) -> Iterator[RawRecord]:
-        location = params.location or "new-york"
+    meta = ScraperMeta(
+        id="jwiz",
+        name="JWiz Commercial & Services Directory",
+        description="Extracts commercial B2B company leads, contractors, and business listings from the JWiz business directory.",
+        record_kind="company",
+        category="Commercial B2B Directory",
+        version="1.0.0",
+        coverage={"country": "USA"},
+        supports=["limit", "keyword", "location"],
+        fields=[
+            "source_code",
+            "record_kind",
+            "external_id",
+            "source_url",
+            "title",
+            "description",
+            "organization_name",
+            "contact_name",
+            "contact_title",
+            "email",
+            "phone",
+            "website",
+            "city",
+            "us_state",
+            "postal_code",
+            "category",
+            "due_at",
+        ],
+        required_env=[],
+        default_limit=25,
+        max_limit=100,
+    )
+
+    def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
+        """Scrape company cards from JWiz directory listings."""
+        location = build_location_slug(params)
         keyword = params.keyword or "contractor"
         limit = params.limit or 25
 
         client = HTTPClient()
         try:
-            found_names = set()
+            found_names: set[str] = set()
             page = 0
             max_pages = max(1, (limit + 99) // 100)
             yielded = 0
 
             while yielded < limit and page < max_pages:
+                if self.ctx.should_cancel():
+                    break
                 offset = page * 100
                 url = build_search_url(location, keyword, offset)
                 res = client.get(url)
@@ -2806,7 +2833,7 @@ class JWizAdapter(BaseScraper):
                     break
 
                 for card in cards:
-                    if yielded >= limit:
+                    if yielded >= limit or self.ctx.should_cancel():
                         break
 
                     name = extract_company_name(card)
@@ -2820,30 +2847,62 @@ class JWizAdapter(BaseScraper):
                     city, state = extract_city_state(loc_line)
                     profile_link = extract_profile_url(card)
 
-                    # P4.2 Stable ID: profile_url
-                    external_id = profile_link if profile_link else f"JWIZ-{name}-{phone}"
-                    if not profile_link:
-                        print(f"Warning: No profile_url found for {name}, generating fallback ID.")
+                    # external_id = profile_url or None (identity via fingerprint)
+                    external_id = profile_link if profile_link else None
 
-                    yield RawRecord(
-                        external_id=external_id,
-                        source_url=profile_link or url,
-                        organization_name=name,
-                        email=email,
-                        phone=phone,
-                        location=f"{city}, {state}" if city and state else (city or state),
-                        title=f"{keyword.title()} in {location.title()}",
-                        lead_metadata={
-                            "status": "OPEN",
-                            "priority": extract_lead_priority(card)
-                        }
-                    )
+                    yield {
+                        "company_name": name,
+                        "category": keyword.title(),
+                        "city": city,
+                        "state": state,
+                        "phone": phone,
+                        "email": email,
+                        "profile_url": profile_link,
+                        "location_line": loc_line,
+                        "lead_priority": extract_lead_priority(card),
+                        "external_id": external_id,
+                        "source_url": profile_link or url,
+                    }
                     yielded += 1
 
                 page += 1
-                time.sleep(1)
+                time.sleep(0.5)
         finally:
             client.close()
+
+    def to_standard(self, raw: Dict[str, Any]) -> StandardRecord:
+        """Map raw JWiz dict to StandardRecord with record_kind='company'."""
+        profile_url = raw.get("profile_url") or None
+        company_name = raw.get("company_name")
+        category = raw.get("category") or "Contractor"
+
+        return StandardRecord(
+            source_code=self.meta.id,
+            record_kind=self.meta.record_kind,
+            external_id=profile_url,
+            source_url=profile_url or raw.get("source_url"),
+            title=f"{category} Owner / Manager",
+            description=None,
+            organization_name=company_name,
+            contact_name=None,
+            contact_title=None,
+            email=raw.get("email"),
+            phone=raw.get("phone"),
+            website=profile_url,
+            city=raw.get("city"),
+            us_state=raw.get("state"),
+            postal_code=raw.get("postal_code"),
+            category=category,
+            due_at=None,
+            extra={
+                "lead_priority": raw.get("lead_priority"),
+                "raw_location": raw.get("location_line"),
+            },
+        )
+
+
+# Backwards compatibility alias
+JWizAdapter = JWizScraper
 
 
 if __name__ == "__main__":

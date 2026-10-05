@@ -1,14 +1,18 @@
-export type UserRole = 'admin' | 'manager' | 'sales' | 'email';
+export type UserRole = 'admin' | 'user';
 
 export interface User {
   id: string;
+  username?: string;
   name: string;
-  email: string;
+  email?: string;
   role: UserRole;
-  roleTitle: string;
-  departmentId: string;
-  departmentName: string;
-  avatar: string;
+  roleTitle?: string;
+  departmentId?: string;
+  departmentName?: string;
+  avatar?: string;
+  status?: string;
+  auth_source?: string;
+  builtIn?: boolean;
 }
 
 export interface Department {
@@ -76,6 +80,20 @@ export interface AgentMessage {
   agentsInvolved?: string[];
   agentSteps?: AgentTaskStep[];
   proposedActions?: ProposedAction[];
+  clientMessageId?: string;
+  is503?: boolean;
+  failedClientMessageId?: string;
+  failedText?: string;
+  records?: Lead[];
+  total?: number;
+  queryId?: string;
+  pendingAction?: any;
+  kb?: {
+    state?: string;
+    available?: boolean;
+    hits?: Array<{ chunkId?: string; documentId?: string; title?: string; content?: string; score?: number; [key: string]: any }>;
+    [key: string]: any;
+  };
 }
 
 export interface RequirementFields {
@@ -153,6 +171,7 @@ export interface Lead {
   lastActivity: string;
   notes?: string;
   nextFollowUp?: string;
+  dueAt?: string | null;
   companySize?: string;
   website?: string;
   industry?: string;
@@ -318,12 +337,22 @@ export interface SystemStatus {
 
 export interface BotChatResponse {
   reply: string;
-  suggestions: string[];
-  updatedRequirement: Requirement;
+  suggestions?: string[];
+  updatedRequirement?: Requirement;
   recommendedScript?: string | null;
   sessionId?: string;
   decision?: string;
   query?: any;
+  queryId?: string;
+  total?: number;
+  records?: Lead[];
+  pendingAction?: any;
+  kb?: {
+    state?: string;
+    available?: boolean;
+    hits?: Array<{ chunkId?: string; documentId?: string; title?: string; content?: string; score?: number; [key: string]: any }>;
+    [key: string]: any;
+  };
   agentCode?: string;
   handledBy?: string;
   agentResult?: any;
@@ -339,6 +368,101 @@ export interface BotConfirmResponse {
   success: boolean;
   jobId: string;
   scriptId: string;
-  datasetId: string;
+  datasetId: string | null;
   message: string;
 }
+
+export interface LlmUnavailableError {
+  code: 'LLM_UNAVAILABLE';
+  reason?: 'not_configured' | 'timeout' | 'auth_error' | 'rate_limited' | 'provider_error' | string;
+  message: string;
+}
+
+export interface ApiErrorResponse {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+    reason?: string;
+    details?: any;
+  };
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  username: string;
+  role: string;
+  status: string;
+  auth_source: string;
+  builtIn: boolean;
+}
+
+export interface AdminRequestItem {
+  id: string;
+  userId: string;
+  userName?: string | null;
+  sessionId?: string;
+  queryText?: string;
+  parameters?: Record<string, any>;
+  decision?: string;
+  status?: string;
+  jobId?: string | null;
+  recordsReturned?: number;
+  recordsNew?: number;
+  recordsUpdated?: number;
+  servedAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface AdminRequestDetail {
+  request: AdminRequestItem;
+  job?: {
+    id: string;
+    name?: string;
+    status: string;
+    progress: number;
+    scriptId: string;
+    recordsFound: number;
+    verifiedCount: number;
+    duplicatesCount: number;
+    errorMessage?: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+  } | null;
+  transcript: Array<{
+    id: string;
+    sender: string;
+    text: string;
+    toolTrace?: any;
+    createdAt?: string | null;
+  }>;
+  rowsServed: Array<{
+    leadId: string;
+    rank: number;
+    company?: string | null;
+    contact?: string | null;
+    title?: string | null;
+  }>;
+}
+
+export interface RagStatus {
+  state: string;
+  available: boolean;
+  message?: string;
+  documents?: number;
+  chunks?: number;
+  embeddingModel?: string;
+  dim?: number;
+  version?: string;
+}
+
+export interface RagDocument {
+  id: string;
+  title?: string;
+  content?: string;
+  chunksCount?: number;
+  createdAt?: string;
+  [key: string]: any;
+}
+

@@ -55,7 +55,9 @@ class Lead(Base):
         JSON().with_variant(JSONB, "postgresql"), nullable=True
     )
 
-    # Phase 2 — dedup and freshness columns
+    # Phase 2 & Phase 5 — dedup, identity, and freshness columns
+    identity_key: Mapped[Optional[str]] = mapped_column(String(300), nullable=True, unique=True, index=True)
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     source_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=False)

@@ -76,12 +76,10 @@ export const Leads: React.FC<LeadsProps> = ({ onNavigate }) => {
       </div>
 
       {/* Main Enterprise Lead Table */}
+      {/* Verified Leads Table (read-only per P13.6) */}
       <LeadTable
         leads={leads}
         onSelectLead={handleRowClick}
-        onCallLead={handleOpenCall}
-        onEmailLead={handleOpenEmail}
-        onOpenBulkEmail={handleOpenBulkEmail}
       />
 
       {/* Slide-over Detail Drawer */}
@@ -89,44 +87,6 @@ export const Leads: React.FC<LeadsProps> = ({ onNavigate }) => {
         lead={selectedLead}
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
-        onCall={lead => {
-          setIsDrawerOpen(false);
-          handleOpenCall(lead);
-        }}
-        onEmail={lead => {
-          setIsDrawerOpen(false);
-          handleOpenEmail(lead);
-        }}
-      />
-
-      {/* Call Modal */}
-      <CallModal
-        lead={callLead}
-        isOpen={isCallModalOpen}
-        onClose={() => setIsCallModalOpen(false)}
-        onSaveCall={(id, outcome, notes, nextFollowUp) => {
-          logCall(id, outcome, notes, nextFollowUp);
-        }}
-      />
-
-      {/* Single Email Composer Modal */}
-      <EmailComposerModal
-        lead={emailLead}
-        isOpen={isEmailModalOpen}
-        onClose={() => setIsEmailModalOpen(false)}
-        onSendEmail={(id, subject, body) => {
-          sendEmail(id, subject, body);
-        }}
-      />
-
-      {/* Bulk Email Outreach Modal */}
-      <BulkEmailModal
-        selectedLeads={bulkLeads}
-        isOpen={isBulkModalOpen}
-        onClose={() => setIsBulkModalOpen(false)}
-        onSendBulk={async (ids, subject, body) => {
-          await sendBulkEmail(ids, subject, body);
-        }}
       />
     </div>
   );

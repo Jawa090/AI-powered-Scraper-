@@ -18,9 +18,10 @@ import { apiService } from '../services/api.service';
 export const SYSTEM_USERS: User[] = [
   {
     id: 'usr-ahmed',
+    username: 'ahmed',
     email: 'ahmed.khan@company.internal',
     name: 'Ahmed Khan',
-    role: 'sales',
+    role: 'user',
     roleTitle: 'Senior Outbound Sales Specialist',
     departmentId: 'dept-sales-1',
     departmentName: 'Procurement & Municipal Bids',
@@ -28,9 +29,10 @@ export const SYSTEM_USERS: User[] = [
   },
   {
     id: 'usr-sara',
+    username: 'sara',
     email: 'sara.j@company.internal',
     name: 'Sara Jenkins',
-    role: 'email',
+    role: 'user',
     roleTitle: 'Email Growth & Campaigns Lead',
     departmentId: 'dept-email-mktg',
     departmentName: 'Commercial Directory Outreach',
@@ -38,9 +40,10 @@ export const SYSTEM_USERS: User[] = [
   },
   {
     id: 'usr-marcus',
+    username: 'marcus',
     email: 'marcus.v@company.internal',
     name: 'Marcus Vance',
-    role: 'manager',
+    role: 'user',
     roleTitle: 'Director of State RFPs & Infrastructure',
     departmentId: 'dept-sales-2',
     departmentName: 'State Infrastructure & Construction',
@@ -48,6 +51,7 @@ export const SYSTEM_USERS: User[] = [
   },
   {
     id: 'usr-elena',
+    username: 'elena',
     email: 'elena.r@company.internal',
     name: 'Elena Rostova',
     role: 'admin',
@@ -179,6 +183,8 @@ interface DataOpsContextType {
   setActiveSessionId: (id: string) => void;
   messagesBySession: Record<string, AgentMessage[]>;
   sendMessage: (sessionId: string, text: string) => Promise<void>;
+  confirmBotDecision: (sessionId: string, decision: 'approve' | 'reject') => Promise<void>;
+  retryBotMessage: (sessionId: string, clientMessageId: string, text: string) => Promise<void>;
   createSession: (departmentId?: string, title?: string) => Promise<AgentSession>;
   confirmRequirementAndGenerate: (sessionId: string) => Promise<string>; // returns jobId or reqId
   getLiveJob: (jobId: string) => Job | undefined;
@@ -360,7 +366,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
       title: `Call logged with ${lead.name}`,
       description: `${currentUser.name} completed call with ${lead.name} (${lead.company}). Outcome: ${outcome}.${notes ? ` Note: "${notes}"` : ''}`,
       user: currentUser.name,
-      department: currentUser.departmentName,
+      department: currentUser.departmentName || 'General',
       timestamp: 'Just now',
       leadId: lead.id,
       leadName: lead.name,
@@ -405,7 +411,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
       title: `Email sent to ${lead.name}`,
       description: `${currentUser.name} sent "${subject}" to ${lead.email} (${lead.company}).`,
       user: currentUser.name,
-      department: currentUser.departmentName,
+      department: currentUser.departmentName || 'General',
       timestamp: 'Just now',
       leadId: lead.id,
       leadName: lead.name,
@@ -448,7 +454,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
       title: `Sent ${leadIds.length} campaign emails`,
       description: `${currentUser.name} sent personalized sequence "${subject}" to ${leadIds.length} recipients.`,
       user: currentUser.name,
-      department: currentUser.departmentName,
+      department: currentUser.departmentName || 'General',
       timestamp: 'Just now',
       badgeColor: '#8B5CF6',
     };
@@ -535,30 +541,29 @@ Which scraper engine would you like to target today, or what specific type of le
     ],
   });
 
-  const sendMessage = async (sessionId: string, text: string) => {
-    const userMsg: AgentMessage = {
-      id: `msg-${Date.now()}`,
-      sessionId,
-      sender: 'user',
-      text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
+  const sendMessage = async (sessionId: string, text: string, retryClientMessageId?: string) => {
+    const clientMessageId = retryClientMessageId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
-    setMessagesBySession(prev => ({
-      ...prev,
-      [sessionId]: [...(prev[sessionId] || []), userMsg],
-    }));
+    if (!retryClientMessageId) {
+      const userMsg: AgentMessage = {
+        id: `msg-${Date.now()}`,
+        sessionId,
+        sender: 'user',
+        text,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        clientMessageId,
+      };
 
-    // Find session and requirement
+      setMessagesBySession(prev => ({
+        ...prev,
+        [sessionId]: [...(prev[sessionId] || []), userMsg],
+      }));
+    }
+
     const sess = sessions.find(s => s.id === sessionId);
     if (!sess) return;
 
-    // Call FastAPI bot endpoint
     try {
-      // Context hygiene:
-      // If the session requirement is already completed or confirmed, but user is asking for a new search
-      // ("I need...", "Find...", "Scrape..."), do not contaminate the new request with stale datasetId or completed status.
-      // For follow-up retrieval requests ("Show me...", "View...", "Give me..."), preserve datasetId and completed status.
       const lowerText = text.toLowerCase();
       const isRetrieval = /^(show|view|get|display|list|fetch|see|what are)\b/.test(lowerText) &&
         !/\b(scrape|extract|harvest|crawl|run|new|another)\b/.test(lowerText);
@@ -578,12 +583,45 @@ Which scraper engine would you like to target today, or what specific type of le
         };
       }
 
-      const botRes = await apiService.sendBotMessage(sessionId, text, reqContext);
+      const botResult = await apiService.sendBotMessage(sessionId, text, clientMessageId, reqContext);
+
+      if (botResult.is503) {
+        const err503Msg: AgentMessage = {
+          id: `msg-503-${Date.now()}`,
+          sessionId,
+          sender: 'agent',
+          text: 'The AI API is not responding. Please try again.',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          is503: true,
+          failedClientMessageId: clientMessageId,
+          failedText: text,
+        };
+        setMessagesBySession(prev => ({
+          ...prev,
+          [sessionId]: [...(prev[sessionId] || []), err503Msg],
+        }));
+        return;
+      }
+
+      if (botResult.error && !botResult.data) {
+        showToast('AI Request Failed', botResult.error, 'error');
+        return;
+      }
+
+      const botRes = botResult.data;
       if (botRes && botRes.reply) {
+        if (botRes.records && botRes.records.length > 0) {
+          setLeads(prev => {
+            const existingIds = new Set(prev.map(l => l.id));
+            const newRecords = botRes.records!.filter(r => !existingIds.has(r.id));
+            return [...newRecords, ...prev];
+          });
+        }
+
         setSessions(prev =>
           prev.map(s => {
             if (s.id !== sessionId) return s;
-            const updated = botRes.updatedRequirement || {};
+            const updated: Partial<Requirement> = botRes.updatedRequirement || {};
             const mergedReq = {
               ...s.requirement,
               ...updated,
@@ -613,6 +651,11 @@ Which scraper engine would you like to target today, or what specific type of le
           handledBy: botRes.handledBy,
           decision: botRes.decision,
           query: botRes.query,
+          queryId: botRes.queryId,
+          total: botRes.total,
+          records: botRes.records,
+          pendingAction: botRes.pendingAction,
+          kb: botRes.kb,
           agentResult: botRes.agentResult,
           collaborationId: botRes.collaborationId,
           collaborationStatus: botRes.collaborationStatus,
@@ -626,13 +669,11 @@ Which scraper engine would you like to target today, or what specific type of le
           [sessionId]: [...(prev[sessionId] || []), agentMsg],
         }));
 
-        // If an autonomous scraper job was triggered directly by the command
         if (botRes.jobId) {
           const liveJobId = botRes.jobId;
           const targetScript = botRes.recommendedScript || 'Scraper';
           showToast('Extraction Started', `Autonomous workflow initiated using ${targetScript.toUpperCase()}.`, 'info');
 
-          // Ensure session requirement tracks the job in generating state
           setSessions(prev =>
             prev.map(s => {
               if (s.id === sessionId) {
@@ -650,16 +691,29 @@ Which scraper engine would you like to target today, or what specific type of le
             })
           );
 
-          // Fetch job details and add to jobs state
           apiService.getJob(liveJobId).then(liveJob => {
             if (liveJob) {
               setJobs(prev => [liveJob, ...prev.filter(j => j.id !== liveJobId)]);
             }
           });
 
-          // Poll job progress until completion
+          // Poll job progress and messages endpoint
           const pollTimer = setInterval(async () => {
-            const liveJob = await apiService.getJob(liveJobId);
+            const [liveJob, sessionMsgs] = await Promise.all([
+              apiService.getJob(liveJobId),
+              apiService.getSessionMessages(sessionId),
+            ]);
+
+            if (sessionMsgs && sessionMsgs.length > 0) {
+              const hasAssistantEvent = sessionMsgs.some(m => m.sender === 'assistant' || m.sender === 'agent');
+              if (hasAssistantEvent) {
+                const refreshedLeads = await apiService.getLeads();
+                if (refreshedLeads && refreshedLeads.length > 0) {
+                  setLeads(refreshedLeads);
+                }
+              }
+            }
+
             if (liveJob) {
               setJobs(prev => prev.map(j => (j.id === liveJobId ? liveJob : j)));
 
@@ -681,7 +735,7 @@ Which scraper engine would you like to target today, or what specific type of le
                     return s;
                   })
                 );
-              } else if (liveJob.status === 'Completed' || liveJob.status === 'Failed' || liveJob.status === 'Blocked') {
+              } else if (liveJob.status === 'Completed' || liveJob.status === 'Failed' || liveJob.status === 'Blocked' || liveJob.status === 'Cancelled') {
                 clearInterval(pollTimer);
                 if (liveJob.status === 'Completed') {
                   const [updatedLeads, updatedDatasets] = await Promise.all([
@@ -782,56 +836,18 @@ Which scraper engine would you like to target today, or what specific type of le
                   }));
 
                   showToast('Extraction Failed', `Job ${liveJobId} failed. Check execution logs.`, 'error');
-                } else if (liveJob.status === 'Blocked') {
-                  const scriptName = liveJob.name || targetScript.toUpperCase();
-                  setSessions(prev =>
-                    prev.map(s => {
-                      if (s.id === sessionId) {
-                        return {
-                          ...s,
-                          requirement: {
-                            ...s.requirement,
-                            jobId: liveJobId,
-                            status: 'blocked',
-                            completionPercentage: 0,
-                          },
-                        };
-                      }
-                      return s;
-                    })
-                  );
-
-                  const blockedMsg: AgentMessage = {
-                    id: `msg-blocked-${Date.now()}`,
-                    sessionId,
-                    sender: 'agent',
-                    text: `**${scriptName}** extraction is **BLOCKED**.\n\nRequired credentials or environment configurations are missing.`,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    agentCode: 'data',
-                    handledBy: 'ScraperExecutionEngine',
-                    proposedActions: [],
-                    suggestions: ['Configure Credentials', 'Select Different Engine'],
-                  };
-                  setMessagesBySession(prev => ({
-                    ...prev,
-                    [sessionId]: [...(prev[sessionId] || []), blockedMsg],
-                  }));
-
-                  showToast('Extraction Blocked', `Job ${liveJobId} is blocked: Credentials required.`, 'warning');
                 }
               }
             }
-          }, 1500);
+          }, 3000);
         }
 
         return;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Backend bot call error:', err);
     }
 
-    // Backend unavailable / connection error fallback:
-    // Preserve existing requirement without inventing category/location/industry/script decisions
     const fallbackMsg: AgentMessage = {
       id: `msg-${Date.now() + 1}`,
       sessionId,
@@ -847,8 +863,75 @@ Which scraper engine would you like to target today, or what specific type of le
     }));
   };
 
+  const retryBotMessage = async (sessionId: string, clientMessageId: string, text: string) => {
+    setMessagesBySession(prev => ({
+      ...prev,
+      [sessionId]: (prev[sessionId] || []).filter(m => !(m.is503 && m.failedClientMessageId === clientMessageId)),
+    }));
+    await sendMessage(sessionId, text, clientMessageId);
+  };
+
+  const confirmBotDecision = async (sessionId: string, decision: 'approve' | 'reject') => {
+    const clientMessageId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg-${Date.now()}`;
+    const userConfirmText = decision === 'approve' ? 'Yes, proceed with scrape.' : 'No, reject scrape.';
+
+    const userMsg: AgentMessage = {
+      id: `msg-user-confirm-${Date.now()}`,
+      sessionId,
+      sender: 'user',
+      text: userConfirmText,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      clientMessageId,
+    };
+
+    setMessagesBySession(prev => ({
+      ...prev,
+      [sessionId]: [...(prev[sessionId] || []), userMsg],
+    }));
+
+    const result = await apiService.confirmBot(sessionId, decision, clientMessageId);
+    if (result.is503) {
+      const err503Msg: AgentMessage = {
+        id: `msg-err-${Date.now()}`,
+        sessionId,
+        sender: 'agent',
+        text: 'The AI API is not responding. Please try again.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        is503: true,
+        failedClientMessageId: clientMessageId,
+        failedText: userConfirmText,
+      };
+      setMessagesBySession(prev => ({
+        ...prev,
+        [sessionId]: [...(prev[sessionId] || []), err503Msg],
+      }));
+      return;
+    }
+
+    if (result.data) {
+      const botRes = result.data;
+      if (botRes.records && botRes.records.length > 0) {
+        setLeads(prev => [...botRes.records!, ...prev]);
+      }
+      const agentMsg: AgentMessage = {
+        id: `msg-conf-res-${Date.now()}`,
+        sessionId,
+        sender: 'agent',
+        text: botRes.reply || (decision === 'approve' ? 'Scrape confirmed.' : 'Scrape rejected.'),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        records: botRes.records,
+        pendingAction: botRes.pendingAction,
+        kb: botRes.kb,
+      };
+      setMessagesBySession(prev => ({
+        ...prev,
+        [sessionId]: [...(prev[sessionId] || []), agentMsg],
+      }));
+    }
+  };
+
   const createSession = async (departmentId?: string, title?: string): Promise<AgentSession> => {
-    const deptId = departmentId || currentUser.departmentId;
+    const deptId = departmentId || currentUser.departmentId || 'dept-ops';
     const newSess = await agentService.createSession(deptId, title);
     setSessions(prev => [newSess, ...prev]);
     setActiveSessionId(newSess.id);
@@ -891,7 +974,7 @@ Which scraper engine would you like to target today, or what specific type of le
       );
       if (confirmRes && confirmRes.success && confirmRes.jobId) {
         liveJobId = confirmRes.jobId;
-        liveDatasetId = confirmRes.datasetId;
+        liveDatasetId = confirmRes.datasetId || '';
       }
     } catch (err) {
       console.warn('Backend confirm error, falling back to simulation:', err);
@@ -1147,6 +1230,8 @@ Which scraper engine would you like to target today, or what specific type of le
         setActiveSessionId,
         messagesBySession,
         sendMessage,
+        confirmBotDecision,
+        retryBotMessage,
         createSession,
         confirmRequirementAndGenerate,
         getLiveJob,

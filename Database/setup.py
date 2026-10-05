@@ -80,8 +80,17 @@ except Exception as e:
     print(f"  [ERROR] Error applying migrations: {e}")
     sys.exit(1)
 
-# Step 3: Seed initial data
-print("\n[Step 3/3] Seeding initial data (departments, users, agents, sources)...")
+# Step 3: Setup LangGraph checkpointer tables
+print("\n[Step 3/4] Initializing LangGraph checkpointer tables...")
+try:
+    from agents.graph.checkpointer import setup_checkpointer
+    setup_checkpointer()
+    print("  [OK] LangGraph checkpointer tables initialized successfully.")
+except Exception as e:
+    print(f"  [WARNING] LangGraph checkpointer setup skipped or failed: {e}")
+
+# Step 4: Seed initial data
+print("\n[Step 4/4] Seeding initial data (departments, users, agents, sources)...")
 try:
     seed()
     print("  [OK] Initial reference data seeded successfully.")

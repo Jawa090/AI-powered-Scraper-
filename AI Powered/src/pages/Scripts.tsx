@@ -162,15 +162,9 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
                 </span>
               </div>
 
-              <button
-                id={`run-scraper-btn-${script.id}`}
-                type="button"
-                onClick={() => handleOpenRunModal(script)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-900 text-white hover:bg-gray-800 transition-colors shadow-sm cursor-pointer"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                Run Scraper
-              </button>
+              <span className="text-[10px] text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded">
+                Agent Managed
+              </span>
             </div>
           </div>
         ))}

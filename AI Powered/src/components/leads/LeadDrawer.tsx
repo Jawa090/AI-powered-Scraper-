@@ -19,8 +19,8 @@ interface LeadDrawerProps {
   lead: Lead | null;
   isOpen: boolean;
   onClose: () => void;
-  onCall: (lead: Lead) => void;
-  onEmail: (lead: Lead) => void;
+  onCall?: (lead: Lead) => void;
+  onEmail?: (lead: Lead) => void;
 }
 
 export const LeadDrawer: React.FC<LeadDrawerProps> = ({
@@ -61,22 +61,28 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
             </div>
 
             {/* Quick action buttons */}
-            <div className="flex items-center gap-2 mt-4">
-              <button
-                onClick={() => onCall(lead)}
-                className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span>Call Lead</span>
-              </button>
-              <button
-                onClick={() => onEmail(lead)}
-                className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-              >
-                <Mail className="w-3.5 h-3.5 text-purple-600" />
-                <span>Send Email</span>
-              </button>
-            </div>
+            {(onCall || onEmail) && (
+              <div className="flex items-center gap-2 mt-4">
+                {onCall && (
+                  <button
+                    onClick={() => onCall(lead)}
+                    className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>Call Lead</span>
+                  </button>
+                )}
+                {onEmail && (
+                  <button
+                    onClick={() => onEmail(lead)}
+                    className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Send Email</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Drawer Content */}
