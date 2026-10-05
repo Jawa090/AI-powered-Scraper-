@@ -58,8 +58,8 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_obj)
 
 def setup_structured_logging():
-    import os
-    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    from settings import settings
+    level = settings.LOG_LEVEL
     
     # Configure root logger
     root_logger = logging.getLogger()

@@ -11,7 +11,8 @@
 | P1.1 | DONE | 6c6ad81 | Centralized settings module with strict validation, config audit script, zero direct env access |
 | P1.2 | DONE | 2d28cb4 | Environment example template matching specification and secrets generation |
 | P1.3 | DONE | d525440 | Centralized _paths module and entrypoints; verified startup from root and Backend/ |
-| P1.4 | DONE | pending | Sentry initialization with PII masking, traces sample rate, and conditional activation |
+| P1.4 | DONE | 0798b32 | Sentry initialization with PII masking, traces sample rate, and conditional activation |
+| P1.5 | DONE | pending | Structured JSON logging using settings.LOG_LEVEL and request_id context variable |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
@@ -224,3 +225,27 @@
   - [x] `traces_sample_rate` read from `settings.SENTRY_TRACES_SAMPLE_RATE`
   - [x] Removed `profiles_sample_rate=1.0`
   - [x] `before_send` masks emails and phones
+
+### P1.5 Structured JSON Logging
+- **1. Offending code identified:**
+  - `Backend/utils/logging_config.py`:
+    ```python
+    def setup_structured_logging():
+        import os
+        level = os.getenv("LOG_LEVEL", "INFO").upper()
+    ```
+    Used direct `os.getenv` with fallback default `"INFO"`.
+- **2. Implementation:**
+  - Updated `setup_structured_logging()` to import `settings` and use `settings.LOG_LEVEL`.
+  - Configured `JSONFormatter` outputting standard JSON structured logs including `timestamp`, `level`, `logger`, `message`, `thread_id`, and `thread_name`.
+  - Preserved `request_id_var` (as well as `user_id_var`, `query_id_var`, `job_id_var`) context variable propagation.
+- **3. Evidence:**
+  - Tested logging with active context variable:
+    ```json
+    {"timestamp": "2026-10-05T14:46:24.742450+00:00", "level": "INFO", "logger": "test", "message": "Testing structured JSON log", "thread_id": 22264, "thread_name": "MainThread", "request_id": "req-12345"}
+    ```
+  - Full test suite passes: `python -m pytest Backend/`: 63 passed in 4.27s.
+- **4. Self-check:**
+  - [x] `utils/logging_config.py` reads `settings.LOG_LEVEL`
+  - [x] JSON logs generated
+  - [x] Kept `request_id` context var
