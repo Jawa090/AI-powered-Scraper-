@@ -19,13 +19,28 @@
 | P2.4 | DONE | f3bebf4 | Services require injected Session and use self.repos registry |
 | P2.5 | DONE | b6c3057 | Refactored global singleton db.session access to use session_scope/get_db across routes, app.py, agents, executor |
 | P2.6 | DONE | f04f931 | Passed all unit and integration tests |
-| P3.1 | DONE | PENDING | Legacy auth code removed |
-| P3.2 | DONE | PENDING | Alembic migration for User, Agent models generated and run |
-| P3.3 | DONE | PENDING | Auth service with passlib and PyJWT |
-| P3.4 | DONE | PENDING | seed.py stripped, sync_env_users built, scripts/create_user.py built |
-| P3.5 | DONE | PENDING | /api/auth endpoints built, require_admin enforced |
-| P3.6 | DONE | PENDING | Authorization matrix implemented and verified |
-| P3.7 | DONE | PENDING | Auth unit and integration tests green |
+| P3.0 | DONE | 61d8070 | Migration c0_users_auth and user model auth_source default |
+| P3.1 | DONE | f32a9aa | Legacy auth code removed; authenticate, hash_password (PBKDF2), verify_password |
+| P3.2 | DONE | f32a9aa | sync_env_users built and wired into app startup and seed |
+| P3.3 | DONE | f32a9aa | /api/auth/login and /api/auth/me routes |
+| P3.4 | DONE | f32a9aa | Admin user management endpoints and scripts/create_user.py |
+| P3.5 | DONE | f32a9aa | seed.py cleaned up and synced |
+| P3.6 | DONE | f32a9aa | Authorization matrix enforced across all routes |
+| P3.7 | DONE | 2b53371 | Full auth & visibility tests passing, expired token check added |
+| P4 | IN_PROGRESS | Subagent 0cd44638 | Schema migrations & data cleanup (c1_jobs_identity, c2_unique_indexes, backfill/merge scripts) |
+| P5 | IN_PROGRESS | Subagent 3bde9dd1 | Duplicate-free ingestion (normalize.py, upsert_leads) |
+| P6 | IN_PROGRESS | Subagent bd82b525 | Modular scraper framework (StandardRecord, ScraperBase, driver, controller) |
+| P7 | IN_PROGRESS | Subagent 62ef6d1e | Job queue & worker (Postgres SKIP LOCKED, worker process) |
+| P8 | IN_PROGRESS | Subagent fdce618c | LLM layer: single provider, no fallback (ChatGoogleGenerativeAI, D4 error format) |
+| P9 | IN_PROGRESS | Subagent 9fb9de72 | Remove fallbacks & manual paths |
+| P10 | IN_PROGRESS | Subagent 06abc783 | RAG module as a separate service |
+| P11 | IN_PROGRESS | Subagent 603bf1c8 | Agent graph (LangGraph StateGraph, checkpointer, tools) |
+| P12 | IN_PROGRESS | Subagent 15a7a52c | API & admin panel |
+| P13 | IN_PROGRESS | Subagent 646cc897 | Frontend (AI Powered/ React application) |
+| P14 | IN_PROGRESS | Subagent da0bc67a | Docker & deployment (Dockerfile, docker-compose.yml) |
+
+## Baseline Test Failures (at Phase P3 start)
+- `Backend\tests\test_api_admin.py::TestAdminAPI::test_admin_access_allowed`: `AttributeError: <module 'routes.admin'> does not have the attribute '_db'` (pre-existing mock expectation from before P2 refactor).
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
@@ -328,3 +343,20 @@
 
 ### P3.7 Unit & Integration Tests
 - `Backend/tests/test_auth.py` and `Backend/tests/test_visibility.py` fully pass testing unique constraints, auth flows, token validity, and visibility scoping.
+
+### Phase P3 Done When Verification (Evidence)
+All criteria verified against real PostgreSQL database and real auth:
+1. **Admin/Admin -> admin token; User123/User123 -> user token:**
+   - Evidence: `Backend/tests/test_auth.py::test_login_success` PASSED.
+   - Response: `{"accessToken": "<jwt>", "tokenType": "bearer", "user": {"role": "admin"}}` and `{"role": "user"}`.
+2. **Wrong password -> 401; Bearer usr-env-admin -> 401; forged token -> 401; expired token -> 401:**
+   - Evidence: `Backend/tests/test_auth.py::test_login_failures` PASSED (all four conditions verified with status 401).
+3. **User calling /api/admin/* -> 403:**
+   - Evidence: `Backend/tests/test_auth.py::test_admin_routes_forbidden_for_users` PASSED (status 403 Forbidden).
+4. **Admin creates alice, and alice can log in:**
+   - Evidence: `Backend/tests/test_auth.py::test_admin_creates_user` PASSED (POST /api/admin/users -> 200, POST /api/auth/login -> 200 with valid accessToken).
+5. **A second admin via the API -> 400; via SQL -> unique violation:**
+   - Evidence: `Backend/tests/test_auth.py::test_second_admin_api_fails` PASSED (status 400, "Only one admin is allowed").
+   - Evidence: `Backend/tests/test_auth.py::test_second_admin_sql_fails` PASSED (raises `sqlalchemy.exc.IntegrityError: uq_users_single_admin`).
+6. **User A cannot read user B's job or session:**
+   - Evidence: `Backend/tests/test_visibility.py::test_user_cannot_read_others_job_and_session` PASSED (Alice receives 404 for User123's job, 403 for User123's session).
