@@ -13,11 +13,11 @@
 | P1.3 | DONE | d525440 | Centralized _paths module and entrypoints; verified startup from root and Backend/ |
 | P1.4 | DONE | 0798b32 | Sentry initialization with PII masking, traces sample rate, and conditional activation |
 | P1.5 | DONE | 0e91edf | Structured JSON logging using settings.LOG_LEVEL and request_id context variable |
-| P2.1 | DONE | wip | Implemented engine, SessionLocal, session_scope, get_db in Database/controller.py |
-| P2.2 | DONE | wip | Created Repositories class with lazy-loaded session-bound instances |
-| P2.3 | DONE | wip | BaseRepository expects injected Session |
-| P2.4 | DONE | wip | Services require injected Session and use self.repos registry |
-| P2.5 | DONE | wip | Refactored global singleton db.session access to use session_scope/get_db across routes, app.py, agents, executor |
+| P2.1 | DONE | dabd87a | Implemented engine, SessionLocal, session_scope, get_db in Database/controller.py |
+| P2.2 | DONE | 3eac8a2 | Created Repositories class with lazy-loaded session-bound instances |
+| P2.3 | DONE | cde21d2 | BaseRepository expects injected Session |
+| P2.4 | DONE | f3bebf4 | Services require injected Session and use self.repos registry |
+| P2.5 | DONE | b6c3057 | Refactored global singleton db.session access to use session_scope/get_db across routes, app.py, agents, executor |
 | P2.6 | DONE | wip | Passed all unit and integration tests |
 
 ## Checkpoints & STOP Flags
