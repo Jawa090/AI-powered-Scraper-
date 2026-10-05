@@ -7,7 +7,7 @@
 | P0.2 | DONE | e294cd9 | API probe & experiments E1-E12 documented in docs/probe.md, scripts/probe_apis.py verified |
 | P0.3 | DONE | 1fe619b | pgvector verified on local PostgreSQL; human confirmed/acknowledged empty DB and instructed to continue |
 | P0.4 | DONE | ca1b1aa | Test infrastructure: .env.test.example, conftest.py, fakes (chat model, scraper, RAG), pytest.ini, integration tests passing |
-| P0.5 | DONE | pending | S1 checkpoint: NYSCR password rotation acknowledged by human |
+| P0.5 | DONE | 379405a | S1 checkpoint: NYSCR password rotation acknowledged by human |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
