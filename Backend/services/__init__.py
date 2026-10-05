@@ -8,13 +8,15 @@ Architecture:
         ↓
     Services (business workflows, transaction ownership)
         ↓
-    Database singleton (from Database import db)
+    Repositories
         ↓
     PostgreSQL
 
 Usage pattern:
     from services import LeadService
-    lead_service = LeadService()
+    from Database import get_db
+    session = next(get_db())
+    lead_service = LeadService(session)
     leads = lead_service.list_by_status("New")
 """
 

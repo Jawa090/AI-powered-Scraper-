@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional
 
 
 from Database.models.scrape_run import ScrapeRun
-from Database import db
 from services.base import BaseService
 
 
@@ -21,9 +20,9 @@ class ScrapeRunService(BaseService):
     Business service for managing scrape execution runs.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.scrape_run_repo = db.scrape_runs
+    def __init__(self, session) -> None:
+        super().__init__(session)
+        self.scrape_run_repo = self.repos.scrape_runs
 
     def get_by_id(self, run_id: str) -> Optional[ScrapeRun]:
         """Retrieve a scrape run by ID."""

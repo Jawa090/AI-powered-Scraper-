@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 from Database.models.source import Source
-from Database import db
 from services.base import BaseService
 
 
@@ -20,9 +19,9 @@ class SourceService(BaseService):
     Business service for data sources (BONFIRE, DASNY, JWIZ, NYSCR, etc.).
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.source_repo = db.sources
+    def __init__(self, session) -> None:
+        super().__init__(session)
+        self.source_repo = self.repos.sources
 
     def get_by_id(self, source_id: str) -> Optional[Source]:
         """Retrieve a source by its primary key."""

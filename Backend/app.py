@@ -68,29 +68,30 @@ async def lifespan(app: FastAPI):
                 from Database.models.dataset import Dataset
                 from Database.models.job import Job
                 from services.job_service import JobService
-                from Database import db
+                from Database.controller import session_scope
                 
-                with db.transaction():
+                with session_scope() as session:
                     now = datetime.now(timezone.utc)
                     cutoff = now - timedelta(minutes=5)
                     stale = (
-                        db.session.query(Job)
+                        session.query(Job)
                         .filter(Job.status.in_(["Queued", "Running"]))
                         .filter((Job.heartbeat_at == None) | (Job.heartbeat_at < cutoff))
                         .all()
                     )
                     
                     if stale:
-                        service = JobService()
+                        service = JobService(session)
                         for job in stale:
                             if job.status == "Queued" and job.created_at >= cutoff:
                                 continue
                             
                             service.fail(job.id, error_message="Job stalled (heartbeat timeout)", commit=False)
                             if job.dataset_id:
-                                ds = db.session.get(Dataset, job.dataset_id)
+                                ds = session.get(Dataset, job.dataset_id)
                                 if ds is not None and ds.status == "Running":
                                     ds.status = "Failed"
+                        session.commit()
                         logger.info("Reaped %d stalled job(s)", len(stale))
             except Exception as e:
                 logger.warning("Error in stale job reaper: %s", e)
@@ -143,12 +144,6 @@ async def context_injection_middleware(request: Request, call_next):
 @app.middleware("http")
 async def db_session_cleanup(request: Request, call_next):
     response = await call_next(request)
-    try:
-        from Database.controller import db as _db
-        if _db.SessionFactory is not None:
-            _db.SessionFactory.remove()
-    except Exception:
-        pass  # Don't let cleanup failure break the response
     return response
 
 
@@ -280,9 +275,10 @@ def health_check():
 def readiness_check():
     """Readiness probe: verifies active PostgreSQL connectivity."""
     try:
-        from Database import db
+        from Database.controller import session_scope
         from sqlalchemy import text
-        db.session.execute(text("SELECT 1"))
+        with session_scope() as session:
+            session.execute(text("SELECT 1"))
         return {
             "status": "ready",
             "database": "connected",

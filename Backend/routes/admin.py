@@ -20,7 +20,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, and_, or_
 from sqlalchemy.orm import selectinload
 
-from Database import db as _db
+from sqlalchemy.orm import Session
+from Database import get_db
 from Database.models.query import Query
 from Database.models.job import Job
 from Database.models.user import User
@@ -42,6 +43,7 @@ router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 @router.get("/requests")
 def list_requests(
+    session: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
     user_id: Optional[str] = QueryParam(None, description="Filter by user ID"),
     decision: Optional[str] = QueryParam(None, description="Filter by decision (USE_DATABASE, NEED_FETCH, etc.)"),
@@ -52,7 +54,6 @@ def list_requests(
     page_size: int = QueryParam(20, ge=1, le=100),
 ) -> Dict[str, Any]:
     """Paginated log of all user requests/queries with decision info."""
-    session = _db.session
     stmt = select(Query).options(
         selectinload(Query.user),
     ).order_by(Query.created_at.desc())
@@ -123,10 +124,10 @@ def list_requests(
 @router.get("/requests/{request_id}")
 def get_request_detail(
     request_id: str,
+    session: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> Dict[str, Any]:
     """Full detail for a single request: query, decision, job, rows served, transcript."""
-    session = _db.session
     query = session.get(Query, request_id)
     if not query:
         raise HTTPException(status_code=404, detail=f"Request '{request_id}' not found.")
@@ -218,12 +219,12 @@ def get_request_detail(
 @router.get("/users/{user_id}/requests")
 def get_user_requests(
     user_id: str,
+    session: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
     page: int = QueryParam(1, ge=1),
     page_size: int = QueryParam(20, ge=1, le=100),
 ) -> Dict[str, Any]:
     """Per-user request timeline."""
-    session = _db.session
 
     # Verify user exists
     user = session.get(User, user_id)
@@ -274,10 +275,10 @@ def get_user_requests(
 
 @router.get("/stats")
 def get_admin_stats(
+    session: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> Dict[str, Any]:
     """Aggregate statistics: DB-served vs scraped, duplicates prevented, failures, top segments."""
-    session = _db.session
 
     # Total queries
     total_queries = session.scalar(select(func.count(Query.id))) or 0
@@ -354,6 +355,7 @@ def get_admin_stats(
 
 @router.get("/requests/export.csv")
 def export_requests_csv(
+    session: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
     user_id: Optional[str] = QueryParam(None),
     decision: Optional[str] = QueryParam(None),
@@ -361,7 +363,6 @@ def export_requests_csv(
     to_date: Optional[str] = QueryParam(None, alias="to"),
 ):
     """Stream all matching requests as a CSV file."""
-    session = _db.session
     stmt = select(Query).options(
         selectinload(Query.user),
     ).order_by(Query.created_at.desc())

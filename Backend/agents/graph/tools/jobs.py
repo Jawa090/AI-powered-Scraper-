@@ -27,20 +27,21 @@ def get_job_status(job_id: Optional[str] = None) -> dict:
     Returns:
         Dict with job status, progress, and record counts.
     """
-    from Database import db as _db
+    from Database.controller import session_scope
     from Database.models.job import Job
     from sqlalchemy import select
 
     try:
-        if job_id:
-            job = _db.session.get(Job, job_id)
-            if not job:
-                return {"error": f"Job '{job_id}' not found."}
-            return _serialize_job(job)
-        else:
-            stmt = select(Job).order_by(Job.created_at.desc()).limit(5)
-            jobs = list(_db.session.scalars(stmt).all())
-            return {"jobs": [_serialize_job(j) for j in jobs], "count": len(jobs)}
+        with session_scope() as session:
+            if job_id:
+                job = session.get(Job, job_id)
+                if not job:
+                    return {"error": f"Job '{job_id}' not found."}
+                return _serialize_job(job)
+            else:
+                stmt = select(Job).order_by(Job.created_at.desc()).limit(5)
+                jobs = list(session.scalars(stmt).all())
+                return {"jobs": [_serialize_job(j) for j in jobs], "count": len(jobs)}
     except Exception as e:
         logger.error("get_job_status tool error: %s", e, exc_info=True)
         return {"error": str(e)}

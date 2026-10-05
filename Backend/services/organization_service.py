@@ -15,7 +15,6 @@ from Database.models.email import Email
 from Database.models.location import Location
 from Database.models.organization import Organization
 from Database.models.phone import Phone
-from Database import db
 from services.base import BaseService
 
 
@@ -25,12 +24,12 @@ class OrganizationService(BaseService):
     and related communication channels / locations.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.org_repo = db.organizations
-        self.email_repo = db.emails
-        self.phone_repo = db.phones
-        self.location_repo = db.locations
+    def __init__(self, session) -> None:
+        super().__init__(session)
+        self.org_repo = self.repos.organizations
+        self.email_repo = self.repos.emails
+        self.phone_repo = self.repos.phones
+        self.location_repo = self.repos.locations
 
     # ------------------------------------------------------------------
     # Organization Lookups & Queries

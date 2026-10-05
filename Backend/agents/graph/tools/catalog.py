@@ -52,7 +52,7 @@ def list_datasets(limit: int = 20, offset: int = 0) -> dict:
     Returns:
         Dict with dataset summaries.
     """
-    from Database import db as _db
+    from Database.controller import session_scope
     from Database.models.dataset import Dataset
     from sqlalchemy import select
 
@@ -60,8 +60,9 @@ def list_datasets(limit: int = 20, offset: int = 0) -> dict:
     offset = max(0, offset)
 
     try:
-        stmt = select(Dataset).order_by(Dataset.created_at.desc()).offset(offset).limit(limit)
-        datasets = list(_db.session.scalars(stmt).all())
+        with session_scope() as session:
+            stmt = select(Dataset).order_by(Dataset.created_at.desc()).offset(offset).limit(limit)
+            datasets = list(session.scalars(stmt).all())
 
         items = []
         for d in datasets:

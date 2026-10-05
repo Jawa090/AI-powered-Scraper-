@@ -43,8 +43,8 @@ def search_leads(
     Returns:
         Dict with total count and compact lead items.
     """
-    from Database import db as _db
-    from Database.repositories.leads import LeadRepository
+    from Database.controller import session_scope
+    from Database.controller import Repositories
 
     limit = min(max(1, limit), 50)
     offset = max(0, offset)
@@ -58,61 +58,62 @@ def search_leads(
         location = state
 
     try:
-        lead_repo = LeadRepository(_db.session)
-        leads, total_count = lead_repo.search_leads(
-            category=category,
-            location=location,
-            source_code=source,
-            has_email=has_email or False,
-            has_phone=has_phone or False,
-            limit=limit,
-            offset=offset,
-        )
+        with session_scope() as session:
+            lead_repo = Repositories(session).leads
+            leads, total_count = lead_repo.search_leads(
+                category=category,
+                location=location,
+                source_code=source,
+                has_email=has_email or False,
+                has_phone=has_phone or False,
+                limit=limit,
+                offset=offset,
+            )
 
-        items = []
-        for lead in leads:
-            org_name = lead.organization.name if lead.organization else None
-            contact_name = lead.contact.full_name if lead.contact else None
+            items = []
+            for lead in leads:
+                org_name = lead.organization.name if lead.organization else None
+                contact_name = lead.contact.full_name if lead.contact else None
 
-            email = None
-            if lead.contact and lead.contact.emails:
-                email = lead.contact.emails[0].email
-            elif lead.organization and lead.organization.emails:
-                email = lead.organization.emails[0].email
+                email = None
+                if lead.contact and lead.contact.emails:
+                    email = lead.contact.emails[0].email
+                elif lead.organization and lead.organization.emails:
+                    email = lead.organization.emails[0].email
 
-            phone = None
-            if lead.contact and lead.contact.phones:
-                phone = lead.contact.phones[0].phone_raw
-            elif lead.organization and lead.organization.phones:
-                phone = lead.organization.phones[0].phone_raw
+                phone = None
+                if lead.contact and lead.contact.phones:
+                    phone = lead.contact.phones[0].phone_raw
+                elif lead.organization and lead.organization.phones:
+                    phone = lead.organization.phones[0].phone_raw
 
-            items.append({
-                "id": lead.id,
-                "company": org_name,
-                "contact": contact_name,
-                "title": lead.title,
-                "email": email,
-                "phone": phone,
-                "status": lead.status,
-            })
+                items.append({
+                    "id": lead.id,
+                    "company": org_name,
+                    "contact": contact_name,
+                    "title": lead.title,
+                    "email": email,
+                    "phone": phone,
+                    "status": lead.status,
+                })
 
-        requested_qty = limit + offset  # rough target
-        sufficient = total_count >= limit and total_count > 0
+            requested_qty = limit + offset  # rough target
+            sufficient = total_count >= limit and total_count > 0
 
-        return {
-            "total": total_count,
-            "returned": len(items),
-            "items": items,
-            "sufficient": sufficient,
-            "filters_used": {
-                "category": category,
-                "city": city,
-                "state": state,
-                "source": source,
-                "has_email": has_email,
-                "has_phone": has_phone,
-            },
-        }
+            return {
+                "total": total_count,
+                "returned": len(items),
+                "items": items,
+                "sufficient": sufficient,
+                "filters_used": {
+                    "category": category,
+                    "city": city,
+                    "state": state,
+                    "source": source,
+                    "has_email": has_email,
+                    "has_phone": has_phone,
+                },
+            }
     except Exception as e:
         logger.error("search_leads tool error: %s", e, exc_info=True)
         return {"total": 0, "returned": 0, "items": [], "sufficient": False, "error": str(e)}
@@ -142,8 +143,8 @@ def count_leads(
     Returns:
         Dict with total count.
     """
-    from Database import db as _db
-    from Database.repositories.leads import LeadRepository
+    from Database.controller import session_scope
+    from Database.controller import Repositories
 
     location = None
     if city and state:
@@ -154,16 +155,17 @@ def count_leads(
         location = state
 
     try:
-        lead_repo = LeadRepository(_db.session)
-        _, total_count = lead_repo.search_leads(
-            category=category,
-            location=location,
-            source_code=source,
-            has_email=has_email or False,
-            has_phone=has_phone or False,
-            limit=1,
-        )
-        return {"total": total_count}
+        with session_scope() as session:
+            lead_repo = Repositories(session).leads
+            _, total_count = lead_repo.search_leads(
+                category=category,
+                location=location,
+                source_code=source,
+                has_email=has_email or False,
+                has_phone=has_phone or False,
+                limit=1,
+            )
+            return {"total": total_count}
     except Exception as e:
         logger.error("count_leads tool error: %s", e, exc_info=True)
         return {"total": 0, "error": str(e)}
@@ -179,43 +181,44 @@ def get_lead(lead_id: str) -> dict:
     Returns:
         Full lead record with all available fields.
     """
-    from Database import db as _db
+    from Database.controller import session_scope
     from Database.models.lead import Lead
 
     try:
-        lead = _db.session.get(Lead, lead_id)
-        if not lead:
-            return {"error": f"Lead '{lead_id}' not found."}
+        with session_scope() as session:
+            lead = session.get(Lead, lead_id)
+            if not lead:
+                return {"error": f"Lead '{lead_id}' not found."}
 
-        org = lead.organization
-        contact = lead.contact
+            org = lead.organization
+            contact = lead.contact
 
-        email = None
-        if contact and contact.emails:
-            email = contact.emails[0].email
-        elif org and org.emails:
-            email = org.emails[0].email
+            email = None
+            if contact and contact.emails:
+                email = contact.emails[0].email
+            elif org and org.emails:
+                email = org.emails[0].email
 
-        phone = None
-        if contact and contact.phones:
-            phone = contact.phones[0].phone_raw
-        elif org and org.phones:
-            phone = org.phones[0].phone_raw
+            phone = None
+            if contact and contact.phones:
+                phone = contact.phones[0].phone_raw
+            elif org and org.phones:
+                phone = org.phones[0].phone_raw
 
-        return {
-            "id": lead.id,
-            "company": org.name if org else None,
-            "contact": contact.full_name if contact else None,
-            "title": lead.title,
-            "email": email,
-            "phone": phone,
-            "website": org.website if org else None,
-            "industry": org.industry if org else None,
-            "status": lead.status,
-            "notes": lead.notes,
-            "dataset_id": lead.dataset_id,
-            "created_at": lead.created_at.isoformat() if lead.created_at else None,
-        }
+            return {
+                "id": lead.id,
+                "company": org.name if org else None,
+                "contact": contact.full_name if contact else None,
+                "title": lead.title,
+                "email": email,
+                "phone": phone,
+                "website": org.website if org else None,
+                "industry": org.industry if org else None,
+                "status": lead.status,
+                "notes": lead.notes,
+                "dataset_id": lead.dataset_id,
+                "created_at": lead.created_at.isoformat() if lead.created_at else None,
+            }
     except Exception as e:
         logger.error("get_lead tool error: %s", e, exc_info=True)
         return {"error": str(e)}

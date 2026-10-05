@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 from Database.models.dataset import Dataset, DatasetRecord
-from Database import db
 from services.base import BaseService
 
 
@@ -20,11 +19,11 @@ class DatasetService(BaseService):
     Business service for managing datasets and their constituent records.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.dataset_repo = db.datasets
-        self.record_repo = db.dataset_records
-        self.lead_repo = db.leads
+    def __init__(self, session) -> None:
+        super().__init__(session)
+        self.dataset_repo = self.repos.datasets
+        self.record_repo = self.repos.dataset_records
+        self.lead_repo = self.repos.leads
 
     # ------------------------------------------------------------------
     # Dataset Queries

@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 from Database.models.lead import Lead
-from Database import db
 from services.base import BaseService
 
 
@@ -23,15 +22,15 @@ class LeadService(BaseService):
     Business service for managing leads, status workflows, and atomic multi-repository ingest.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.lead_repo = db.leads
-        self.org_repo = db.organizations
-        self.contact_repo = db.contacts
-        self.email_repo = db.emails
-        self.phone_repo = db.phones
-        self.dataset_record_repo = db.dataset_records
-        self.location_repo = db.locations
+    def __init__(self, session) -> None:
+        super().__init__(session)
+        self.lead_repo = self.repos.leads
+        self.org_repo = self.repos.organizations
+        self.contact_repo = self.repos.contacts
+        self.email_repo = self.repos.emails
+        self.phone_repo = self.repos.phones
+        self.dataset_record_repo = self.repos.dataset_records
+        self.location_repo = self.repos.locations
 
     # ------------------------------------------------------------------
     # Lookups & Queries

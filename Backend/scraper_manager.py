@@ -65,17 +65,21 @@ class ScraperManager:
 
     def get_jobs(self) -> List[Dict[str, Any]]:
         """Return recent scraper jobs from PostgreSQL (newest first)."""
-        job_service = JobService()
-        db_jobs = job_service.list_recent(limit=100)
-        return [self._serialize_db_job(j) for j in db_jobs]
+        from Database.controller import session_scope
+        with session_scope() as session:
+            job_service = JobService(session)
+            db_jobs = job_service.list_recent(limit=100)
+            return [self._serialize_db_job(j) for j in db_jobs]
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Return a single job record from PostgreSQL, or None if not found."""
-        job_service = JobService()
-        db_job = job_service.get_by_id(job_id)
-        if db_job:
-            return self._serialize_db_job(db_job)
-        return None
+        from Database.controller import session_scope
+        with session_scope() as session:
+            job_service = JobService(session)
+            db_job = job_service.get_by_id(job_id)
+            if db_job:
+                return self._serialize_db_job(db_job)
+            return None
 
     # ------------------------------------------------------------------
     # Dataset querying (PostgreSQL only)
@@ -83,9 +87,11 @@ class ScraperManager:
 
     def get_datasets(self) -> List[Dict[str, Any]]:
         """Return recent datasets from PostgreSQL (newest first)."""
-        ds_service = DatasetService()
-        db_datasets = ds_service.list_recent(limit=100)
-        return [self._serialize_db_dataset(d) for d in db_datasets]
+        from Database.controller import session_scope
+        with session_scope() as session:
+            ds_service = DatasetService(session)
+            db_datasets = ds_service.list_recent(limit=100)
+            return [self._serialize_db_dataset(d) for d in db_datasets]
 
     # ------------------------------------------------------------------
     # Lead querying (PostgreSQL only)
@@ -99,7 +105,7 @@ class ScraperManager:
         page_size: int = 20,
     ) -> Dict[str, Any]:
         """Return leads from PostgreSQL, paginated and optionally filtered."""
-        from Database import db
+        from Database.controller import session_scope
         from Database.models.lead import Lead
         from Database.models.organization import Organization
         from Database.models.contact import Contact
@@ -107,51 +113,51 @@ class ScraperManager:
         from sqlalchemy import select, func, or_
         from sqlalchemy.orm import selectinload
 
-        session = db.session
-        stmt = select(Lead).options(
-            selectinload(Lead.organization),
-            selectinload(Lead.contact).selectinload(Contact.emails),
-            selectinload(Lead.contact).selectinload(Contact.phones),
-        )
+        with session_scope() as session:
+            stmt = select(Lead).options(
+                selectinload(Lead.organization),
+                selectinload(Lead.contact).selectinload(Contact.emails),
+                selectinload(Lead.contact).selectinload(Contact.phones),
+            )
 
-        conditions = []
-        if dataset_id:
-            # Join through DatasetRecord
-            stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
-            conditions.append(DatasetRecord.dataset_id == dataset_id)
+            conditions = []
+            if dataset_id:
+                # Join through DatasetRecord
+                stmt = stmt.join(DatasetRecord, DatasetRecord.lead_id == Lead.id)
+                conditions.append(DatasetRecord.dataset_id == dataset_id)
 
-        if query:
-            q = f"%{query}%"
-            stmt = stmt.outerjoin(Organization, Lead.organization_id == Organization.id)
-            stmt = stmt.outerjoin(Contact, Lead.contact_id == Contact.id)
-            conditions.append(or_(
-                Contact.full_name.ilike(q),
-                Organization.name.ilike(q),
-                Lead.title.ilike(q),
-                Lead.notes.ilike(q),
-            ))
+            if query:
+                q = f"%{query}%"
+                stmt = stmt.outerjoin(Organization, Lead.organization_id == Organization.id)
+                stmt = stmt.outerjoin(Contact, Lead.contact_id == Contact.id)
+                conditions.append(or_(
+                    Contact.full_name.ilike(q),
+                    Organization.name.ilike(q),
+                    Lead.title.ilike(q),
+                    Lead.notes.ilike(q),
+                ))
 
-        if conditions:
-            from sqlalchemy import and_
-            stmt = stmt.where(and_(*conditions))
+            if conditions:
+                from sqlalchemy import and_
+                stmt = stmt.where(and_(*conditions))
 
-        # Count total
-        count_stmt = select(func.count()).select_from(stmt.subquery())
-        total = session.scalar(count_stmt) or 0
+            # Count total
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            total = session.scalar(count_stmt) or 0
 
-        # Paginate
-        offset = (page - 1) * page_size
-        stmt = stmt.order_by(Lead.created_at.desc()).offset(offset).limit(page_size)
-        db_leads = list(session.scalars(stmt).all())
+            # Paginate
+            offset = (page - 1) * page_size
+            stmt = stmt.order_by(Lead.created_at.desc()).offset(offset).limit(page_size)
+            db_leads = list(session.scalars(stmt).all())
 
-        items = [self._serialize_db_lead(l) for l in db_leads]
+            items = [self._serialize_db_lead(l) for l in db_leads]
 
-        return {
-            "items": items,
-            "total": total,
-            "page": page,
-            "pageSize": page_size,
-        }
+            return {
+                "items": items,
+                "total": total,
+                "page": page,
+                "pageSize": page_size,
+            }
 
     # ------------------------------------------------------------------
     # Job creation — single canonical execution path
