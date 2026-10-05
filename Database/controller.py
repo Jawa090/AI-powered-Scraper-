@@ -47,19 +47,13 @@ class DBController:
 
     def connect(self):
         if self.engine is None or self._pid != os.getpid():
-            from dotenv import load_dotenv
-            load_dotenv()
-            
-            db_url = os.getenv("DATABASE_URL", "")
-            if not db_url:
-                logger.warning("DATABASE_URL environment variable is not set")
-                
-            # Convert async URLs to sync if needed for SQLAlchemy
-            if "postgresql+asyncpg" in db_url:
-                db_url = db_url.replace("postgresql+asyncpg", "postgresql+psycopg")
-            if db_url.startswith("postgres://"):
-                db_url = db_url.replace("postgres://", "postgresql://")
-                
+            try:
+                import _paths
+            except ImportError:
+                from Backend import _paths
+            from settings import settings
+
+            db_url = settings.DATABASE_URL
             self.engine = create_engine(db_url, pool_pre_ping=True, pool_size=10, max_overflow=20)
             self.SessionFactory = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=self.engine))
             self._pid = os.getpid()

@@ -9,12 +9,12 @@ Usage (from project root):
 import sys
 import os
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, PROJECT_ROOT)
-sys.path.insert(0, os.path.join(PROJECT_ROOT, "Backend"))
+try:
+    import _paths
+except ImportError:
+    from Backend import _paths
 
-from dotenv import load_dotenv
-load_dotenv(dotenv_path=os.path.join(PROJECT_ROOT, "Backend", ".env"))
+from settings import settings
 
 from sqlalchemy import text
 from Database.controller import db

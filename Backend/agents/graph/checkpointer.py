@@ -9,13 +9,9 @@ from contextlib import contextmanager
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
 
-# We need a synchronous psycopg pool pointing to the checkpointer DB.
-# Convert sqlalchemy URL to postgresql:// if needed.
-_raw_url = os.environ.get("CHECKPOINT_DB_URL", os.environ.get("DATABASE_URL", ""))
-if _raw_url.startswith("postgresql+psycopg://"):
-    _raw_url = _raw_url.replace("postgresql+psycopg://", "postgresql://")
-elif _raw_url.startswith("postgresql+psycopg2://"):
-    _raw_url = _raw_url.replace("postgresql+psycopg2://", "postgresql://")
+from settings import settings
+
+_raw_url = settings.CHECKPOINT_DB_URL
 
 # Default kwargs per P14.3
 pool = ConnectionPool(

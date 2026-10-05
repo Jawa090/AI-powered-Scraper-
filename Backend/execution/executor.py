@@ -37,7 +37,7 @@ class JobExecutor:
         self._lock = threading.Lock()
         self._active_jobs: Dict[str, str] = {}  # job_id -> script_id
         # Limit concurrent scraper workers to prevent Chrome/memory exhaustion
-        _max_workers = int(os.environ.get("MAX_SCRAPER_WORKERS", "2"))
+        _max_workers = 2
         self._thread_pool = ThreadPoolExecutor(max_workers=_max_workers, thread_name_prefix="Worker")
 
     def is_job_active(self, job_id: str) -> bool:

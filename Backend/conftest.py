@@ -74,8 +74,8 @@ def setup_test_database():
         from alembic.config import Config
         from alembic import command
         alembic_cfg = Config(str(BACKEND_DIR / "alembic.ini"))
-        alembic_cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
-        alembic_cfg.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL", ""))
+        from settings import settings
+        alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
         command.upgrade(alembic_cfg, "head")
     except Exception as exc:
         logger.warning("Alembic upgrade in conftest encountered: %s", exc)
@@ -122,16 +122,16 @@ def client():
 @pytest.fixture
 def admin_token():
     """Generates a valid Bearer token for the admin user."""
-    secret = os.getenv("JWT_SECRET", "test_jwt_secret_that_is_at_least_32_chars_long_12345")
-    token = jwt.encode({"sub": "usr-env-admin", "role": "admin"}, secret, algorithm="HS256")
+    from settings import settings
+    token = jwt.encode({"sub": "usr-env-admin", "role": "admin"}, settings.JWT_SECRET, algorithm="HS256")
     return token
 
 
 @pytest.fixture
 def user_token():
     """Generates a valid Bearer token for a standard user."""
-    secret = os.getenv("JWT_SECRET", "test_jwt_secret_that_is_at_least_32_chars_long_12345")
-    token = jwt.encode({"sub": "usr-env-user", "role": "user"}, secret, algorithm="HS256")
+    from settings import settings
+    token = jwt.encode({"sub": "usr-env-user", "role": "user"}, settings.JWT_SECRET, algorithm="HS256")
     return token
 
 
@@ -143,9 +143,9 @@ def login(client):
         if res.status_code == 200:
             return res.json().get("accessToken", "")
         # Fallback if auth route is not yet implemented (pre-P3)
+        from settings import settings
         role = "admin" if username.lower() == "admin" else "user"
-        secret = os.getenv("JWT_SECRET", "test_jwt_secret_that_is_at_least_32_chars_long_12345")
-        return jwt.encode({"sub": f"usr-{username.lower()}", "role": role}, secret, algorithm="HS256")
+        return jwt.encode({"sub": f"usr-{username.lower()}", "role": role}, settings.JWT_SECRET, algorithm="HS256")
     return _login
 
 

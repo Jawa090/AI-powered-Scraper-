@@ -8,6 +8,7 @@
 | P0.3 | DONE | 1fe619b | pgvector verified on local PostgreSQL; human confirmed/acknowledged empty DB and instructed to continue |
 | P0.4 | DONE | ca1b1aa | Test infrastructure: .env.test.example, conftest.py, fakes (chat model, scraper, RAG), pytest.ini, integration tests passing |
 | P0.5 | DONE | 379405a | S1 checkpoint: NYSCR password rotation acknowledged by human |
+| P1.1 | DONE | pending | Centralized settings module with strict validation, config audit script, zero direct env access |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
@@ -81,3 +82,51 @@
 
 ### P0.5 S1 NYSCR Password Rotation Acknowledged
 - Recorded user confirmation: human confirmed NYSCR password has already been changed. S1 checkpoint cleared.
+
+### P1.1 Centralized Settings Module & Configuration Validation
+- **1. Offending code identified:**
+  - `Database/setup.py` contained hardcoded defaults masking missing environment configuration:
+    ```python
+    user = username or os.getenv("POSTGRES_USER", "postgres")
+    host = hostname or os.getenv("POSTGRES_HOST", "localhost")
+    port = int(port or os.getenv("POSTGRES_PORT", 5432))
+    db_name = database or os.getenv("POSTGRES_DB", "dataops")
+    ```
+  - Direct `os.getenv` / `os.environ.get` calls throughout codebase:
+    - `Backend/services/auth.py`: `os.getenv("JWT_SECRET")`
+    - `Backend/services/config_validator.py`: multiple `os.getenv` calls
+    - `Backend/execution/executor.py`: `os.getenv("SCRAPER_MODE", "live")`
+    - `Backend/scrappers/nyscr.py`: `os.getenv("NYSCR_USERNAME")`
+    - `Backend/agents/graph/checkpointer.py`: `os.getenv("CHECKPOINT_DB_URL")`
+    - `Backend/agents/llm/config.py`: numerous `os.getenv` with fallback cascades
+    - `Database/controller.py`, `Database/check.py`, `Database/seed.py`: direct `os.getenv` and silent URL rewrites (`postgres://`, `+asyncpg`).
+- **2. Red test:**
+  - Created `Backend/tests/unit/test_settings.py` covering:
+    - Missing required configuration keys raising `ConfigError`
+    - Invalid integer / boolean types
+    - `LLM_PROVIDER=openai_compatible` without `LLM_BASE_URL`
+    - `SELENIUM_MODE=remote` without `SELENIUM_REMOTE_URL`
+    - `SCRAPER_MODE=fixture` outside `ENVIRONMENT=test`
+    - `RAG_SERVICE_URL` without `RAG_SERVICE_TOKEN`
+    - `JWT_SECRET` shorter than 32 characters
+    - Identical admin and user usernames (case-insensitive)
+- **3. Implementation:**
+  - Created `Backend/settings.py` with strict type parsing and validation for all 26 configuration keys. No defaults in code.
+  - Replaced every `os.getenv`, `os.environ.get`, and `load_dotenv` in `Backend/` and `Database/` with `settings.*`.
+  - Removed silent database URL rewrites in `Database/controller.py` and fallback defaults in `Database/setup.py`.
+  - Created `scripts/audit_patterns.py` to audit for banned pattern violations (`--only config`, `--only db`).
+- **4. Green test evidence:**
+  - Ran `python -m pytest Backend/tests/unit/test_settings.py -v`: 9 passed in 1.10s.
+  - Ran `python scripts/audit_patterns.py --only config`:
+    ```
+    ============================================================
+    AUDIT: Configuration Patterns (Direct env access)
+    ============================================================
+    PASSED: 0 violations found.
+    ```
+  - Ran full test suite `python -m pytest Backend/`: 63 passed in 6.53s.
+- **5. Self-check:**
+  - [x] Strict validation for all 26 keys
+  - [x] No defaults in code for configurable settings
+  - [x] Replaced every `os.getenv`, `os.environ.get`, `load_dotenv` in `Backend/` and `Database/`
+  - [x] `python scripts/audit_patterns.py --only config` shows 0 hits (VERIFIED: 0 violations)

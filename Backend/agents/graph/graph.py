@@ -30,9 +30,8 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from agents.graph.tools import READ_TOOLS, ALL_TOOLS
 
-logger = logging.getLogger(__name__)
-
-MAX_TOOL_STEPS = int(os.environ.get("MAX_TOOL_STEPS", "6"))
+from settings import settings
+MAX_TOOL_STEPS = settings.MAX_TOOL_STEPS
 
 # ---------------------------------------------------------------------------
 # State

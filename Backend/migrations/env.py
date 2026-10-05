@@ -13,18 +13,13 @@ for _p in [str(PROJECT_ROOT), str(BACKEND_DIR)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import _paths
+from settings import settings
 from Database.base import Base
-import Database.models  # Registers all 19 models with Base.metadata
+import Database.models  # Registers all models with Base.metadata
 from sqlalchemy import create_engine
 
-import os
-from dotenv import load_dotenv
-load_dotenv(BACKEND_DIR / ".env")
-DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-db_engine = create_engine(DATABASE_URL)
+DATABASE_URL = settings.DATABASE_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -68,7 +63,7 @@ def run_migrations_online() -> None:
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    connectable = db_engine
+    connectable = create_engine(DATABASE_URL)
 
     with connectable.connect() as connection:
         context.configure(

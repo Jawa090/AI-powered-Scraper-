@@ -17,15 +17,12 @@ import os
 import sys
 import json
 
-# Ensure project root is in path
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, PROJECT_ROOT)
-# Ensure Backend is in path for execution registry
-BACKEND_DIR = os.path.join(PROJECT_ROOT, "Backend")
-sys.path.insert(0, BACKEND_DIR)
+try:
+    import _paths
+except ImportError:
+    from Backend import _paths
 
-from dotenv import load_dotenv
-load_dotenv(dotenv_path=os.path.join(BACKEND_DIR, ".env"))
+from settings import settings
 
 from sqlalchemy import text
 from Database.controller import db

@@ -261,11 +261,9 @@ def _run_jwiz(params: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _run_nyscr(params: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Execute NYSCR (NY State Contract Reporter) scraper."""
-    import os
-
-    nyscr_user = os.environ.get("NYSCR_USERNAME", "").strip()
-    nyscr_pass = os.environ.get("NYSCR_PASSWORD", "").strip()
+    from settings import settings
+    nyscr_user = settings.NYSCR_USERNAME
+    nyscr_pass = settings.NYSCR_PASSWORD
     if not nyscr_user or not nyscr_pass:
         import time
         time.sleep(3)

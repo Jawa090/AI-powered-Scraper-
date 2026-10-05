@@ -27,8 +27,14 @@ logger = logging.getLogger(__name__)
 
 
 def _get_env(key: str, default: str = "") -> str:
-    """Read an env var, strip whitespace."""
-    return (os.environ.get(key) or default).strip()
+    """Read from settings or active environment override, strip whitespace."""
+    if key in os.environ:
+        return os.environ[key].strip()
+    from settings import settings
+    val = getattr(settings, key, None)
+    if val is None:
+        val = default
+    return str(val).strip()
 
 
 def build_chat_model(tools: Optional[Sequence[Any]] = None):

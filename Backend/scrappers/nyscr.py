@@ -143,10 +143,9 @@ class NYSCRScraper(BaseScraper):
 
     def __init__(self):
         self.driver = None
-        self.wait = None
-        # Credentials MUST come from environment variables — never hard-code.
-        self.username = os.environ.get("NYSCR_USERNAME", "").strip()
-        self.password = os.environ.get("NYSCR_PASSWORD", "").strip()
+        from settings import settings
+        self.username = settings.NYSCR_USERNAME
+        self.password = settings.NYSCR_PASSWORD
         if not self.username or not self.password:
             raise EnvironmentError(
                 "NYSCR_USERNAME and NYSCR_PASSWORD must be set in environment variables. "

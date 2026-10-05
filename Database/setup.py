@@ -2,53 +2,52 @@
 Database Package - Setup Script
 ────────────────────────────────
 Automated Database Setup for DataOps AI Platform:
-1. Connects to PostgreSQL server and creates the 'dataops' database if it doesn't exist.
+1. Connects to PostgreSQL server and creates target database if it doesn't exist.
 2. Applies all Alembic migrations (`alembic upgrade head`).
 3. Seeds initial reference data (departments, users, agents, sources).
 
 Usage (from project root):
     python -m Database.setup
 """
-
-import os
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-# Set working directory to Database/
 DATABASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = DATABASE_DIR.parent
-os.chdir(DATABASE_DIR)
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "Backend"))
 
-from dotenv import load_dotenv
-load_dotenv(dotenv_path=PROJECT_ROOT / "Backend" / ".env")
+try:
+    import _paths
+except ImportError:
+    from Backend import _paths
 
+from settings import settings
 import psycopg
 from alembic.config import Config
 from alembic import command
 from Database.seed import seed
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    print("[ERROR] DATABASE_URL not found in .env file.")
-    sys.exit(1)
-
-# Extract connection parameters from DATABASE_URL
-clean_url = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://").replace("postgresql+asyncpg://", "postgresql://")
+clean_url = settings.DATABASE_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 parsed = urlparse(clean_url)
 
-user = parsed.username or "postgres"
+user = parsed.username
+if not user:
+    raise ValueError("DATABASE_URL is missing username component")
 password = parsed.password or ""
-host = parsed.hostname or "localhost"
-port = parsed.port or 5432
-target_db = (parsed.path or "/dataops").lstrip("/")
+host = parsed.hostname
+if not host:
+    raise ValueError("DATABASE_URL is missing host component")
+port = parsed.port
+if not port:
+    raise ValueError("DATABASE_URL is missing port component")
+target_db = parsed.path.lstrip("/")
+if not target_db:
+    raise ValueError("DATABASE_URL is missing database name component")
 
-print(f"============================================================")
-print(f"  DataOps AI Database Setup")
+print("=" * 60)
+print("  DataOps AI Database Setup")
 print(f"  Host: {host}:{port} | User: {user} | Database: {target_db}")
-print(f"============================================================")
+print("=" * 60)
 
 # Step 1: Connect to maintenance database 'postgres' to create the target database
 print("\n[Step 1/3] Ensuring database exists...")

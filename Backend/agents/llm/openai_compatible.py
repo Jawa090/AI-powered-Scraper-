@@ -39,11 +39,12 @@ class OpenAICompatibleProvider(LLMProvider):
         api_key: Optional[str] = None,
         timeout: Optional[int] = None,
     ):
-        raw_base = base_url or os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
+        from settings import settings
+        raw_base = base_url or settings.LLM_BASE_URL or "http://localhost:11434/v1"
         self.base_url = raw_base.rstrip("/")
-        self.model = model or os.getenv("LLM_MODEL", "llama3")
-        self.api_key = api_key or os.getenv("LLM_API_KEY", "")
-        self.timeout = int(timeout or os.getenv("LLM_TIMEOUT", "30"))
+        self.model = model or settings.LLM_MODEL or "llama3"
+        self.api_key = api_key or settings.LLM_API_KEY
+        self.timeout = int(timeout or settings.LLM_TIMEOUT_S)
 
     def _get_headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}

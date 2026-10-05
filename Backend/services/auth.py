@@ -8,9 +8,11 @@ from Database.controller import db
 from Database.models.user import User
 from Database.models.job import Job
 
+from settings import settings
+
 security = HTTPBearer()
 
-SECRET_KEY = os.getenv("JWT_SECRET", "supersecretkey")
+SECRET_KEY = settings.JWT_SECRET
 ALGORITHM = "HS256"
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
@@ -30,7 +32,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     user = session.query(User).filter(User.id == user_id).first()
     if not user:
         # Auto-create dev user if it's a known placeholder
-        if user_id in ["usr-ahmed", "ahmed"] and os.getenv("ENV") != "production":
+        if user_id in ["usr-ahmed", "ahmed"] and settings.ENVIRONMENT != "production":
             user = User(
                 id=user_id, 
                 email=f"{user_id}@example.com", 
@@ -57,7 +59,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 def enforce_scrape_limit(current_user: User = Depends(get_current_user)) -> None:
-    limit = int(os.getenv("SCRAPES_PER_HOUR", "10"))
+    limit = settings.SCRAPES_PER_HOUR
     session = db.get_session()
     one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
     
