@@ -18,7 +18,7 @@
 | P2.3 | DONE | cde21d2 | BaseRepository expects injected Session |
 | P2.4 | DONE | f3bebf4 | Services require injected Session and use self.repos registry |
 | P2.5 | DONE | b6c3057 | Refactored global singleton db.session access to use session_scope/get_db across routes, app.py, agents, executor |
-| P2.6 | DONE | wip | Passed all unit and integration tests |
+| P2.6 | DONE | f04f931 | Passed all unit and integration tests |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
