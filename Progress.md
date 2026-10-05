@@ -27,6 +27,7 @@
 | P3.5 | DONE | f32a9aa | seed.py cleaned up and synced |
 | P3.6 | DONE | f32a9aa | Authorization matrix enforced across all routes |
 | P3.7 | DONE | 2b53371 | Full auth & visibility tests passing, expired token check added |
+| P6.0 | DONE | 740be32 | Modular scraper framework; contract, fixture, registration, and import isolation tests passing (32/32) |
 | P4-P14 | WIP | wip: timeout | Timeout reached at 3500s limit; subagents drafted P4-P14 implementations |
 
 ## Baseline Test Failures (at Phase P3 start)
@@ -361,3 +362,34 @@ All criteria verified against real PostgreSQL database and real auth:
    - Evidence: `Backend/tests/test_auth.py::test_second_admin_sql_fails` PASSED (raises `sqlalchemy.exc.IntegrityError: uq_users_single_admin`).
 6. **User A cannot read user B's job or session:**
    - Evidence: `Backend/tests/test_visibility.py::test_user_cannot_read_others_job_and_session` PASSED (Alice receives 404 for User123's job, 403 for User123's session).
+
+### Phase P6: Modular Scraper Framework
+- **Base Architecture (`Backend/scrappers/base.py`):**
+  - Defines `BaseScraper` abstract class requiring `scrape()` and `to_standard()` implementations.
+  - Implements `ScraperMeta` specifying ID, name, description, category, version, geographic coverage, supported filters (`limit`, `keyword`, `location`), output fields, required environment variables, and limit bounds.
+  - Implements canonical `StandardRecord` data model with zero fabricated fallbacks (missing phone/email default to `None`).
+  - Implements `ScrapeContext` protocol for cancellation checks (`should_cancel()`), logging, and interactive user intervention (`wait_for_user()`).
+- **Driver Infrastructure (`Backend/scrappers/driver.py`):**
+  - `make_driver()` factory building Chrome instances with anti-detection flags (`--disable-blink-features=AutomationControlled`, CDP webdriver removal) and explicit timeouts.
+  - Supports `SELENIUM_MODE='local'` (Selenium Manager) and `SELENIUM_MODE='remote'` (Selenium Grid).
+  - `retry_driver_call()` wrapping transient browser failures with bounded retries.
+- **Central Controller (`Backend/scrappers/controller.py`):**
+  - Single public gateway: all external callers interact via `controller` (`run`, `list_scrapers`, `get_meta`, `describe_for_llm`, `to_api_dict`, `check_ready`, `validate_params`).
+  - Registration registry `REGISTERED_SCRAPERS` enforcing inheritance, metadata presence, ID validation, and uniqueness at import time.
+  - Test-only fixture runner supporting `SCRAPER_MODE='fixture'` when `ENVIRONMENT='test'`.
+- **Scraper Implementations:**
+  - `bonfire.py` (`BonfireScraper`): Dallas City Hall municipal procurement bids and RFPs.
+  - `dasny.py` (`DasnyScraper`): NY State Dormitory Authority RFPs, construction bids, and multi-contact extraction.
+  - `jwiz.py` (`JWizScraper`): Commercial B2B directory and contractor leads (`record_kind='company'`).
+  - `nyscr.py` (`NyscrScraper`): NY State Contract Reporter with credential checks and ScrapeContext captcha wait.
+  - `_template.py`: Guide and template for adding new scrapers.
+- **Contract & Fixture Verification Evidence:**
+  - Ran `py -m pytest Backend/tests/unit/test_scraper_contract.py Backend/tests/unit/test_scraper_fixtures.py Backend/tests/unit/test_scrapers_registered.py Backend/tests/unit/test_no_direct_scraper_imports.py -v`:
+  - **32/32 tests PASSED** in 4.05s.
+  - Verified ScraperMeta compliance for all scrapers.
+  - Verified offline fixture conversion into StandardRecord format.
+  - Verified LLM catalog generation and API dict formatting.
+  - Verified parameter bounds validation (min/max limits and unsupported filter rejections).
+  - Verified idempotency of `close()`.
+  - Verified complete registration in `REGISTERED_SCRAPERS`.
+  - Verified Rule 9 (zero direct scraper module imports outside `Backend/scrappers/`).

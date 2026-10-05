@@ -1998,7 +1998,7 @@ class MasterStore:
 # SCRAPER
 # ============================================================
 
-class JWizScraper:
+class LegacyJWizScraper:
 
     def __init__(
         self,
@@ -2680,7 +2680,7 @@ def main():
 
     try:
 
-        scraper = JWizScraper(
+        scraper = LegacyJWizScraper(
             client=client,
             store=store,
             target=target,
