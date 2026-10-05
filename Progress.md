@@ -10,7 +10,8 @@
 | P0.5 | DONE | 379405a | S1 checkpoint: NYSCR password rotation acknowledged by human |
 | P1.1 | DONE | 6c6ad81 | Centralized settings module with strict validation, config audit script, zero direct env access |
 | P1.2 | DONE | 2d28cb4 | Environment example template matching specification and secrets generation |
-| P1.3 | DONE | pending | Centralized _paths module and entrypoints; verified startup from root and Backend/ |
+| P1.3 | DONE | d525440 | Centralized _paths module and entrypoints; verified startup from root and Backend/ |
+| P1.4 | DONE | pending | Sentry initialization with PII masking, traces sample rate, and conditional activation |
 
 ## Checkpoints & STOP Flags
 - [x] **S1:** NYSCR password rotation acknowledged by human. (Confirmed by user: password already changed).
@@ -191,3 +192,35 @@
   - [x] All other `sys.path.insert` removed in favor of `import _paths`
   - [x] `run_server.py` uses `uvicorn.run("app:app", app_dir=str(BACKEND_DIR), ...)`
   - [x] Server starts from repo root and `Backend/`; `/health` returns 200
+
+### P1.4 Sentry Configuration Hardening
+- **1. Offending code identified:**
+  - `Backend/app.py`:
+    ```python
+    if os.getenv("SENTRY_DSN"):
+        sentry_sdk.init(
+            dsn=os.getenv("SENTRY_DSN"),
+            traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,
+        )
+    ```
+    Lacked PII protection (`send_default_pii=False` missing, no `before_send` scrubber), hardcoded 100% traces/profiling sample rates, and directly used `os.getenv`.
+- **2. Implementation:**
+  - Sentry initialization guarded by `settings.SENTRY_DSN`.
+  - Configured `send_default_pii=False`.
+  - Configured `traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE`.
+  - Removed `profiles_sample_rate=1.0`.
+  - Added `_mask_sentry_pii(event, hint)` callback in `before_send` masking emails and phone numbers.
+- **3. Evidence:**
+  - Unit test of PII scrubber:
+    ```python
+    evt = {'message': 'User test@example.com called 555-123-4567'}
+    res = _mask_sentry_pii(evt, None)
+    # Output: {'message': 'User [EMAIL_MASKED] called [PHONE_MASKED]'}
+    ```
+- **4. Self-check:**
+  - [x] Init only if `SENTRY_DSN` is set
+  - [x] `send_default_pii=False` configured
+  - [x] `traces_sample_rate` read from `settings.SENTRY_TRACES_SAMPLE_RATE`
+  - [x] Removed `profiles_sample_rate=1.0`
+  - [x] `before_send` masks emails and phones

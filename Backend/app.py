@@ -11,14 +11,9 @@ import os
 import sys
 import time
 
-# Ensure project root is in path so `from Database import db` works
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+import _paths
+from settings import settings
 
-# Load .env file so all env vars (DB, LLM keys, NYSCR creds, etc.) are available
-from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 from fastapi import Depends
 from services.auth import get_current_user, require_admin, enforce_scrape_limit
 from Database.models.user import User
@@ -30,9 +25,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-# from sqlalchemy import text
 
-# from database.connection import SessionLocal
 from scraper_manager import scraper_manager
 from execution.registry import SCRIPTS_REGISTRY
 
@@ -42,11 +35,22 @@ from utils.logging_config import setup_structured_logging, request_id_var
 setup_structured_logging()
 
 import sentry_sdk
-if os.getenv("SENTRY_DSN"):
+import re
+
+def _mask_sentry_pii(event, hint):
+    EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+    PHONE_REGEX = re.compile(r"\b(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b")
+    if "message" in event and isinstance(event["message"], str):
+        event["message"] = EMAIL_REGEX.sub("[EMAIL_MASKED]", event["message"])
+        event["message"] = PHONE_REGEX.sub("[PHONE_MASKED]", event["message"])
+    return event
+
+if settings.SENTRY_DSN:
     sentry_sdk.init(
-        dsn=os.getenv("SENTRY_DSN"),
-        traces_sample_rate=1.0,
-        profiles_sample_rate=1.0,
+        dsn=settings.SENTRY_DSN,
+        send_default_pii=False,
+        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+        before_send=_mask_sentry_pii,
     )
 
 logger = logging.getLogger("dataops_backend")
@@ -107,18 +111,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# CORS configuration (Environment-configurable for production with dev fallback)
-# In production, set CORS_ORIGINS="https://your-domain.com" explicitly
-CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS")
-ALLOWED_ORIGINS = (
-    [o.strip() for o in CORS_ORIGINS_ENV.split(",") if o.strip()]
-    if CORS_ORIGINS_ENV
-    else ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
-)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
