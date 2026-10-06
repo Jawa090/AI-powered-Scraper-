@@ -29,8 +29,8 @@
 | P3.7 | DONE | 2b53371 | Full auth & visibility tests passing, expired token check added |
 | P6.0 | DONE | eab0e7e | Modular scraper framework; contract, fixture, registration, and import isolation tests passing (32/32) |
 | P8.0 | DONE | 2fdcc3a | Single provider LLM layer with D4 error format and bounded retries; 31 unit tests passing |
-| P14.0 | DONE | pending | Requirements split (prod vs dev), locked with strict pinning, forbidden pkgs excluded, validation tests passing (8/8) |
-| P14.1 | DONE | pending | Docker container manifests (Dockerfile, RAG/Dockerfile, compose, .dockerignore), 20/20 tests passing |
+| P14.0 | DONE | f8f1854 | Requirements split (prod vs dev), locked with strict pinning, forbidden pkgs excluded, validation tests passing (8/8) |
+| P14.1 | DONE | f8f1854 | Docker container manifests (Dockerfile, RAG/Dockerfile, compose, .dockerignore), 20/20 tests passing |
 | P4-P13 | WIP | wip: timeout | Timeout reached at 3500s limit; subagents drafted P4-P13 implementations |
 
 ## Baseline Test Failures (at Phase P3 start)
