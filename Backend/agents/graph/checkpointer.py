@@ -1,29 +1,53 @@
 """
 agents/graph/checkpointer.py
 ────────────────────────────
-LangGraph PostgreSQL checkpointer setup for persistent memory.
+LangGraph PostgreSQL checkpointer setup for persistent agent state.
+Complies with Phase P11.2 and Experiment E6.
 """
 
-import os
-from contextlib import contextmanager
+from __future__ import annotations
+
+import logging
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
+from psycopg.rows import dict_row
 
 from settings import settings
 
+logger = logging.getLogger(__name__)
+
 _raw_url = settings.CHECKPOINT_DB_URL
 
-# Default kwargs per P14.3
+# Connection pool configured with dict_row and autocommit per P11.2 & E6
 pool = ConnectionPool(
     conninfo=_raw_url,
     max_size=10,
-    kwargs={"autocommit": True, "prepare_threshold": 0}
+    open=True,
+    kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": 0},
 )
-
-# Optional: ensure tables exist on startup
-def setup_checkpointer():
-    with pool.connection() as conn:
-        PostgresSaver(conn).setup()
 
 # Export a persistent saver instance
 checkpointer = PostgresSaver(pool)
+
+
+def setup_checkpointer() -> None:
+    """Initialize checkpoint tables in PostgreSQL. Idempotent."""
+    try:
+        checkpointer.setup()
+        logger.info("LangGraph PostgresSaver checkpointer initialized successfully.")
+    except Exception as e:
+        logger.error("Failed to setup PostgresSaver checkpointer: %s", e, exc_info=True)
+        raise
+
+
+def close_checkpointer() -> None:
+    """Close the underlying connection pool."""
+    try:
+        if not pool.closed:
+            pool.close()
+    except Exception:
+        pass
+
+
+import atexit
+atexit.register(close_checkpointer)
