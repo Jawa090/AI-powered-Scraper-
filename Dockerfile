@@ -16,9 +16,11 @@ RUN useradd -u 1000 -m -s /bin/bash appuser
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy Backend and Database application packages
+# Copy application packages
 COPY Backend/ ./Backend/
 COPY Database/ ./Database/
+COPY RAG/ ./RAG/
+COPY worker.py ./
 
 # Set ownership to non-root user
 RUN chown -R appuser:appuser /app
@@ -32,6 +34,10 @@ ENV PYTHONPATH=/app:/app/Backend \
     PORT=8000
 
 EXPOSE 8000
+
+# Container healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Default command: run FastAPI application via uvicorn
 CMD ["uvicorn", "app:app", "--app-dir", "/app/Backend", "--host", "0.0.0.0", "--port", "8000"]

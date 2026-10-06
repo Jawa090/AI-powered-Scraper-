@@ -29,7 +29,9 @@
 | P3.7 | DONE | 2b53371 | Full auth & visibility tests passing, expired token check added |
 | P6.0 | DONE | eab0e7e | Modular scraper framework; contract, fixture, registration, and import isolation tests passing (32/32) |
 | P8.0 | DONE | 2fdcc3a | Single provider LLM layer with D4 error format and bounded retries; 31 unit tests passing |
-| P4-P14 | WIP | wip: timeout | Timeout reached at 3500s limit; subagents drafted P4-P14 implementations |
+| P14.0 | DONE | pending | Requirements split (prod vs dev), locked with strict pinning, forbidden pkgs excluded, validation tests passing (8/8) |
+| P14.1 | DONE | pending | Docker container manifests (Dockerfile, RAG/Dockerfile, compose, .dockerignore), 20/20 tests passing |
+| P4-P13 | WIP | wip: timeout | Timeout reached at 3500s limit; subagents drafted P4-P13 implementations |
 
 ## Baseline Test Failures (at Phase P3 start)
 - `Backend\tests\test_api_admin.py::TestAdminAPI::test_admin_access_allowed`: `AttributeError: <module 'routes.admin'> does not have the attribute '_db'` (pre-existing mock expectation from before P2 refactor).
@@ -421,3 +423,244 @@ All criteria verified against real PostgreSQL database and real auth:
     - FastAPI HTTP 503 integration with Decision D4 JSON format
   - `python -m pytest Backend/tests/unit/test_chat_model.py -v`: 31 passed in 8.32s with 0 warnings.
   - `python -m pytest Backend/tests/test_chat_models.py -v`: 7 passed in 5.12s.
+
+### Phase P14: Requirements Split & Dependency Lock
+
+#### 1. Architecture & Objective
+Per Phase P14 specification in `Implementation.md`:
+- Dependencies are split cleanly between runtime production (`requirements.txt`, compiled from `requirements.in`) and development/test tooling (`requirements-dev.txt`, compiled from `requirements-dev.in`).
+- Complete lock achieved using `uv pip compile --universal` with every single package pinned to exact version (`==`).
+- Root `requirements.txt` and `Backend/requirements.txt` are synchronized byte-for-byte to ensure identical behavior across container build context and local execution.
+- Production images strictly exclude test/dev bloat and deprecated libraries (`rq`, `redis`, `passlib`, `webdriver-manager`, `testcontainers`).
+
+#### 2. Package Audit & Inventory
+
+##### A. Production Dependencies (`requirements.txt` / `requirements.in`)
+The production manifest defines 20 direct roots compiling to 89 resolved, strictly-pinned packages:
+- **Web API & ASGI Server:**
+  - `fastapi==0.142.2` (via `fastapi>=0.109.0`)
+  - `uvicorn==0.54.0` (via `uvicorn[standard]>=0.27.0`)
+  - `pydantic==2.13.5` (via `pydantic>=2.0.0`), `pydantic-core==2.46.5`
+  - `starlette==1.7.0`
+- **Database, Connection Pool & Vector:**
+  - `sqlalchemy==2.1.3` (via `sqlalchemy>=2.0.0`)
+  - `psycopg==3.3.6` (via `psycopg[binary]>=3.1.0` and `psycopg[pool]>=3.1.0`), `psycopg-binary==3.3.6`, `psycopg-pool==3.3.3`
+  - `alembic==1.20.0` (via `alembic>=1.13.0`)
+  - `pgvector==0.5.0` (via `pgvector>=0.2.0`) — **P14 MANDATORY**
+- **Browser Automation (Remote Selenium Grid):**
+  - `selenium==4.50.0` (via `selenium>=4.15.0`)
+- **HTTP Clients & Utilities:**
+  - `requests==2.34.2` (via `requests>=2.31.0`)
+  - `beautifulsoup4==4.15.0` (via `beautifulsoup4>=4.12.0`)
+  - `urllib3==2.8.0` (via `urllib3>=2.0.0`)
+  - `httpx==0.28.1` (via `httpx>=0.25.0`) — **P14 MANDATORY**
+  - `python-dateutil==2.9.0.post0` (via `python-dateutil>=2.8.0`) — **P14 MANDATORY**
+  - `python-dotenv==1.2.4` (via `python-dotenv>=1.0.0`)
+- **Agent Orchestration & LLM Provider:**
+  - `langgraph==1.2.12` (via `langgraph>=1.2.0`)
+  - `langchain-core==1.6.6` (via `langchain-core>=1.6.0`)
+  - `langchain-google-genai==4.4.0` (via `langchain-google-genai>=4.4.0`)
+  - `langchain-openai==1.6.7` (via `langchain-openai>=1.6.0`)
+  - `langgraph-checkpoint-postgres==3.1.2` (via `langgraph-checkpoint-postgres>=2.0.0`)
+  - `langgraph-checkpoint==4.2.0`, `langgraph-prebuilt==1.1.0`, `langgraph-sdk==0.4.5`
+- **Security, Contact Formatting & Observability:**
+  - `phonenumbers==9.0.40` (via `phonenumbers>=8.13.0`)
+  - `pyjwt==2.15.1` (via `pyjwt>=2.8.0`)
+  - `sentry-sdk==2.71.0` (via `sentry-sdk>=2.14.0`)
+
+##### B. Forbidden Packages Audit (Zero Tolerance in Production)
+Audit verified that none of the forbidden libraries exist in `requirements.txt`, `requirements.in`, or `Backend/requirements.txt`:
+- `rq`: **EXCLUDED** (replaced by database-backed job queue table and worker loop)
+- `redis`: **EXCLUDED** (replaced by PostgreSQL state and checkpointer)
+- `passlib`: **EXCLUDED** (replaced by Python standard library `hashlib.pbkdf2_hmac`)
+- `webdriver-manager`: **EXCLUDED** (replaced by Selenium 4 driver protocol and remote Chrome grid)
+- `testcontainers`: **EXCLUDED** from production (strictly isolated in `requirements-dev.txt`)
+
+##### C. Development & Testing Dependencies (`requirements-dev.txt` / `requirements-dev.in`)
+Extends production requirements (`-r requirements.txt`) and locks all dev tools:
+- `pytest==9.1.1` (via `pytest>=8.0.0`)
+- `pytest-asyncio==0.25.3` (via `pytest-asyncio>=0.23.0`)
+- `testcontainers==4.15.0` (via `testcontainers[postgres]>=3.7.1`)
+- `ruff==0.16.10` (via `ruff>=0.1.0`)
+- `mypy==2.4.0` (via `mypy>=1.8.0`)
+
+#### 3. Automated Validation & Evidence
+
+##### A. Pytest Unit Suite (`Backend/tests/unit/test_requirements_p14.py`)
+Created comprehensive pytest validation suite asserting all P14 requirements:
+```
+Backend/tests/unit/test_requirements_p14.py::test_requirements_files_exist PASSED [ 12%]
+Backend/tests/unit/test_requirements_p14.py::test_backend_requirements_synchronized PASSED [ 25%]
+Backend/tests/unit/test_requirements_p14.py::test_zero_forbidden_dependencies_in_production PASSED [ 37%]
+Backend/tests/unit/test_requirements_p14.py::test_all_required_dependencies_in_production PASSED [ 50%]
+Backend/tests/unit/test_requirements_p14.py::test_additional_core_packages_in_production PASSED [ 62%]
+Backend/tests/unit/test_requirements_p14.py::test_production_dependencies_strictly_pinned PASSED [ 75%]
+Backend/tests/unit/test_requirements_p14.py::test_development_tools_present_in_dev_requirements PASSED [ 87%]
+Backend/tests/unit/test_requirements_p14.py::test_clean_imports_of_required_production_libraries PASSED [100%]
+
+============================== 8 passed in 3.81s ==============================
+```
+
+##### B. Standalone Validation Script (`scripts/validate_requirements_p14.py`)
+Created standalone validation runner verifying all 6 audit checks in CI or local terminal:
+```
+======================================================================
+PHASE P14: REQUIREMENTS SPLIT & DEPENDENCY VALIDATION
+======================================================================
+
+[1/6] Checking requirements file existence & synchronization...
+  OK: Found requirements.txt
+  OK: Found requirements.in
+  OK: Found requirements-dev.txt
+  OK: Found requirements-dev.in
+  OK: Found requirements.txt
+  OK: Backend/requirements.txt is synchronized with root requirements.txt
+
+[2/6] Checking for forbidden production dependencies...
+  OK: Forbidden package 'rq' is strictly excluded
+  OK: Forbidden package 'redis' is strictly excluded
+  OK: Forbidden package 'passlib' is strictly excluded
+  OK: Forbidden package 'webdriver-manager' is strictly excluded
+  OK: Forbidden package 'webdriver_manager' is strictly excluded
+  OK: Forbidden package 'testcontainers' is strictly excluded
+
+[3/6] Checking for required production dependencies...
+  OK: Required package 'pgvector' present: ==0.5.0
+  OK: Required package 'httpx' present: ==0.28.1
+  OK: Required package 'python-dateutil' present: ==2.9.0.post0
+
+[4/6] Checking pinning format (==) for production dependencies...
+  OK: All 89 production packages are strictly pinned (==)
+
+[5/6] Checking dev & testing tools in requirements-dev.txt...
+  OK: Dev tool 'pytest' present: ==9.1.1
+  OK: Dev tool 'testcontainers' present: ==4.15.0
+  OK: Dev tool 'ruff' present: ==0.16.10
+  OK: Dev tool 'mypy' present: ==2.4.0
+
+[6/6] Verifying clean runtime imports of core production modules...
+  OK: Imported 'pgvector' (pgvector) cleanly
+  OK: Imported 'httpx' (httpx) cleanly
+  OK: Imported 'dateutil' (python-dateutil) cleanly
+  OK: Imported 'fastapi' (fastapi) cleanly
+  OK: Imported 'uvicorn' (uvicorn) cleanly
+  OK: Imported 'pydantic' (pydantic) cleanly
+  OK: Imported 'sqlalchemy' (sqlalchemy) cleanly
+  OK: Imported 'psycopg' (psycopg) cleanly
+  OK: Imported 'alembic' (alembic) cleanly
+  OK: Imported 'selenium' (selenium) cleanly
+  OK: Imported 'langgraph' (langgraph) cleanly
+  OK: Imported 'langchain_core' (langchain-core) cleanly
+  OK: Imported 'langchain_google_genai' (langchain-google-genai) cleanly
+  OK: Imported 'langchain_openai' (langchain-openai) cleanly
+  OK: Imported 'phonenumbers' (phonenumbers) cleanly
+  OK: Imported 'jwt' (pyjwt) cleanly
+  OK: Imported 'sentry_sdk' (sentry-sdk) cleanly
+
+======================================================================
+RESULT: SUCCESS - All Phase P14 Dependency Criteria Satisfied!
+======================================================================
+```
+
+#### 4. Import & Runtime Integrity
+Executed dynamic import tests across all 17 primary production packages in Python 3.14. All modules loaded cleanly with zero import errors, deprecated warnings, or circular dependency issues.
+
+### Phase P14: Docker Containerization Manifests
+
+#### 1. Architecture & Service Topology
+Strictly conformed to Phase P14 specification in `Implementation.md` and Decision D5 (PostgreSQL job queue; zero Redis/RQ dependencies):
+
+| Service | Image / Build Context | Roles & Runtime Configuration | Dependencies & Health |
+|---|---|---|---|
+| `postgres` | `pgvector/pgvector:pg15` | Database storage with pgvector extension enabled. Healthcheck configured with `pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-dataops}` (interval: 5s, timeout: 5s, retries: 5). Persistent volume `postgres_data`. | None |
+| `migrate` | Root `Dockerfile` (`context: .`) | One-shot migration container (`restart: "no"`). Executes `python Database/setup.py && python -m RAG.migrate` to create database, run Alembic migrations (`head`), initialize LangGraph checkpointer tables, seed reference data, and apply RAG schema migrations. | Depends on `postgres: service_healthy` |
+| `api` | Root `Dockerfile` (`context: .`) | Production FastAPI web server running `uvicorn app:app --app-dir /app/Backend --host 0.0.0.0 --port 8000` (strictly without `--reload`). Environment loaded from `Backend/.env` with host overrides for `DATABASE_URL`, `CHECKPOINT_DB_URL`, and `RAG_SERVICE_URL=http://rag:8001`. | Depends on `postgres: service_healthy` and `migrate: service_completed_successfully` |
+| `worker` | Root `Dockerfile` (`context: .`) | Background scraper execution and job consumer running `python -m worker`. Configured with `SELENIUM_MODE=remote` and `SELENIUM_REMOTE_URL=http://chrome:4444/wd/hub`. | Depends on `postgres: service_healthy`, `chrome: service_started`, and `migrate: service_completed_successfully` |
+| `rag` | `RAG/Dockerfile` (`context: ./RAG`) | Dedicated RAG retrieval microservice listening on port 8001 running `python -m RAG`. Environment loaded from `RAG/.env` with `RAG_DATABASE_URL=postgresql+psycopg://...`. | Depends on `postgres: service_healthy` and `migrate: service_completed_successfully` |
+| `chrome` | `selenium/standalone-chrome:4.18.1` | Remote headless browser with `shm_size: 2g`. Port 4444 exposed for WebDriver grid and port 7900 exposed for noVNC live session (human CAPTCHA solving per S10 checkpoint). | None |
+
+#### 2. Manifest Implementations
+
+##### A. Root `Dockerfile`
+- Multi-stage system dependency installation (`build-essential`, `libpq-dev`, `curl`).
+- Security hardening: non-root user `appuser` (UID 1000) created with `/app` ownership.
+- Standardized environment: `PYTHONPATH=/app:/app/Backend`, `PYTHONUNBUFFERED=1`, `PORT=8000`.
+- Native Docker healthcheck: `HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -f http://localhost:8000/health || exit 1`.
+- Production CMD: `CMD ["uvicorn", "app:app", "--app-dir", "/app/Backend", "--host", "0.0.0.0", "--port", "8000"]`.
+- Copies application packages: `Backend/`, `Database/`, `RAG/`, `worker.py`.
+
+##### B. `RAG/Dockerfile`
+- Isolated microservice container based on `python:3.11-slim`.
+- Security hardening: dedicated non-root `appuser` (UID 1000).
+- Installs standalone `RAG/requirements.txt`.
+- Standardized environment: `PYTHONPATH=/app`, `PYTHONUNBUFFERED=1`, `RAG_PORT=8001`.
+- Entrypoint CMD: `CMD ["python", "-m", "RAG"]`.
+
+##### C. Development Overrides (`docker-compose.override.yml.example`)
+- Documented live reload workflow with bind mounts:
+  - `./Backend:/app/Backend`
+  - `./Database:/app/Database`
+  - `./RAG:/app`
+- Enables `--reload` on FastAPI API container for rapid developer iteration without altering production manifests.
+
+##### D. Exclusion Rules (`.dockerignore`)
+- Strict leak prevention for `.env*` secrets (exceptions only for `.env.example`).
+- Excludes virtual environments (`.venv/`, `venv/`), bytecode caches (`__pycache__/`, `*.py[cod]`), test caches (`.pytest_cache/`, `.mypy_cache/`, `.coverage`).
+- Excludes frontend node artifacts (`node_modules/`, `dist/`).
+- Excludes baseline captures (`docs/baseline/`, `docs/history/`).
+- Excludes unused scripts and scratch files (`_unused_scripts/`, `scratch/`).
+- Excludes scraper outputs and data dumps (`*.csv`, `*.xlsx`, `outputs/`, `scraper_output*/`, `scraped_data*/`).
+
+##### E. Alembic Script Path Synchronization
+- Updated `Backend/alembic.ini` to use relative interpolation `script_location = %(here)s/migrations`, guaranteeing seamless migration execution regardless of caller working directory (`/app` in Docker or project root on host).
+- Updated `Database/setup.py` to explicitly set `script_location` on `alembic_cfg` matching `RAG/migrate.py`.
+
+#### 3. Verification & Evidence
+Created comprehensive unit test suite in `Backend/tests/unit/test_docker_manifests.py` verifying all 20 manifest and configuration criteria.
+
+##### Test Execution Output:
+```
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\adil.zia\Desktop\Tasks\Task2\AI-powered-Scraper-\Backend
+configfile: pytest.ini
+collected 20 items
+
+Backend\tests\unit\test_docker_manifests.py::TestDockerCompose::test_services_present PASSED [  5%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerCompose::test_forbidden_services_absent PASSED [ 10%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerCompose::test_postgres_service PASSED [ 15%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerCompose::test_migrate_service PASSED [ 20%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerCompose::test_api_service PASSED [ 25%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerCompose::test_worker_service PASSED [ 30%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerCompose::test_rag_service PASSED [ 35%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerCompose::test_chrome_service PASSED [ 40%]
+Backend\tests\unit\test_docker_manifests.py::TestRootDockerfile::test_base_image PASSED [ 45%]
+Backend\tests\unit\test_docker_manifests.py::TestRootDockerfile::test_non_root_user PASSED [ 50%]
+Backend\tests\unit\test_docker_manifests.py::TestRootDockerfile::test_pythonpath PASSED [ 55%]
+Backend\tests\unit\test_docker_manifests.py::TestRootDockerfile::test_healthcheck PASSED [ 60%]
+Backend\tests\unit\test_docker_manifests.py::TestRootDockerfile::test_cmd PASSED [ 65%]
+Backend\tests\unit\test_docker_manifests.py::TestRAGDockerfile::test_base_image PASSED [ 70%]
+Backend\tests\unit\test_docker_manifests.py::TestRAGDockerfile::test_non_root_user PASSED [ 75%]
+Backend\tests\unit\test_docker_manifests.py::TestRAGDockerfile::test_cmd PASSED [ 80%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerIgnore::test_mandatory_exclusions PASSED [ 85%]
+Backend\tests\unit\test_docker_manifests.py::TestDockerIgnore::test_scraper_outputs_excluded PASSED [ 90%]
+Backend\tests\unit\test_docker_manifests.py::TestRequirementsSplit::test_prod_requirements_in PASSED [ 95%]
+Backend\tests\unit\test_docker_manifests.py::TestRequirementsSplit::test_dev_requirements_in PASSED [100%]
+
+============================= 20 passed in 1.56s ==============================
+```
+
+##### PyYAML Validation Output:
+```
+Compose version: 3.8
+Services defined: ['postgres', 'migrate', 'api', 'worker', 'rag', 'chrome']
+  [OK] Service postgres found.
+  [OK] Service migrate found.
+  [OK] Service api found.
+  [OK] Service worker found.
+  [OK] Service rag found.
+  [OK] Service chrome found.
+  [OK] No redis or browserless/chrome.
+Override services: ['api', 'worker', 'rag']
+YAML validation successful!
+```
