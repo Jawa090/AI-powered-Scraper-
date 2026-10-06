@@ -6,9 +6,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.organization import Organization
-    from database.models.contact import Contact
-    from database.models.source import Source
+    from Database.models.organization import Organization
+    from Database.models.contact import Contact
+    from Database.models.source import Source
 
 
 class Phone(Base):
@@ -23,8 +23,8 @@ class Phone(Base):
     )
     phone_raw: Mapped[str] = mapped_column(String(100), nullable=False)
     normalized_phone: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    phone_type: Mapped[str] = mapped_column(
-        String(50), default="office"
+    phone_type: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
     )  # office, mobile, fax, direct
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)

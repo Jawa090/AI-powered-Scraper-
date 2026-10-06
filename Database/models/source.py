@@ -8,9 +8,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.scrape_run import ScrapeRun
-    from database.models.job import Job
-    from database.models.organization import Organization
+    from Database.models.scrape_run import ScrapeRun
+    from Database.models.job import Job
+    from Database.models.organization import Organization
 
 
 class Source(Base):
@@ -19,7 +19,7 @@ class Source(Base):
     id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)  # BONFIRE, DASNY, JWIZ, NYSCR
-    version: Mapped[str] = mapped_column(String(50), default="1.0.0")
+    version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     script_file: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="Active", index=True)  # Active, Beta, Deprecated, Disabled
@@ -27,7 +27,7 @@ class Source(Base):
     capabilities: Mapped[List[str]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), default=list, nullable=False
     )
-    default_limit: Mapped[int] = mapped_column(Integer, default=20)
+    default_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     success_rate: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

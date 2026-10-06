@@ -6,9 +6,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.organization import Organization
-    from database.models.contact import Contact
-    from database.models.source import Source
+    from Database.models.organization import Organization
+    from Database.models.contact import Contact
+    from Database.models.source import Source
 
 
 class Email(Base):
@@ -23,8 +23,8 @@ class Email(Base):
     )
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     normalized_email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    email_type: Mapped[str] = mapped_column(
-        String(50), default="work"
+    email_type: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
     )  # work, personal, procurement, general
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)

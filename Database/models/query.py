@@ -8,11 +8,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.session import AgentSession
-    from database.models.user import User
-    from database.models.source import Source
-    from database.models.scrape_run import ScrapeRun
-    from database.models.job import Job
+    from Database.models.session import AgentSession
+    from Database.models.user import User
+    from Database.models.source import Source
+    from Database.models.scrape_run import ScrapeRun
+    from Database.models.job import Job
 
 
 class Query(Base):
@@ -45,6 +45,10 @@ class Query(Base):
     records_new: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     records_updated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     served_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Phase 4 — client message ID and turn ID
+    client_message_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    turn_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True, nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(

@@ -8,9 +8,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.session import AgentSession
-    from database.models.department import Department
-    from database.models.dataset import Dataset
+    from Database.models.session import AgentSession
+    from Database.models.department import Department
+    from Database.models.dataset import Dataset
 
 
 class Requirement(Base):
@@ -35,7 +35,7 @@ class Requirement(Base):
     decision_makers: Mapped[Optional[List[str]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
     )
-    quantity: Mapped[int] = mapped_column(Integer, default=20)
+    quantity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     required_fields: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
     )

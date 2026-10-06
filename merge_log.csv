@@ -1,0 +1,14 @@
+entity_type,dedup_key,survivor_id,survivor_name,loser_id,loser_name,timestamp
+organization,4670a6f5bf4e23d9805e9c383657a4adc610f511a39ab4f5f7e85e6e15ba387f,a743209c-f41a-4d67-8159-fc5fdf5fbd2d,City Org #1,ab4bf38b-6201-4c68-949f-6d5084543136,City Org #1,2026-10-06T09:01:42.286505+00:00
+organization,c68a660e8c2586402ad387211f809ba01efbb9d551ec94e478aaf6dad899dbbe,e7305d24-d4a8-4172-99ed-c868052d351f,City Org #0,699e44f8-1a95-4998-8359-b6e936ab793f,City Org #0,2026-10-06T09:01:42.327401+00:00
+organization,ef416e7bf085e18a75567fd91490565a6a9287bdbd9c11994f1e7e9515f4909f,b46e7ee9-bf1f-4905-942c-9250d8c657a6,City Org #3,8eb39dca-5b85-4822-ba75-857bebeff069,City Org #3,2026-10-06T09:01:42.332147+00:00
+organization,9cce1b043795b8d1e99a90cb737292a2c7453dec474a2d5000bcc897b8b1cb3e,caec5471-bdcc-4ee1-a4bb-0e36135365ec,City Org #2,018fd1f4-47fd-4ad2-943e-646737b8d86a,City Org #2,2026-10-06T09:01:42.336477+00:00
+organization,4219c4c9ca37e82440fd0141e6a8cbade5f981f4623c4c6a0ceeea0265817798,org-fc5614,Apex Contracting,org-a214b3,Apex Contracting,2026-10-06T09:01:42.340174+00:00
+organization,4219c4c9ca37e82440fd0141e6a8cbade5f981f4623c4c6a0ceeea0265817798,org-fc5614,Apex Contracting,org-b767ac,Apex Contracting,2026-10-06T09:01:42.345369+00:00
+organization,4219c4c9ca37e82440fd0141e6a8cbade5f981f4623c4c6a0ceeea0265817798,org-fc5614,Apex Contracting,org-1d86f3,Apex Contracting,2026-10-06T09:01:42.349838+00:00
+organization,4219c4c9ca37e82440fd0141e6a8cbade5f981f4623c4c6a0ceeea0265817798,org-fc5614,Apex Contracting,org-676a2d,Apex Contracting,2026-10-06T09:01:42.352980+00:00
+organization,e21ff4668313ab196385e0715485b95beaab19c9ea66d074455515db8530bcba,af650a3c-a0d1-42df-859e-deaa30030c3a,City Org #4,fc11348c-0696-4d89-9fc9-657326c962f4,City Org #4,2026-10-06T09:01:42.356102+00:00
+lead,fp:7e670117c2eb811722361befd144123b7864cb0eeaf443bba09a5e0a817ac0b2,lead-599d3c,General Contractor,lead-0f4c3a,General Contractor,2026-10-06T09:01:42.362184+00:00
+lead,fp:7e670117c2eb811722361befd144123b7864cb0eeaf443bba09a5e0a817ac0b2,lead-599d3c,General Contractor,lead-8a2bad,General Contractor,2026-10-06T09:01:42.380241+00:00
+lead,fp:7e670117c2eb811722361befd144123b7864cb0eeaf443bba09a5e0a817ac0b2,lead-599d3c,General Contractor,lead-2b73b1,General Contractor,2026-10-06T09:01:42.384223+00:00
+lead,fp:7e670117c2eb811722361befd144123b7864cb0eeaf443bba09a5e0a817ac0b2,lead-599d3c,General Contractor,lead-c10176,General Contractor,2026-10-06T09:01:42.389981+00:00

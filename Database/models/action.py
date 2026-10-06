@@ -8,10 +8,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.session import AgentSession
-    from database.models.agent import Agent
-    from database.models.user import User
-    from database.models.lead import Lead
+    from Database.models.session import AgentSession
+    from Database.models.agent import Agent
+    from Database.models.user import User
+    from Database.models.lead import Lead
 
 
 class AgentAction(Base):

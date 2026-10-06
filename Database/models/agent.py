@@ -8,9 +8,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.department import Department
-    from database.models.session import AgentSession
-    from database.models.action import AgentAction
+    from Database.models.department import Department
+    from Database.models.session import AgentSession
+    from Database.models.action import AgentAction
 
 
 class Agent(Base):

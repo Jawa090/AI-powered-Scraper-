@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.session import AgentSession
+    from Database.models.session import AgentSession
 
 
 class AgentMessage(Base):

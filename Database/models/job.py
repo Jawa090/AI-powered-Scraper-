@@ -1,19 +1,19 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.source import Source
-    from database.models.department import Department
-    from database.models.user import User
-    from database.models.dataset import Dataset
-    from database.models.query import Query
-    from database.models.scrape_run import ScrapeRun
+    from Database.models.source import Source
+    from Database.models.department import Department
+    from Database.models.user import User
+    from Database.models.dataset import Dataset
+    from Database.models.query import Query
+    from Database.models.scrape_run import ScrapeRun
 
 
 class Job(Base):
@@ -53,7 +53,7 @@ class Job(Base):
     verified_count: Mapped[int] = mapped_column(Integer, default=0)
     duplicates_count: Mapped[int] = mapped_column(Integer, default=0)
     errors_count: Mapped[int] = mapped_column(Integer, default=0)
-    total_target: Mapped[int] = mapped_column(Integer, default=20)
+    total_target: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     parameters: Mapped[Dict[str, Any]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), default=dict, nullable=False
@@ -67,6 +67,12 @@ class Job(Base):
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+
+    # Phase 4 — worker, error message, and resume
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    worker_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    waiting_for: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    resume_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True, nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(

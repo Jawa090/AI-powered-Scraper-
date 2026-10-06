@@ -6,8 +6,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from Database.base import Base
 
 if TYPE_CHECKING:
-    from database.models.organization import Organization
-    from database.models.source import Source
+    from Database.models.organization import Organization
+    from Database.models.source import Source
 
 
 class Location(Base):
@@ -22,7 +22,7 @@ class Location(Base):
     city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     state: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     postal_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
-    country: Mapped[str] = mapped_column(String(50), default="USA")
+    country: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     raw_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     normalized_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     is_headquarters: Mapped[bool] = mapped_column(Boolean, default=True)
