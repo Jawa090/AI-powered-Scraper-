@@ -39,6 +39,8 @@ jobs:
         run: |
           python Database/setup.py
           python Database/setup.py
+        env:
+          PYTHONPATH: ${{ github.workspace }}
       - name: Backend regression and RAG contract tests
         run: python -m pytest -c Backend/pytest.ini -o addopts= -m "not live" Backend/tests RAG/tests --tb=short -q
   frontend:
