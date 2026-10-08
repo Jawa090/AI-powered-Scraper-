@@ -47,7 +47,7 @@ export const Datasets: React.FC<DatasetsProps> = ({ onNavigate }) => {
           onClick={() => onNavigate('/agent')}
           className="px-3.5 py-2 rounded-lg bg-[#2D4351] text-white hover:bg-[#20313C] text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
         >
-          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+          <Sparkles className="w-3.5 h-3.5 text-green-400" />
           <span>Generate New Dataset</span>
         </button>
       </div>
@@ -130,7 +130,7 @@ export const Datasets: React.FC<DatasetsProps> = ({ onNavigate }) => {
                 <td className="py-3 px-3 text-right font-mono font-semibold text-gray-900">
                   {ds.recordsCount.toLocaleString()}
                 </td>
-                <td className="py-3 px-3 text-right font-mono text-emerald-600 font-semibold">
+                <td className="py-3 px-3 text-right font-mono text-green-600 font-semibold">
                   {ds.verifiedCount.toLocaleString()}
                 </td>
                 <td className="py-3 px-3">

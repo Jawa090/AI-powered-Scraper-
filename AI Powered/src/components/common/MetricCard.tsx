@@ -39,12 +39,12 @@ export const MetricCard: React.FC<MetricCardProps> = ({
 
         {change && (
           <span
-            className={`inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded ${
+            className={`inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded border ${
               changeType === 'positive'
-                ? 'text-emerald-700 bg-emerald-50'
+                ? 'bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800'
                 : changeType === 'negative'
-                ? 'text-rose-700 bg-rose-50'
-                : 'text-gray-600 bg-gray-100'
+                ? 'bg-white text-red-600 border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800'
+                : 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800'
             }`}
           >
             {changeType === 'positive' ? (

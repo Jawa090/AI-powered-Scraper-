@@ -72,7 +72,8 @@ def test_same_50_records_twice_counts_unchanged_second_run_zero_inserted(db_sess
     # Run 2: Upsert identical 50 records
     res2 = upsert_leads(db_session, records, source_id="bonfire")
     assert res2.inserted == 0, f"Expected 0 inserted on 2nd run, got {res2.inserted}"
-    assert res2.updated == 50
+    assert res2.updated == 0
+    assert res2.unchanged == 50
     assert res2.failed == 0
     assert len(res2.lead_ids) == 50
 
@@ -409,7 +410,9 @@ def test_in_batch_dedup_prefers_non_null(db_session: Session):
     lead = db_session.scalar(select(Lead).where(Lead.id == res.lead_ids[0]))
     assert lead.title == "Initial Title"
     assert lead.notes == "Comprehensive specification text"
-    assert lead.lead_metadata == {"initial_key": "val1", "secondary_key": "val2"}
+    assert lead.lead_metadata["initial_key"] == "val1"
+    assert lead.lead_metadata["secondary_key"] == "val2"
+    assert lead.lead_metadata["phone"] == "+12145550188"
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +446,9 @@ def test_standard_record_instances(db_session: Session):
     assert lead.title == "Standard Record Bid"
     assert lead.source_code == "bonfire"
     assert lead.external_id == f"{prefix}_sr_1"
-    assert lead.lead_metadata == {"source_system": "bonfire_v2"}
+    assert lead.lead_metadata["source_system"] == "bonfire_v2"
+    assert lead.city == "Dallas"
+    assert lead.us_state == "TX"
     assert lead.organization_id is not None
     org = db_session.scalar(select(Organization).where(Organization.id == lead.organization_id))
     assert org.industry == "Construction"

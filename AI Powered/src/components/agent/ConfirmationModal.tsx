@@ -28,7 +28,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         <div className="p-4 bg-[#F8F9FA] rounded-lg border border-[#E5E7EB] space-y-2.5">
           <div className="flex justify-between text-xs">
             <span className="text-gray-500 font-medium">Scraper Engine:</span>
-            <span className="text-indigo-600 font-bold">
+            <span className="text-blue-600 font-bold">
               {(requirement as any).selectedScriptName || 'Autonomous Scraper Engine'}
             </span>
           </div>
@@ -42,13 +42,13 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           </div>
           <div className="flex justify-between text-xs pt-2 border-t border-gray-200">
             <span className="text-gray-700 font-semibold">Requested Volume:</span>
-            <span className="text-emerald-700 font-bold">
+            <span className="text-green-700 font-bold">
               {requirement.quantity ? requirement.quantity.toLocaleString() : '20'} Verified Records
             </span>
           </div>
         </div>
 
-        <div className="flex items-start gap-2.5 p-3 bg-blue-50/70 border border-blue-100 rounded-lg">
+        <div className="flex items-start gap-2.5 p-3 bg-white border border-blue-200 dark:bg-black dark:border-blue-800 rounded-lg">
           <ShieldCheck className="w-4 h-4 text-blue-700 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-blue-900 leading-relaxed">
             DataOps autonomous agent will execute multi-layer spatial discovery, MX mailbox verification, and cross-department deduplication. Data will be made immediately available inside the platform.
@@ -69,7 +69,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             }}
             className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] transition-colors flex items-center gap-1.5 shadow-sm"
           >
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+            <Sparkles className="w-3.5 h-3.5 text-green-400" />
             <span>Confirm & Start Generation</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>

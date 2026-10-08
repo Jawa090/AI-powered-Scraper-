@@ -1,0 +1,19 @@
+{
+  "source": "jwiz",
+  "status": "Partial",
+  "stored": 100,
+  "completion": [
+    {
+      "queryId": "04ee5139-14c0-50ef-90c2-b28f132e5c93",
+      "requestFulfilled": false,
+      "deliveryKind": "recovered",
+      "matchingRecordsDelivered": 0,
+      "requestedRecords": 1,
+      "recordsInDelivery": 100,
+      "status": "completed"
+    }
+  ],
+  "delivered": true,
+  "adminEqualsUser": true,
+  "reply": "The requested requirements were not met. You asked for 1 roofing company in New York, NY, with both an email address and a phone number. No rows matching all of those requirements were found, so the 100 rows shown are the data recovered instead. They may differ in category, location, or contact availability, and should not be treated as verified matches.\n\nRecovered vs. requested: 0 matching rows delivered against the 1 requested.\n\nAbout the recovered data: 100 records were recovered and saved with deduplication. Only 3 of them include an email address, and most are not located specifically in New York city \u2014 they span other parts of New York State and several other states (including New Jersey, California, Pennsylvania, Connecticut, Florida and Georgia). Some rows list only a phone number, some lack a location, and some list categories beyond roofing.\n\nSource errors: none were reported."
+}

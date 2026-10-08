@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   postgres:
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
@@ -26,9 +26,9 @@ services:
     env_file:
       - Backend/.env
     environment:
-      - DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
-      - CHECKPOINT_DB_URL=postgresql://postgres:postgres@postgres:5432/dataops
-      - RAG_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
+      - DATABASE_URL=postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-dataops}
+      - CHECKPOINT_DB_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-dataops}
+      - RAG_DATABASE_URL=postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-dataops}
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,9 +43,10 @@ services:
     env_file:
       - Backend/.env
     environment:
-      - DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
-      - CHECKPOINT_DB_URL=postgresql://postgres:postgres@postgres:5432/dataops
+      - DATABASE_URL=postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-dataops}
+      - CHECKPOINT_DB_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-dataops}
       - RAG_SERVICE_URL=http://rag:8001
+      - NYSCR_VIEWER_URL=http://localhost:7900
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,9 +61,11 @@ services:
     env_file:
       - Backend/.env
     environment:
-      - DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
-      - CHECKPOINT_DB_URL=postgresql://postgres:postgres@postgres:5432/dataops
+      - DATABASE_URL=postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-dataops}
+      - CHECKPOINT_DB_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-dataops}
+      - NYSCR_VIEWER_URL=http://localhost:7900
       - SELENIUM_MODE=remote
+      - NYSCR_DEBUGGER_ADDRESS=
       - SELENIUM_REMOTE_URL=http://chrome:4444/wd/hub
     depends_on:
       postgres:
@@ -75,14 +78,14 @@ services:
 
   rag:
     build:
-      context: ./RAG
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: RAG/Dockerfile
     ports:
       - "8001:8001"
     env_file:
       - RAG/.env
     environment:
-      - RAG_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/dataops
+      - RAG_DATABASE_URL=postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-dataops}
       - RAG_PORT=8001
     depends_on:
       postgres:

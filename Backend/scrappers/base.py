@@ -39,6 +39,16 @@ class JobCancelled(ScraperException):
     pass
 
 
+class LoginFailed(ScraperException):
+    """Raised when authentication fails."""
+    pass
+
+
+class SourceBlocked(ScraperException):
+    """Raised when blocked by a bot wall or Cloudflare."""
+    pass
+
+
 # ---------------------------------------------------------------------------
 # Metadata and Parameters Models
 # ---------------------------------------------------------------------------
@@ -54,6 +64,7 @@ class ScraperMeta(BaseModel):
     coverage: Dict[str, Any] = Field(..., description="Geographical coverage, e.g. {'city': 'Dallas', 'state': 'TX'}")
     supports: List[str] = Field(..., description="Supported filtering features: subset of ['limit', 'keyword', 'location']")
     fields: List[str] = Field(..., description="List of standard fields populated by this scraper")
+    requires_location: bool = Field(default=False, description="A city, state or raw location is required to execute this source")
     required_env: List[str] = Field(default_factory=list, description="Environment variable names required for operation")
     default_limit: int = Field(default=20, ge=1, description="Default record extraction limit")
     max_limit: int = Field(default=100, ge=1, description="Maximum record extraction limit")
@@ -140,13 +151,23 @@ RawRecord = StandardRecord
 # Base Scraper Abstract Class
 # ---------------------------------------------------------------------------
 
+from scrappers.utils import to_json_safe
+
 class BaseScraper(ABC):
     """Abstract base class for all modular scrapers."""
     meta: ScraperMeta
+    headless_default: bool = True
 
-    def __init__(self, ctx: Optional[ScrapeContext] = None) -> None:
+    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: Optional[bool] = None) -> None:
         self.ctx: ScrapeContext = ctx or NullScrapeContext()
         self._is_closed: bool = False
+        self.headless: bool = headless if headless is not None else self.headless_default
+
+    def check_cancel(self) -> None:
+        """Raises JobCancelled if the context indicates the job should stop."""
+        if self.ctx.should_cancel():
+            self.ctx.log("warning", "Scraper execution cancelled by context.")
+            raise JobCancelled(f"Scraper '{self.meta.id}' cancelled by context")
 
     @abstractmethod
     def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
@@ -162,10 +183,10 @@ class BaseScraper(ABC):
         """High-level runner iterating over scrape() and converting via to_standard()."""
         try:
             for raw in self.scrape(params):
-                if self.ctx.should_cancel():
-                    self.ctx.log("warning", "Scraper execution cancelled by context.")
-                    raise JobCancelled(f"Scraper '{self.meta.id}' cancelled by context")
-                yield self.to_standard(raw)
+                record = self.to_standard(raw)
+                record.extra = to_json_safe(record.extra)
+                yield record
+                self.check_cancel()
         finally:
             self.close()
 

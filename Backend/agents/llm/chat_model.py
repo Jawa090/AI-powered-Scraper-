@@ -1,12 +1,6 @@
-"""
-agents/llm/chat_model.py
-─────────────────────────
-Single-provider LLM abstraction layer with bounded retries and D4 error format.
-Complies with Phase P8 / Decision D3 / Decision D4:
-- Instantiates a SINGLE configured provider (Gemini or OpenAI-compatible).
-- NO fallback chains (.with_fallbacks is forbidden).
-- Bounded retries (LLM_MAX_RETRIES) on transient errors only (timeout, 429, 5xx).
-- Maps errors to LLMUnavailable exception producing HTTP 503 D4 response format.
+"""DeepSeek, Gemini and OpenRouter fallbacks for plain, tool and typed AI calls.
+
+Every provider uses bounded retries. Exhaustion returns the same HTTP 503 contract.
 """
 
 from __future__ import annotations
@@ -172,7 +166,7 @@ def clear_cache() -> None:
     _model_cache.clear()
 
 
-def get_chat_model(
+def _build_model(
     tools: Optional[Sequence[Any]] = None,
     force_refresh: bool = False,
     provider: Optional[str] = None,
@@ -204,7 +198,7 @@ def get_chat_model(
     if tools:
         tools_key = tuple(sorted(getattr(t, "name", str(t)) for t in tools))
 
-    cache_key = (prov, mdl, tools_key)
+    cache_key = (prov, mdl, key, base_url, timeout, thinking_level, tools_key)
 
     if not force_refresh and cache_key in _model_cache:
         return _model_cache[cache_key]
@@ -262,103 +256,98 @@ def get_chat_model(
     return chat_instance
 
 
-def invoke_llm(
-    model: Any,
-    messages: Any,
-    max_retries: Optional[int] = None,
-    retry_delay: Optional[float] = None,
-    **kwargs: Any,
-) -> Any:
-    """
-    Invoke chat model with bounded retries on transient errors (timeout/429/5xx).
-    Maps errors to LLMUnavailable conforming to D4.
-    """
-    retries = max_retries if max_retries is not None else getattr(settings, "LLM_MAX_RETRIES", 2)
-    delay = retry_delay if retry_delay is not None else _DEFAULT_RETRY_DELAY
+class ProviderChain:
+    """Try DeepSeek, Gemini, then OpenRouter including construction failures."""
+    def __init__(self, tools=None, timeout=None):
+        self.tools, self.timeout = tools, timeout
 
+    def _candidates(self):
+        generic_provider = getattr(settings, 'LLM_PROVIDER', '')
+        generic_url = getattr(settings, 'LLM_BASE_URL', '')
+        generic_key = getattr(settings, 'LLM_API_KEY', '')
+        generic_model = getattr(settings, 'LLM_MODEL', '')
+        deep_key = getattr(settings, 'DEEPSEEK_API_KEY', '')
+        # Preserve an explicitly configured compatible endpoint as the primary.
+        yield ('deepseek', 'openai_compatible', getattr(settings, 'DEEPSEEK_MODEL', 'deepseek-chat') if deep_key else generic_model,
+            deep_key or (generic_key if generic_provider == 'openai_compatible' else ''),
+            'https://api.deepseek.com' if deep_key else generic_url)
+        yield ('gemini', 'gemini', getattr(settings, 'GEMINI_MODEL', 'gemini-2.5-flash') if getattr(settings, 'GEMINI_API_KEY', '') else (generic_model if generic_provider == 'gemini' else getattr(settings, 'GEMINI_MODEL', 'gemini-2.5-flash')),
+            getattr(settings, 'GEMINI_API_KEY', '') or (generic_key if generic_provider == 'gemini' else ''), '')
+        yield ('openrouter', 'openai_compatible', getattr(settings, 'OPENROUTER_MODEL', ''),
+            getattr(settings, 'OPENROUTER_API_KEY', ''), 'https://openrouter.ai/api/v1')
+
+    def invoke(self, messages, schema=None, **kwargs):
+        failures = []
+        for name, provider, model, key, base in self._candidates():
+            if not key or not model:
+                failures.append((name, 'not_configured'))
+                continue
+            try:
+                instance = _build_model(provider=provider, model=model, api_key=key,
+                    base_url=base, tools=self.tools, timeout=self.timeout)
+                if schema is not None:
+                    instance = _get_structured_model(instance, schema)
+                started = time.perf_counter()
+                response = _invoke_one(instance, messages, **kwargs)
+                if schema is None and not getattr(response, 'tool_calls', None) and not str(getattr(response, 'content', '')).strip():
+                    raise LLMUnavailable('provider_error', 'Empty provider response')
+                logger.info('provider_call', extra={'provider': name, 'model': model,
+                    'latency_ms': round((time.perf_counter() - started)*1000, 2), 'structured': schema is not None})
+                return response
+            except Exception as exc:
+                reason = exc.reason if isinstance(exc, LLMUnavailable) else _classify_error(exc)[0]
+                failures.append((name, reason))
+                logger.warning('AI provider %s unavailable: %s', name, reason)
+        reason = next((reason for _, reason in reversed(failures) if reason != 'not_configured'), 'not_configured')
+        raise LLMUnavailable(reason, 'All configured providers exhausted')
+
+
+def get_chat_model(tools=None, force_refresh=False, provider=None, model=None, api_key=None,
+                   base_url=None, timeout=None, thinking_level=None):
+    if provider is not None or model is not None or api_key is not None:
+        return _build_model(tools, force_refresh, provider, model, api_key, base_url, timeout, thinking_level)
+    return ProviderChain(tools, timeout)
+
+
+def _invoke_one(model, messages, max_retries=None, retry_delay=None, **kwargs):
+    retries = max_retries if max_retries is not None else settings.LLM_MAX_RETRIES
+    delay = retry_delay if retry_delay is not None else _DEFAULT_RETRY_DELAY
     for attempt in range(retries + 1):
         try:
             return model.invoke(messages, **kwargs)
         except LLMUnavailable:
             raise
         except Exception as exc:
-            reason, is_retryable = _classify_error(exc)
-            if not is_retryable:
-                logger.error("LLM non-retryable error (%s): %s", reason, exc)
-                raise LLMUnavailable(reason=reason, detail=str(exc)) from exc
-
-            if attempt < retries:
-                logger.warning(
-                    "LLM transient error (%s) on attempt %d/%d, retrying in %.2fs: %s",
-                    reason,
-                    attempt + 1,
-                    retries + 1,
-                    delay,
-                    exc,
-                )
-                if delay > 0:
-                    time.sleep(delay)
+            reason, transient = _classify_error(exc)
+            if transient and attempt < retries:
+                time.sleep(delay)
                 continue
-            else:
-                logger.error(
-                    "LLM retries exhausted (%d retries) for transient error (%s): %s",
-                    retries,
-                    reason,
-                    exc,
-                )
-                raise LLMUnavailable(reason=reason, detail=str(exc)) from exc
+            raise LLMUnavailable(reason, 'Provider invocation failed') from exc
 
 
-def invoke_structured(
-    schema: Any,
-    messages: Any,
-    tools: Optional[Sequence[Any]] = None,
-    model: Optional[Any] = None,
-    max_retries: Optional[int] = None,
-    retry_delay: Optional[float] = None,
-    **kwargs: Any,
-) -> Any:
-    """
-    Invoke model with structured output schema and bounded retries.
-    Maps errors to LLMUnavailable.
-    """
-    if model is None:
-        model = get_chat_model(tools=tools)
+def invoke_llm(model, messages, max_retries=None, retry_delay=None, **kwargs):
+    if isinstance(model, ProviderChain):
+        return model.invoke(messages, max_retries=max_retries, retry_delay=retry_delay, **kwargs)
+    return _invoke_one(model, messages, max_retries=max_retries, retry_delay=retry_delay, **kwargs)
 
-    structured_model = model.with_structured_output(schema)
-    retries = max_retries if max_retries is not None else getattr(settings, "LLM_MAX_RETRIES", 2)
-    delay = retry_delay if retry_delay is not None else _DEFAULT_RETRY_DELAY
 
-    for attempt in range(retries + 1):
-        try:
-            return structured_model.invoke(messages, **kwargs)
-        except LLMUnavailable:
-            raise
-        except Exception as exc:
-            reason, is_retryable = _classify_error(exc)
-            if not is_retryable:
-                logger.error("Structured LLM non-retryable error (%s): %s", reason, exc)
-                raise LLMUnavailable(reason=reason, detail=str(exc)) from exc
+def _get_structured_model(model, schema):
+    if model.__class__.__name__ == 'ChatOpenAI':
+        return model.with_structured_output(schema, method='function_calling')
+    return model.with_structured_output(schema)
 
-            if attempt < retries:
-                logger.warning(
-                    "Structured LLM transient error (%s) on attempt %d/%d, retrying: %s",
-                    reason,
-                    attempt + 1,
-                    retries + 1,
-                    exc,
-                )
-                if delay > 0:
-                    time.sleep(delay)
-                continue
-            else:
-                logger.error(
-                    "Structured LLM retries exhausted (%d retries) for transient error (%s): %s",
-                    retries,
-                    reason,
-                    exc,
-                )
-                raise LLMUnavailable(reason=reason, detail=str(exc)) from exc
+
+def invoke_structured(schema, messages, tools=None, model=None, max_retries=None, retry_delay=None, **kwargs):
+    model = model if model is not None else get_chat_model(tools=tools)
+    if isinstance(model, ProviderChain):
+        return model.invoke(messages, schema=schema, max_retries=max_retries, retry_delay=retry_delay, **kwargs)
+    try:
+        structured = _get_structured_model(model, schema)
+        return _invoke_one(structured, messages, max_retries=max_retries, retry_delay=retry_delay, **kwargs)
+    except LLMUnavailable:
+        raise
+    except Exception as exc:
+        raise LLMUnavailable(_classify_error(exc)[0], 'Structured output failed') from exc
 
 
 def probe(timeout: int = 5) -> dict:
@@ -371,7 +360,7 @@ def probe(timeout: int = 5) -> dict:
     model_name = getattr(settings, "LLM_MODEL", "")
     api_key = getattr(settings, "LLM_API_KEY", "")
 
-    if not api_key or not model_name:
+    if not any(key and model for _, _, model, key, _ in ProviderChain()._candidates()):
         return {
             "provider": provider,
             "model": model_name,
@@ -426,7 +415,9 @@ def llm_health_check(probe_mode: bool = False) -> dict:
     return {
         "provider": getattr(settings, "LLM_PROVIDER", ""),
         "model": getattr(settings, "LLM_MODEL", ""),
-        "configured": bool(getattr(settings, "LLM_API_KEY", "") and getattr(settings, "LLM_MODEL", "")),
+        "configured": any(key and model for _, _, model, key, _ in ProviderChain()._candidates()),
+        "providers": [{'provider': name, 'model': model, 'configured': bool(key and model)}
+            for name, _, model, key, _ in ProviderChain()._candidates()],
     }
 
 

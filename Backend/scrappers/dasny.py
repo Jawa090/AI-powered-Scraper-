@@ -12,11 +12,36 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from scrappers.base import BaseScraper, ScrapeContext, ScrapeParams, ScraperMeta, StandardRecord
 from scrappers.driver import make_driver, retry_driver_call
+from settings import settings
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.dasny.org"
 LISTING_URL = "https://www.dasny.org/opportunities/rfps-bids"
+
+
+def parse_detail_header(html):
+    """Read opportunity content, excluding the site's governor/agency banner."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
+    title = soup.select_one('h1.page-header, .field--name-title, h1')
+    root = soup.select_one('#rfp-detail')
+    headers = {}
+    if root:
+        for item in root.select('.rfp-detail-item-wrapper'):
+            label = item.select_one('.rfp-detail-text-label')
+            value = item.select_one('.rfp-detail-field-value')
+            if label and value:
+                headers[_clean(label.get_text(' ', strip=True)).rstrip(':')] = _clean(value.get_text(' ', strip=True))
+        for section in root.select('.rfp-detail-section'):
+            sibling = section.find_next_sibling()
+            if sibling:
+                value = sibling.select_one('.rfp-detail-field-value')
+                if value:
+                    headers[_clean(section.get_text(' ', strip=True))] = _clean(value.get_text(' ', strip=True))
+    description = root.select_one('.field--name-body, .field--type-text-with-summary, .rfp-description') if root else None
+    return {'title': _clean(title.get_text(' ', strip=True)) if title else None,
+        'description': _clean(description.get_text(' ', strip=True)) if description else None, 'headers': headers}
 
 
 def _clean(text: Optional[str]) -> str:
@@ -27,18 +52,24 @@ def _parse_date(raw: Optional[str]) -> Optional[datetime]:
     if not raw:
         return None
     cleaned = _clean(raw)
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("America/New_York")
+    dt = None
     try:
         from dateutil import parser
-        return parser.parse(cleaned)
+        dt = parser.parse(cleaned)
     except Exception:
-        pass
-    m = re.search(r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", cleaned)
-    if m:
-        mo, dy, yr = m.groups()
-        try:
-            return datetime(int(yr), int(mo), int(dy))
-        except ValueError:
-            return None
+        m = re.search(r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", cleaned)
+        if m:
+            mo, dy, yr = m.groups()
+            try:
+                dt = datetime(int(yr), int(mo), int(dy))
+            except ValueError:
+                pass
+    if dt:
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=tz)
+        return dt.astimezone(tz)
     return None
 
 
@@ -78,9 +109,10 @@ class DasnyScraper(BaseScraper):
         max_limit=100,
     )
 
-    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: bool = True) -> None:
-        super().__init__(ctx)
-        self.headless = headless
+    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: Optional[bool] = None) -> None:
+        if headless is None:
+            headless = getattr(settings, "SCRAPER_HEADLESS", True)
+        super().__init__(ctx, headless)
         self.driver = None
 
     def setup_chrome(self) -> bool:
@@ -109,9 +141,10 @@ class DasnyScraper(BaseScraper):
 
         html = self.driver.page_source
 
-        title = self._get_title()
-        header_fields = self._get_header_fields()
-        description = self._get_description()
+        parsed = parse_detail_header(html)
+        title = parsed['title']
+        header_fields = {**self._get_header_fields(), **parsed['headers']}
+        description = parsed['description']
         contacts = self._get_contacts(html)
 
         solicitation_number = (
@@ -122,9 +155,16 @@ class DasnyScraper(BaseScraper):
             or header_fields.get("Contract #")
         )
 
-        # Strict requirement: external_id = solicitation number (missing -> skip + report)
-        if not solicitation_number:
-            logger.warning("Skipping DASNY opportunity missing solicitation number at %s", url)
+        external_id = None
+        if solicitation_number:
+            digits = re.findall(r'\d+', solicitation_number)
+            if digits:
+                external_id = "".join(digits)
+        if not external_id:
+            external_id = url.rstrip("/").split("/")[-1]
+
+        if not external_id:
+            logger.warning("Skipping DASNY opportunity missing external ID at %s", url)
             return None
 
         due_date_raw = (
@@ -139,6 +179,7 @@ class DasnyScraper(BaseScraper):
         loc_address, loc_city, loc_state, loc_zip = self._parse_location(location_raw)
 
         return {
+            "external_id": external_id,
             "solicitation_number": solicitation_number,
             "source_url": url,
             "title": title,
@@ -155,24 +196,26 @@ class DasnyScraper(BaseScraper):
             "header_fields": header_fields,
         }
 
-    def _get_title(self) -> str:
+    def _get_title(self) -> Optional[str]:
         try:
-            el = self.driver.find_element(By.CSS_SELECTOR, "div.rfp-bid-title h2 a")
-            return _clean(el.text)
+            el = self.driver.find_element(By.CSS_SELECTOR, ".field--name-title")
+            return _clean(el.text) or None
+        except Exception:
+            return None
+
+    def _get_description(self) -> str:
+        desc = []
+        try:
+            el1 = self.driver.find_element(By.CSS_SELECTOR, ".field--type-text-with-summary")
+            desc.append(_clean(el1.text))
         except Exception:
             pass
         try:
-            el = self.driver.find_element(By.CSS_SELECTOR, "h1")
-            return _clean(el.text)
+            el2 = self.driver.find_element(By.CSS_SELECTOR, ".field--name-field-dasny-rfp-primary-con")
+            desc.append(_clean(el2.text))
         except Exception:
-            return "DASNY RFP Opportunity"
-
-    def _get_description(self) -> str:
-        try:
-            el = self.driver.find_element(By.CSS_SELECTOR, "#rfp-bid-notice .panel-body")
-            return _clean(el.text)
-        except Exception:
-            return ""
+            pass
+        return "\n".join(d for d in desc if d)
 
     def _get_header_fields(self) -> Dict[str, str]:
         fields: Dict[str, str] = {}
@@ -278,7 +321,12 @@ class DasnyScraper(BaseScraper):
                         contact["email"] = em.group(0)
                     continue
                 if not contact["name"] and len(line) > 2 and "dasny" not in low:
-                    contact["name"] = line
+                    if "," in line:
+                        parts = line.split(",", 1)
+                        contact["name"] = _clean(parts[0])
+                        contact["title"] = _clean(parts[1])
+                    else:
+                        contact["name"] = line
 
             if contact["name"] or contact["email"] or contact["phone"]:
                 contacts.append(contact)
@@ -293,7 +341,7 @@ class DasnyScraper(BaseScraper):
         loc_zip = m_zip.group(1) if m_zip else None
 
         loc_city = None
-        m_city = re.search(r"([A-Za-z\s]+),\s*(?:NY|New York)", loc_clean)
+        m_city = re.search(r"([A-Za-z][A-Za-z .'-]*),\s*(?:NY|New York)\b", loc_clean)
         if m_city:
             loc_city = _clean(m_city.group(1))
 
@@ -302,8 +350,8 @@ class DasnyScraper(BaseScraper):
     def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
         """
         Paginates listing pages and collects opportunities.
-        Applies keyword filter before limit, paginating until limit is met or max_pages reached.
-        Filters by location after extraction.
+        Preserves extracted records within the run limit and page budget.
+        Request criteria are applied at delivery after persistence.
         """
         if not self.setup_chrome():
             raise RuntimeError("Failed to initialize Chrome driver for DASNY.")
@@ -312,21 +360,20 @@ class DasnyScraper(BaseScraper):
             seen_urls = set()
             matched_records: List[Dict[str, Any]] = []
             page = 0
-            max_pages = 10
-            kw = (params.keyword or "").strip().lower()
-
-            target_city = (params.city or "").strip().lower()
-            target_state = (params.us_state or "").strip().upper()
-            target_loc = (params.location or "").strip().lower()
-
+            max_pages = getattr(settings, "DASNY_MAX_PAGES", 10)
             while len(matched_records) < params.limit and page < max_pages:
-                if self.ctx.should_cancel():
-                    break
+                self.check_cancel()
 
                 page_url = f"{LISTING_URL}?page={page}"
                 logger.info("Loading DASNY listing page %d: %s", page, page_url)
                 retry_driver_call(lambda: self.driver.get(page_url), action_name=f"get {page_url}")
-                time.sleep(2)
+
+                try:
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "div.rfp-bid-wrapper"))
+                    )
+                except Exception:
+                    pass
 
                 cards = self.driver.find_elements(By.CSS_SELECTOR, "div.rfp-bid-wrapper")
                 if not cards:
@@ -348,24 +395,9 @@ class DasnyScraper(BaseScraper):
                         continue
 
                 for detail_url in page_urls:
-                    if self.ctx.should_cancel():
-                        break
+                    self.check_cancel()
                     record = self._extract_detail(detail_url)
                     if not record:
-                        continue
-
-                    # Apply keyword filter
-                    if kw:
-                        text_corpus = f"{record.get('title', '')} {record.get('description', '')} {record.get('solicitation_number', '')}".lower()
-                        if kw not in text_corpus:
-                            continue
-
-                    # Apply location filter
-                    if target_city and target_city not in (record.get("location_city") or "").lower():
-                        continue
-                    if target_state and target_state != (record.get("location_state") or "NY").upper():
-                        continue
-                    if target_loc and target_loc not in (record.get("location_raw") or "").lower():
                         continue
 
                     matched_records.append(record)
@@ -385,11 +417,14 @@ class DasnyScraper(BaseScraper):
         solicitation_number = raw.get("solicitation_number")
         contacts = raw.get("contacts") or []
         first_contact = contacts[0] if contacts else {}
+        headers = raw.get("header_fields") or {}
+
+        category = headers.get("Type") or headers.get("Category") or None
 
         return StandardRecord(
             source_code=self.meta.id,
             record_kind=self.meta.record_kind,
-            external_id=solicitation_number,
+            external_id=solicitation_number or raw.get('external_id') or raw.get('source_url'),
             source_url=raw.get("source_url"),
             title=raw.get("title"),
             description=raw.get("description"),
@@ -398,17 +433,18 @@ class DasnyScraper(BaseScraper):
             contact_title=first_contact.get("title") or first_contact.get("role"),
             email=first_contact.get("email"),
             phone=first_contact.get("phone"),
-            website=raw.get("source_url"),
+            website=None,
             city=raw.get("location_city"),
             us_state=raw.get("location_state") or "NY",
             postal_code=raw.get("location_zip"),
-            category="Public Construction",
+            category=category,
             due_at=raw.get("due_at"),
             extra={
                 "solicitation_number": solicitation_number,
                 "location_raw": raw.get("location_raw"),
                 "due_date_raw": raw.get("due_date_raw"),
                 "all_contacts": contacts,
+                "header_fields": headers,
             },
         )
 

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import {
   User,
   UserRole,
@@ -15,131 +15,6 @@ import {
 import { agentService } from '../services/agent.service';
 import { apiService } from '../services/api.service';
 import { useAuth } from './AuthContext';
-
-export const SYSTEM_USERS: User[] = [
-  {
-    id: 'usr-ahmed',
-    username: 'ahmed',
-    email: 'ahmed.khan@company.internal',
-    name: 'Ahmed Khan',
-    role: 'user',
-    roleTitle: 'Senior Outbound Sales Specialist',
-    departmentId: 'dept-sales-1',
-    departmentName: 'Procurement & Municipal Bids',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'usr-sara',
-    username: 'sara',
-    email: 'sara.j@company.internal',
-    name: 'Sara Jenkins',
-    role: 'user',
-    roleTitle: 'Email Growth & Campaigns Lead',
-    departmentId: 'dept-email-mktg',
-    departmentName: 'Commercial Directory Outreach',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'usr-marcus',
-    username: 'marcus',
-    email: 'marcus.v@company.internal',
-    name: 'Marcus Vance',
-    role: 'user',
-    roleTitle: 'Director of State RFPs & Infrastructure',
-    departmentId: 'dept-sales-2',
-    departmentName: 'State Infrastructure & Construction',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'usr-elena',
-    username: 'elena',
-    email: 'elena.r@company.internal',
-    name: 'Elena Rostova',
-    role: 'admin',
-    roleTitle: 'Head of Enterprise Intelligence (Admin)',
-    departmentId: 'dept-research',
-    departmentName: 'State Contracts & Regulatory',
-    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-  },
-];
-
-export const INITIAL_DEPARTMENTS: Department[] = [
-  {
-    id: 'dept-sales-1',
-    name: 'Procurement & Municipal Bids',
-    code: 'PB',
-    description: 'City of Dallas Bonfire Hub procurement, municipal RFP bids, and public sector opportunities',
-    leadsCount: 0,
-    assignedCount: 0,
-    calledCount: 0,
-    emailedCount: 0,
-    interestedCount: 0,
-    pendingCount: 0,
-    completionRate: 0,
-    agentId: 'agent-sales-1',
-    managerName: 'Ahmed Khan',
-  },
-  {
-    id: 'dept-sales-2',
-    name: 'State Infrastructure & Construction',
-    code: 'IC',
-    description: 'State of New York Dormitory Authority (DASNY) construction, engineering, and architectural RFPs',
-    leadsCount: 0,
-    assignedCount: 0,
-    calledCount: 0,
-    emailedCount: 0,
-    interestedCount: 0,
-    pendingCount: 0,
-    completionRate: 0,
-    agentId: 'agent-sales-2',
-    managerName: 'Marcus Vance',
-  },
-  {
-    id: 'dept-email-mktg',
-    name: 'Commercial Directory Outreach',
-    code: 'CD',
-    description: 'JWiz commercial contractors, plumbers, electricians, and trade service direct dials & email outreach',
-    leadsCount: 0,
-    assignedCount: 0,
-    calledCount: 0,
-    emailedCount: 0,
-    interestedCount: 0,
-    pendingCount: 0,
-    completionRate: 0,
-    agentId: 'agent-email-mktg',
-    managerName: 'Sara Jenkins',
-  },
-  {
-    id: 'dept-research',
-    name: 'State Contracts & Regulatory',
-    code: 'SC',
-    description: 'Official New York State Contract Reporter (NYSCR) open public ads, state agency contracts, and notices',
-    leadsCount: 0,
-    assignedCount: 0,
-    calledCount: 0,
-    emailedCount: 0,
-    interestedCount: 0,
-    pendingCount: 0,
-    completionRate: 0,
-    agentId: 'agent-research',
-    managerName: 'Dr. Arthur Sterling',
-  },
-  {
-    id: 'dept-biz-dev',
-    name: 'Business Development & Operations',
-    code: 'BD',
-    description: 'Cross-platform pipeline orchestration, quality scoring, and enterprise strategic partnerships',
-    leadsCount: 0,
-    assignedCount: 0,
-    calledCount: 0,
-    emailedCount: 0,
-    interestedCount: 0,
-    pendingCount: 0,
-    completionRate: 0,
-    agentId: 'agent-master',
-    managerName: 'Rachel Green',
-  },
-];
 
 export interface ToastMessage {
   id: string;
@@ -181,12 +56,14 @@ interface DataOpsContextType {
   // AI Agent & Data Generation
   sessions: AgentSession[];
   activeSessionId: string;
+  newOnly: boolean;
+  setNewOnly: (value: boolean) => void;
   setActiveSessionId: (id: string) => void;
   messagesBySession: Record<string, AgentMessage[]>;
-  sendMessage: (sessionId: string, text: string) => Promise<void>;
-  confirmBotDecision: (sessionId: string, decision: 'approve' | 'reject') => Promise<void>;
+  sendMessage: (sessionId: string, text: string) => Promise<string | undefined>;
+  confirmBotDecision: (sessionId: string, decision: 'approve' | 'reject', proposalId?: string) => Promise<void>;
   retryBotMessage: (sessionId: string, clientMessageId: string, text: string) => Promise<void>;
-  createSession: (departmentId?: string, title?: string) => Promise<AgentSession>;
+  clearChat: () => void;
   confirmRequirementAndGenerate: (sessionId: string) => Promise<string>; // returns jobId or reqId
   getLiveJob: (jobId: string) => Job | undefined;
 
@@ -213,13 +90,13 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
         id: authUser.id,
         username: authUser.username,
         name: authUser.name || authUser.username || 'User',
-        email: authUser.email || `${authUser.username || 'user'}@company.internal`,
+        email: authUser.email || '',
         role: authUser.role,
         roleTitle: authUser.role === 'admin' ? 'Head of Enterprise Intelligence (Admin)' : 'Outbound Specialist',
         departmentName: authUser.role === 'admin' ? 'State Contracts & Regulatory' : 'Procurement & Municipal Bids',
       };
     }
-    return SYSTEM_USERS[0];
+    return { id: '', username: '', name: 'Guest', role: 'user', roleTitle: '', email: '' };
   });
 
   useEffect(() => {
@@ -229,7 +106,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
         id: authUser.id,
         username: authUser.username,
         name: authUser.name || authUser.username || 'User',
-        email: authUser.email || `${authUser.username || 'user'}@company.internal`,
+        email: authUser.email || '',
         role: authUser.role,
         roleTitle: authUser.role === 'admin' ? 'Head of Enterprise Intelligence (Admin)' : 'Outbound Specialist',
         departmentName: authUser.role === 'admin' ? 'State Contracts & Regulatory' : (prev.departmentName || 'Procurement & Municipal Bids'),
@@ -240,10 +117,14 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [leads, setLeads] = useState<Lead[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [departments, setDepartments] = useState<Department[]>(INITIAL_DEPARTMENTS);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [newOnly, setNewOnly] = useState(false);
+  const monitors = useRef(new Map<string, ReturnType<typeof setInterval>>());
+  const clearedSessions = useRef(new Set<string>());
+  const chatRequests = useRef(new Map<string, AbortController>());
 
   // Initial KPIs
   const [kpiDeltas, setKpiDeltas] = useState({
@@ -256,6 +137,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Sessions
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>('sess-live-init');
+  const [messagesBySession, setMessagesBySession] = useState<Record<string, AgentMessage[]>>({});
 
   // Notifications
   const [notifications, setNotifications] = useState<
@@ -263,51 +145,81 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   >([]);
 
   useEffect(() => {
-    // Load initial sessions with a clean active session to prevent mock contamination
-    agentService.getSessions().then(sess => {
-      const initialCleanSession: AgentSession = {
-        id: 'sess-live-init',
-        agentId: 'agent-sales-1',
-        departmentId: 'dept-sales-1',
-        title: 'New Autonomous Request',
-        createdAt: 'Just now',
-        updatedAt: 'Just now',
-        status: 'active',
-        requirement: {
-          id: 'req-live-init',
-          sessionId: 'sess-live-init',
-          departmentId: 'dept-sales-1',
-          industry: 'Not specified',
-          location: 'Not specified',
-          companySize: 'Not specified',
-          decisionMakers: [],
-          quantity: 0,
-          requiredFields: {
-            companyName: true,
-            contactName: true,
-            jobTitle: true,
-            email: true,
-            phone: true,
-            website: true,
-          },
-          completionPercentage: 0,
-          status: 'collecting',
-        },
-      };
-      void sess; // demo fixtures only; real history isn't served by the API yet
-      setSessions([initialCleanSession]);
-      setActiveSessionId('sess-live-init');
-    });
+    let cancelled = false;
+    for (const timer of monitors.current.values()) clearInterval(timer);
+    monitors.current.clear();
+    setMessagesBySession({}); setSessions([]); setLeads([]); setJobs([]); setDatasets([]);
+    if (!authUser) return;
+    const restore = async () => {
+      try {
+        const res = await apiService.fetchWithAuth(`${apiService.baseUrl}/api/bot/sessions`);
+        if (!res.ok) throw new Error('Cannot restore conversations');
+        const data = await res.json();
+        let row = data.sessions.find((session: any) => session.status === 'active');
+        if (!row) {
+          const created = await apiService.createNewChat();
+          row = { id: created.sessionId, status: 'active', title: 'Active request' };
+        }
+        const requirement: Requirement = {
+          id: `req-${row.id}`, sessionId: row.id, industry: '', location: '', companySize: '',
+          decisionMakers: [], quantity: 0, completionPercentage: 0, status: 'collecting',
+          requiredFields: { companyName: true, contactName: false, jobTitle: false, email: false, phone: false, website: false },
+        };
+        const msgs = await apiService.getSessionMessages(row.id);
+        const state = await apiService.getBotState(row.id);
+        if (cancelled) return;
+        setSessions([{ ...row, agentId: row.agentId || 'agent-master', departmentId: row.departmentId || 'dept-default',
+          createdAt: row.createdAt || '', updatedAt: row.updatedAt || '', requirement }]);
+        setActiveSessionId(row.id);
+        const restored = msgs.map((message: any) => ({ ...message, ...message.metadata, pendingAction: null, proposedActions: [],
+          timestamp: new Date(message.createdAt).toLocaleTimeString() }));
+        if (state.pendingAction && restored.length) {
+          restored[restored.length - 1] = { ...restored[restored.length - 1],
+            pendingAction: state.pendingAction, proposedActions: state.proposedActions };
+        }
+        setMessagesBySession({ [row.id]: restored });
+        if (state.activeJobId) monitorJob(row.id, state.activeJobId);
+        for (const jobId of state.pendingEventJobIds || []) monitorJob(row.id, jobId);
+      } catch (err) {
+        if (!cancelled) showToast('Could not restore chat', err instanceof Error ? err.message : 'Network error', 'error');
+      }
+    };
+    void restore();
+    return () => { cancelled = true; for (const timer of monitors.current.values()) clearInterval(timer); monitors.current.clear(); };
+  }, [authUser?.id]);
 
+  useEffect(() => {
+    import('../services/chatStorage').then(({ saveChatData }) => {
+      const msgs = messagesBySession[activeSessionId];
+      if (msgs && msgs.length > 0) {
+        // Find last pendingAction
+        let pendingAction = null;
+        let activeJobId = null;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].pendingAction) pendingAction = msgs[i].pendingAction;
+          if ((msgs[i] as any).jobId) activeJobId = (msgs[i] as any).jobId;
+          if (pendingAction || activeJobId) break;
+        }
+
+        saveChatData(currentUser.id, {
+          sessionId: activeSessionId,
+          messages: msgs as any,
+          pendingAction,
+          activeJobId,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    });
+  }, [messagesBySession, activeSessionId, currentUser.id]);
+
+  useEffect(() => {
     // Sync live datasets, jobs, and leads from FastAPI backend
+    if (!authUser) return;
+
     apiService.getHealth().then(healthy => {
       if (healthy) {
-        apiService.getDatasets().then(ds => {
-          if (ds) setDatasets(ds);
-        });
-        apiService.getJobs().then(jb => {
-          if (jb) setJobs(jb);
-        });
+        apiService.getDatasets().then(ds => { if (ds) setDatasets(ds); }).catch(() => showToast("Cannot load datasets", "Please retry when the API is available.", "error"));
+        apiService.getJobs().then(jb => { if (jb) setJobs(jb); }).catch(() => showToast("Cannot load jobs", "Please retry when the API is available.", "error"));
         apiService.getLeads().then(ld => {
           if (ld) setLeads(ld);
           if (ld && ld.length > 0) {
@@ -324,7 +236,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
       }
     });
-  }, []);
+  }, [authUser]);
 
   const showToast = (title: string, message: string, type: ToastMessage['type'] = 'success') => {
     const id = `toast-${Date.now()}-${Math.random()}`;
@@ -332,6 +244,43 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4500);
+  };
+
+  const monitorJob = (sessionId: string, jobId: string) => {
+    if (monitors.current.has(jobId)) return;
+    let busy = false;
+    const poll = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const job = await apiService.getJob(jobId);
+        if (!job) return;
+        setJobs(prev => [job, ...prev.filter(row => row.id !== jobId)]);
+        setSessions(prev => prev.map(row => row.id === sessionId ? { ...row,
+          requirement: { ...row.requirement, jobId, completionPercentage: job.progress || 0, status: job.status } } : row));
+        if (!['Completed', 'Partial', 'Failed', 'Cancelled'].includes(job.status)) return;
+        const response = await apiService.updateJob(sessionId, jobId);
+        if (clearedSessions.current.has(sessionId) || !response.data || (response.data as any).pending) return;
+        if (!(response.data as any).alreadyDelivered && response.data.reply) {
+          const data = response.data;
+          const message: AgentMessage = { id: `${data.queryId}:agent`, sessionId, sender: 'agent',
+            text: data.reply, queryId: data.queryId, records: data.records, total: data.total,
+            showAllDetails: data.showAllDetails,
+            requestFulfilled: data.requestFulfilled, deliveryKind: data.deliveryKind,
+            matchingRecordsDelivered: data.matchingRecordsDelivered, requestedRecords: data.requestedRecords,
+            recoveredRecords: data.recoveredRecords, understoodRequest: data.understoodRequest,
+            timedOut: data.timedOut, timeoutOptions: data.timeoutOptions, collectionCancelled: data.collectionCancelled,
+            timestamp: new Date().toLocaleTimeString() };
+          setMessagesBySession(prev => ({ ...prev, [sessionId]: [...(prev[sessionId] || []).filter(row => row.id !== message.id), message] }));
+          setLeads(prev => [...(data.records || []), ...prev.filter(row => !(data.records || []).some(record => record.id === row.id))]);
+        }
+        if ((response.data as any).morePending) return;
+        clearInterval(monitors.current.get(jobId)); monitors.current.delete(jobId);
+        void apiService.getDatasets().then(setDatasets).catch(() => {});
+      } catch (error) { console.warn("Job polling will retry", error); } finally { busy = false; }
+    };
+    monitors.current.set(jobId, setInterval(() => { void poll(); }, 3000));
+    void poll();
   };
 
   const removeToast = (id: string) => {
@@ -346,19 +295,8 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
-  const switchUser = (userId: string) => {
-    const user = SYSTEM_USERS.find(u => u.id === userId);
-    if (user) {
-      setCurrentUser(user);
-      showToast('Switched Profile', `Active user is now ${user.name} (${user.roleTitle})`, 'info');
-    }
-  };
-
-  const switchRole = (role: UserRole) => {
-    const user = SYSTEM_USERS.find(u => u.role === role) || SYSTEM_USERS[0];
-    setCurrentUser(user);
-    showToast('Role Switched', `Now operating as ${user.role.toUpperCase()}: ${user.name}`, 'info');
-  };
+  const switchUser = () => {};
+  const switchRole = () => {};
 
   // -------------------------------------------------------------
   // Lead Actions: Call, Email, Bulk Email, Status
@@ -508,77 +446,47 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const updateLeadStatus = async (leadId: string, status: LeadStatus) => {
-    const lead = leads.find(l => l.id === leadId);
-    if (!lead) return;
-
-    setLeads(prev =>
-      prev.map(l =>
-        l.id === leadId
-          ? { ...l, status, lastActivity: `Status updated to ${status}` }
-          : l
-      )
-    );
-
-    showToast('Status Updated', `${lead.name} is now marked as "${status}".`, 'info');
+    const response = await apiService.fetchWithAuth(`${apiService.baseUrl}/api/leads/${leadId}/status`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+    });
+    if (!response.ok) { showToast('Status update failed', 'Administrator access is required to change lead status.', 'error'); return; }
+    const result = await response.json();
+    setLeads(prev => prev.map(row => row.id === leadId ? result.lead : row));
   };
 
   // -------------------------------------------------------------
   // AI Agent Chat Simulation & Dynamic Requirement Building
   // -------------------------------------------------------------
-  const [messagesBySession, setMessagesBySession] = useState<Record<string, AgentMessage[]>>({
-    'sess-live-init': [
-      {
-        id: 'msg-init-live',
-        sessionId: 'sess-live-init',
-        sender: 'agent',
-        text: `Welcome! I am your Autonomous Data Operations Intelligence Bot. I am connected directly to 4 live production scraping engines:
 
-1. 🏛️ Dallas City Hall Bonfire Hub (City procurement bids, RFPs & commodity contracts)
-2. 🏢 DASNY RFP Opportunities (State of New York Dormitory Authority construction & architectural RFPs)
-3. 📒 JWiz Directory (Commercial contractors, electricians, plumbers & business contacts)
-4. 📜 NYSCR State Contract Reporter (New York open government & agency contracts)
-
-Which scraper engine would you like to target today, or what specific type of leads/bids do you need?`,
-        timestamp: 'Just now',
-        suggestions: [
-          'Dallas City Hall Bonfire',
-          'DASNY NY RFP Bids',
-          'JWiz Commercial Directory',
-          'NYSCR State Contracts',
-        ],
-      },
-    ],
-    'sess-bonfire': [
-      {
-        id: 'msg-init-1',
-        sessionId: 'sess-bonfire',
-        sender: 'agent',
-        text: `Welcome! I am your Autonomous Data Operations Intelligence Bot. I am connected directly to 4 live production scraping engines:
-
-1. 🏛️ Dallas City Hall Bonfire Hub (City procurement bids, RFPs & commodity contracts)
-2. 🏢 DASNY RFP Opportunities (State of New York Dormitory Authority construction & architectural RFPs)
-3. 📒 JWiz Directory (Commercial contractors, electricians, plumbers & business contacts)
-4. 📜 NYSCR State Contract Reporter (New York open government & agency contracts)
-
-Which scraper engine would you like to target today, or what specific type of leads/bids do you need?`,
-        timestamp: 'Just now',
-        suggestions: [
-          'Dallas City Hall Bonfire',
-          'DASNY NY RFP Bids',
-          'JWiz Commercial Directory',
-          'NYSCR State Contracts',
-        ],
-      },
-    ],
-  });
-
-  const sendMessage = async (sessionId: string, text: string, retryClientMessageId?: string) => {
+  const sendMessage = async (sessionId: string, text: string, retryClientMessageId?: string, expectedProposalId?: string) => {
     const clientMessageId = retryClientMessageId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+
+    let targetSessionId = sessionId;
+    if (targetSessionId === 'sess-live-init') {
+      try {
+        const apiRes = await apiService.createNewChat();
+        if (apiRes && apiRes.sessionId) {
+          targetSessionId = apiRes.sessionId;
+          // Update the session in state
+          setSessions(prev => prev.map(s => s.id === 'sess-live-init' ? { ...s, id: targetSessionId, requirement: { ...s.requirement, sessionId: targetSessionId, id: `req-${targetSessionId}` } } : s));
+          setActiveSessionId(targetSessionId);
+          // Migrate any existing messages
+          setMessagesBySession(prev => {
+            const msgs = prev['sess-live-init'] || [];
+            const newPrev = { ...prev };
+            delete newPrev['sess-live-init'];
+            return { ...newPrev, [targetSessionId]: msgs.map(m => ({ ...m, sessionId: targetSessionId })) };
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to create live session on backend", e);
+      }
+    }
 
     if (!retryClientMessageId) {
       const userMsg: AgentMessage = {
         id: `msg-${Date.now()}`,
-        sessionId,
+        sessionId: targetSessionId,
         sender: 'user',
         text,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -587,11 +495,11 @@ Which scraper engine would you like to target today, or what specific type of le
 
       setMessagesBySession(prev => ({
         ...prev,
-        [sessionId]: [...(prev[sessionId] || []), userMsg],
+        [targetSessionId]: [...(prev[targetSessionId] || []), userMsg],
       }));
     }
 
-    const sess = sessions.find(s => s.id === sessionId);
+    const sess = sessions.find(s => s.id === sessionId) || sessions.find(s => s.id === targetSessionId);
     if (!sess) return;
 
     try {
@@ -614,12 +522,16 @@ Which scraper engine would you like to target today, or what specific type of le
         };
       }
 
-      const botResult = await apiService.sendBotMessage(sessionId, text, clientMessageId, reqContext);
+      const request = new AbortController();
+      chatRequests.current.set(targetSessionId, request);
+      const botResult = await apiService.sendBotMessage(targetSessionId, text, clientMessageId, reqContext, newOnly, expectedProposalId, request.signal);
+      chatRequests.current.delete(targetSessionId);
+      if (clearedSessions.current.has(targetSessionId)) return;
 
       if (botResult.is503) {
         const err503Msg: AgentMessage = {
           id: `msg-503-${Date.now()}`,
-          sessionId,
+          sessionId: targetSessionId,
           sender: 'agent',
           text: 'The AI API is not responding. Please try again.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -629,7 +541,7 @@ Which scraper engine would you like to target today, or what specific type of le
         };
         setMessagesBySession(prev => ({
           ...prev,
-          [sessionId]: [...(prev[sessionId] || []), err503Msg],
+          [targetSessionId]: [...(prev[targetSessionId] || []), err503Msg],
         }));
         return;
       }
@@ -651,14 +563,14 @@ Which scraper engine would you like to target today, or what specific type of le
 
         setSessions(prev =>
           prev.map(s => {
-            if (s.id !== sessionId) return s;
+            if (s.id !== targetSessionId) return s;
             const updated: Partial<Requirement> = botRes.updatedRequirement || {};
             const mergedReq = {
               ...s.requirement,
               ...updated,
               selectedScript: botRes.recommendedScript || updated.selectedScript || s.requirement.selectedScript,
-              industry: (updated.industry && updated.industry !== 'Not specified') ? updated.industry : s.requirement.industry,
-              location: (updated.location && updated.location !== 'Not specified') ? updated.location : s.requirement.location,
+              industry: Object.prototype.hasOwnProperty.call(updated, 'industry') ? updated.industry || '' : s.requirement.industry,
+              location: Object.prototype.hasOwnProperty.call(updated, 'location') ? updated.location || '' : s.requirement.location,
               quantity: updated.quantity || s.requirement.quantity,
               completionPercentage: updated.completionPercentage !== undefined ? updated.completionPercentage : s.requirement.completionPercentage,
               status: updated.status || s.requirement.status,
@@ -672,8 +584,8 @@ Which scraper engine would you like to target today, or what specific type of le
         );
 
         const agentMsg: AgentMessage = {
-          id: `msg-${Date.now() + 1}`,
-          sessionId,
+          id: `${botRes.queryId}:agent`,
+          sessionId: targetSessionId,
           sender: 'agent',
           text: botRes.reply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -685,6 +597,7 @@ Which scraper engine would you like to target today, or what specific type of le
           queryId: botRes.queryId,
           total: botRes.total,
           records: botRes.records,
+          showAllDetails: botRes.showAllDetails,
           pendingAction: botRes.pendingAction,
           kb: botRes.kb,
           agentResult: botRes.agentResult,
@@ -697,188 +610,18 @@ Which scraper engine would you like to target today, or what specific type of le
 
         setMessagesBySession(prev => ({
           ...prev,
-          [sessionId]: [...(prev[sessionId] || []), agentMsg],
+          [targetSessionId]: [...(prev[targetSessionId] || []).filter(row => row.id !== agentMsg.id).map(row => ({ ...row, pendingAction: null, proposedActions: [] })), agentMsg],
         }));
 
-        if (botRes.jobId) {
-          const liveJobId = botRes.jobId;
-          const targetScript = botRes.recommendedScript || 'Scraper';
-          showToast('Extraction Started', `Autonomous workflow initiated using ${targetScript.toUpperCase()}.`, 'info');
+        if (botRes.jobId) monitorJob(targetSessionId, botRes.jobId);
 
-          setSessions(prev =>
-            prev.map(s => {
-              if (s.id === sessionId) {
-                return {
-                  ...s,
-                  requirement: {
-                    ...(botRes.updatedRequirement || s.requirement),
-                    jobId: liveJobId,
-                    status: 'generating',
-                    completionPercentage: Math.max(25, Math.min(95, botRes.updatedRequirement?.completionPercentage || 30)),
-                  },
-                };
-              }
-              return s;
-            })
-          );
-
-          apiService.getJob(liveJobId).then(liveJob => {
-            if (liveJob) {
-              setJobs(prev => [liveJob, ...prev.filter(j => j.id !== liveJobId)]);
-            }
-          });
-
-          // Poll job progress and messages endpoint
-          const pollTimer = setInterval(async () => {
-            const [liveJob, sessionMsgs] = await Promise.all([
-              apiService.getJob(liveJobId),
-              apiService.getSessionMessages(sessionId),
-            ]);
-
-            if (sessionMsgs && sessionMsgs.length > 0) {
-              const hasAssistantEvent = sessionMsgs.some(m => m.sender === 'assistant' || m.sender === 'agent');
-              if (hasAssistantEvent) {
-                const refreshedLeads = await apiService.getLeads();
-                if (refreshedLeads && refreshedLeads.length > 0) {
-                  setLeads(refreshedLeads);
-                }
-              }
-            }
-
-            if (liveJob) {
-              setJobs(prev => prev.map(j => (j.id === liveJobId ? liveJob : j)));
-
-              if (liveJob.status === 'Running' || liveJob.status === 'In Progress') {
-                const prog = Math.max(25, Math.min(95, liveJob.progress || 35));
-                setSessions(prev =>
-                  prev.map(s => {
-                    if (s.id === sessionId) {
-                      return {
-                        ...s,
-                        requirement: {
-                          ...s.requirement,
-                          jobId: liveJobId,
-                          status: 'generating',
-                          completionPercentage: prog,
-                        },
-                      };
-                    }
-                    return s;
-                  })
-                );
-              } else if (liveJob.status === 'Completed' || liveJob.status === 'Failed' || liveJob.status === 'Blocked' || liveJob.status === 'Cancelled') {
-                clearInterval(pollTimer);
-                if (liveJob.status === 'Completed') {
-                  const [updatedLeads, updatedDatasets] = await Promise.all([
-                    apiService.getLeads(),
-                    apiService.getDatasets(),
-                  ]);
-                  if (updatedLeads && updatedLeads.length > 0) {
-                    setLeads(updatedLeads);
-                  }
-                  if (updatedDatasets && updatedDatasets.length > 0) {
-                    setDatasets(updatedDatasets);
-                  }
-
-                  const verifiedCount = liveJob.recordsFound || (updatedLeads ? updatedLeads.length : 0);
-                  const scriptName = liveJob.name || targetScript.toUpperCase();
-
-                  setSessions(prev =>
-                    prev.map(s => {
-                      if (s.id === sessionId) {
-                        return {
-                          ...s,
-                          requirement: {
-                            ...s.requirement,
-                            jobId: liveJobId,
-                            status: 'completed',
-                            completionPercentage: 100,
-                            quantity: verifiedCount || s.requirement.quantity,
-                            verifiedRecords: verifiedCount,
-                          },
-                        };
-                      }
-                      return s;
-                    })
-                  );
-
-                  const compMsg: AgentMessage = {
-                    id: `msg-completed-${Date.now()}`,
-                    sessionId,
-                    sender: 'agent',
-                    text: `**${scriptName}** extraction completed.\n\nStatus: **COMPLETED**\nVerified Records: **${verifiedCount}**\n\nAll requested records have been verified and indexed.`,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    agentCode: 'data',
-                    handledBy: 'ScraperExecutionEngine',
-                    proposedActions: [
-                      {
-                        actionType: 'view_results',
-                        label: 'View Results',
-                        parameters: { jobId: liveJobId, datasetId: liveJob.datasetId },
-                      },
-                    ],
-                    suggestions: ['View Harvested Leads', 'Export CSV', 'Filter by Contact Info'],
-                  };
-                  setMessagesBySession(prev => ({
-                    ...prev,
-                    [sessionId]: [...(prev[sessionId] || []), compMsg],
-                  }));
-
-                  showToast('Dataset Ready!', `${scriptName} finished with ${verifiedCount} verified records!`, 'success');
-                } else if (liveJob.status === 'Failed') {
-                  const scriptName = liveJob.name || targetScript.toUpperCase();
-                  setSessions(prev =>
-                    prev.map(s => {
-                      if (s.id === sessionId) {
-                        return {
-                          ...s,
-                          requirement: {
-                            ...s.requirement,
-                            jobId: liveJobId,
-                            status: 'failed',
-                            completionPercentage: 0,
-                          },
-                        };
-                      }
-                      return s;
-                    })
-                  );
-
-                  const failMsg: AgentMessage = {
-                    id: `msg-failed-${Date.now()}`,
-                    sessionId,
-                    sender: 'agent',
-                    text: `**${scriptName}** extraction could not be completed right now.\n\nStatus: **FAILED**\n\nThe extraction job encountered an error during execution.`,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    agentCode: 'data',
-                    handledBy: 'ScraperExecutionEngine',
-                    proposedActions: [
-                      {
-                        actionType: 'retry_scraper',
-                        label: 'Retry / View Details',
-                        parameters: { jobId: liveJobId, scriptId: liveJob.scriptId },
-                      },
-                    ],
-                    suggestions: ['Retry Scraper', 'Show Recent Extraction Jobs'],
-                  };
-                  setMessagesBySession(prev => ({
-                    ...prev,
-                    [sessionId]: [...(prev[sessionId] || []), failMsg],
-                  }));
-
-                  showToast('Extraction Failed', `Job ${liveJobId} failed. Check execution logs.`, 'error');
-                }
-              }
-            }
-          }, 3000);
-        }
-
-        return;
+        return botRes.jobId || '';
       }
     } catch (err: any) {
       console.warn('Backend bot call error:', err);
     }
 
+    if (clearedSessions.current.has(targetSessionId)) return;
     const fallbackMsg: AgentMessage = {
       id: `msg-${Date.now() + 1}`,
       sessionId,
@@ -902,73 +645,70 @@ Which scraper engine would you like to target today, or what specific type of le
     await sendMessage(sessionId, text, clientMessageId);
   };
 
-  const confirmBotDecision = async (sessionId: string, decision: 'approve' | 'reject') => {
-    const clientMessageId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg-${Date.now()}`;
-    const userConfirmText = decision === 'approve' ? 'Yes, proceed with scrape.' : 'No, reject scrape.';
-
-    const userMsg: AgentMessage = {
-      id: `msg-user-confirm-${Date.now()}`,
-      sessionId,
-      sender: 'user',
-      text: userConfirmText,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      clientMessageId,
-    };
-
-    setMessagesBySession(prev => ({
-      ...prev,
-      [sessionId]: [...(prev[sessionId] || []), userMsg],
-    }));
-
-    const result = await apiService.confirmBot(sessionId, decision, clientMessageId);
-    if (result.is503) {
-      const err503Msg: AgentMessage = {
-        id: `msg-err-${Date.now()}`,
-        sessionId,
-        sender: 'agent',
-        text: 'The AI API is not responding. Please try again.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        is503: true,
-        failedClientMessageId: clientMessageId,
-        failedText: userConfirmText,
-      };
-      setMessagesBySession(prev => ({
-        ...prev,
-        [sessionId]: [...(prev[sessionId] || []), err503Msg],
-      }));
-      return;
-    }
-
-    if (result.data) {
-      const botRes = result.data;
-      if (botRes.records && botRes.records.length > 0) {
-        setLeads(prev => [...botRes.records!, ...prev]);
-      }
-      const agentMsg: AgentMessage = {
-        id: `msg-conf-res-${Date.now()}`,
-        sessionId,
-        sender: 'agent',
-        text: botRes.reply || (decision === 'approve' ? 'Scrape confirmed.' : 'Scrape rejected.'),
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        records: botRes.records,
-        pendingAction: botRes.pendingAction,
-        kb: botRes.kb,
-      };
-      setMessagesBySession(prev => ({
-        ...prev,
-        [sessionId]: [...(prev[sessionId] || []), agentMsg],
-      }));
-    }
+  const confirmBotDecision = async (sessionId: string, decision: 'approve' | 'reject', proposalId?: string) => {
+    await sendMessage(sessionId, decision === 'approve' ? 'Yes, run the proposed scrape.' : 'No, do not run it.', undefined, proposalId);
   };
 
-  const createSession = async (departmentId?: string, title?: string): Promise<AgentSession> => {
-    const deptId = departmentId || currentUser.departmentId || 'dept-ops';
-    const newSess = await agentService.createSession(deptId, title);
-    setSessions(prev => [newSess, ...prev]);
+  const clearChat = async () => {
+    const deptId = currentUser.departmentId || 'dept-ops';
+
+    // Call the backend API to physically create the session in PostgreSQL
+    let newSessionId = `sess-${Date.now()}`;
+    let clearedIds: string[] = [];
+    try {
+      // You may need to call a clear endpoint, but creating a new chat serves as a reset
+      const apiRes = await apiService.createNewChat(activeSessionId);
+      if (apiRes && apiRes.sessionId) {
+        newSessionId = apiRes.sessionId;
+        clearedIds = apiRes.clearedSessionIds || [activeSessionId];
+      }
+    } catch (e) {
+      showToast('Could not clear chat', 'The server could not create a new conversation.', 'error');
+      return;
+    }
+    for (const oldId of clearedIds) {
+      clearedSessions.current.add(oldId);
+      chatRequests.current.get(oldId)?.abort();
+      chatRequests.current.delete(oldId);
+    }
+    for (const timer of monitors.current.values()) clearInterval(timer);
+    monitors.current.clear();
+
+    const agent = await agentService.getAgentByDepartment(deptId);
+    const newSess: AgentSession = {
+      id: newSessionId,
+      agentId: agent?.id || 'agent-sales-1',
+      departmentId: deptId,
+      title: 'Active Request',
+      createdAt: 'Just now',
+      updatedAt: 'Just now',
+      status: 'active',
+      requirement: {
+        id: `req-${newSessionId}`,
+        sessionId: newSessionId,
+        departmentId: deptId,
+        industry: 'Not specified',
+        location: 'Not specified',
+        companySize: 'Not specified',
+        decisionMakers: [],
+        quantity: 0,
+        requiredFields: {
+          companyName: true,
+          contactName: true,
+          jobTitle: true,
+          email: true,
+          phone: true,
+          website: true,
+        },
+        completionPercentage: 0,
+        status: 'collecting',
+      },
+    };
+
+    setSessions([newSess]);
     setActiveSessionId(newSess.id);
 
-    setMessagesBySession(prev => ({
-      ...prev,
+    setMessagesBySession({
       [newSess.id]: [
         {
           id: `msg-${Date.now()}`,
@@ -984,220 +724,12 @@ Which scraper engine would you like to target today, or what specific type of le
           ],
         },
       ],
-    }));
-
-    return newSess;
+    });
   };
 
   const confirmRequirementAndGenerate = async (sessionId: string): Promise<string> => {
-    const sess = sessions.find(s => s.id === sessionId);
-    if (!sess) return 'req-texas-const';
-
-    let liveJobId = '';
-    let liveDatasetId = '';
-
-    // Trigger real scraper in FastAPI backend
-    try {
-      const confirmRes = await apiService.confirmBotRequirement(
-        sessionId,
-        sess.requirement,
-        sess.requirement.scriptId || (sess.requirement as any).selectedScript
-      );
-      if (confirmRes && confirmRes.success && confirmRes.jobId) {
-        liveJobId = confirmRes.jobId;
-        liveDatasetId = confirmRes.datasetId || '';
-      }
-    } catch (err) {
-      console.warn('Backend confirm error, falling back to simulation:', err);
-    }
-
-    const jobId = liveJobId || `job-${Date.now().toString().slice(-4)}`;
-    const datasetId = liveDatasetId || `ds-${Date.now().toString().slice(-4)}`;
-
-    const newJob: Job = {
-      id: jobId,
-      name: `${sess.requirement.industry} Pipeline`,
-      type: 'Data Generation & Verification',
-      departmentId: sess.departmentId,
-      departmentName: currentUser.departmentName,
-      progress: 10,
-      status: 'Running',
-      currentStep: 'Initializing autonomous scraper engine',
-      startedAt: 'Just now',
-      duration: '00:05',
-      recordsFound: 0,
-      verifiedCount: 0,
-      duplicatesCount: 0,
-      errorsCount: 0,
-      totalTarget: sess.requirement.quantity || 25,
-      datasetId,
-      logs: [
-        { timestamp: '00:01', level: 'info', message: 'Requirement confirmed by user. Starting extraction pipeline.' },
-        { timestamp: '00:05', level: 'info', message: `Targeting: ${sess.requirement.industry} in ${sess.requirement.location}.` },
-      ],
-    };
-
-    setJobs(prev => [newJob, ...prev]);
-
-    setSessions(prev =>
-      prev.map(s =>
-        s.id === sessionId
-          ? {
-              ...s,
-              status: 'generating',
-              requirement: { ...s.requirement, status: 'generating', datasetId },
-            }
-          : s
-      )
-    );
-
-    showToast('Extraction Started', `Autonomous workflow initiated for ${sess.requirement.quantity || 25} records.`, 'info');
-
-    // If live backend job exists, poll real status and fetch records!
-    if (liveJobId) {
-      const pollInterval = setInterval(async () => {
-        const liveJob = await apiService.getJob(liveJobId);
-        if (liveJob) {
-          setJobs(prev => prev.map(j => (j.id === liveJobId ? liveJob : j)));
-
-          if (liveJob.status === 'Running' || liveJob.status === 'In Progress') {
-            const prog = Math.max(25, Math.min(95, liveJob.progress || 35));
-            setSessions(prev =>
-              prev.map(s =>
-                s.id === sessionId
-                  ? {
-                      ...s,
-                      requirement: {
-                        ...s.requirement,
-                        jobId: liveJobId,
-                        status: 'generating',
-                        completionPercentage: prog,
-                      },
-                    }
-                  : s
-              )
-            );
-          } else if (liveJob.status === 'Completed' || liveJob.status === 'Failed') {
-            clearInterval(pollInterval);
-            if (liveJob.status === 'Completed') {
-              const [newLeads, newDatasets] = await Promise.all([
-                apiService.getLeads(liveDatasetId),
-                apiService.getDatasets(),
-              ]);
-
-              if (newLeads && newLeads.length > 0) {
-                setLeads(prev => [...newLeads, ...prev]);
-                setKpiDeltas(prev => ({
-                  ...prev,
-                  generated: prev.generated + newLeads.length,
-                }));
-              }
-              if (newDatasets && newDatasets.length > 0) {
-                const foundDs = newDatasets.find(d => d.id === liveDatasetId);
-                if (foundDs) {
-                  setDatasets(prev => [foundDs, ...prev.filter(d => d.id !== liveDatasetId)]);
-                }
-              }
-
-              const verifiedCount = liveJob.recordsFound || (newLeads ? newLeads.length : 0);
-              setSessions(prev =>
-                prev.map(s =>
-                  s.id === sessionId
-                    ? {
-                        ...s,
-                        status: 'completed',
-                        requirement: {
-                          ...s.requirement,
-                          jobId: liveJobId,
-                          status: 'completed',
-                          completionPercentage: 100,
-                          quantity: verifiedCount || s.requirement.quantity,
-                          verifiedRecords: verifiedCount,
-                        },
-                      }
-                    : s
-                )
-              );
-
-              showToast('Dataset Ready!', `${sess.requirement.industry} scraper finished with ${verifiedCount} verified records!`, 'success');
-            } else if (liveJob.status === 'Failed') {
-              setSessions(prev =>
-                prev.map(s =>
-                  s.id === sessionId
-                    ? {
-                        ...s,
-                        status: 'failed',
-                        requirement: {
-                          ...s.requirement,
-                          jobId: liveJobId,
-                          status: 'failed',
-                          completionPercentage: 0,
-                        },
-                      }
-                    : s
-                )
-              );
-              showToast('Extraction Failed', `Job ${liveJobId} encountered an error.`, 'error');
-            } else if (liveJob.status === 'Blocked') {
-              setSessions(prev =>
-                prev.map(s =>
-                  s.id === sessionId
-                    ? {
-                        ...s,
-                        status: 'blocked',
-                        requirement: {
-                          ...s.requirement,
-                          jobId: liveJobId,
-                          status: 'blocked',
-                          completionPercentage: 0,
-                        },
-                      }
-                    : s
-                )
-              );
-              showToast('Extraction Blocked', `Job ${liveJobId} is blocked: Credentials required.`, 'warning');
-            }
-          }
-        }
-      }, 1200);
-    } else {
-      // No real backend job ID returned — do NOT simulate fake data.
-      // Mark the placeholder job as Failed and inform the user.
-      showBackendUnavailableWarning(jobId, sessionId);
-    }
-
-    return jobId;
-  };
-
-  /**
-   * Called when backend returns no live job ID (backend unreachable or confirm failed).
-   * Updates job state to Failed and shows a clear error — does NOT generate fake data.
-   */
-  const showBackendUnavailableWarning = (jobId: string, sessionId: string) => {
-    setJobs(prev =>
-      prev.map(j =>
-        j.id === jobId
-          ? {
-              ...j,
-              status: 'Failed',
-              progress: 0,
-              currentStep: 'Backend unavailable — could not start extraction job',
-            }
-          : j
-      )
-    );
-    setSessions(prev =>
-      prev.map(s =>
-        s.id === sessionId
-          ? { ...s, requirement: { ...s.requirement, status: 'failed', completionPercentage: 0 } }
-          : s
-      )
-    );
-    showToast(
-      'Backend Unavailable',
-      'Could not reach the FastAPI backend to start extraction. No data was generated.',
-      'error'
-    );
+    const pending = [...(messagesBySession[sessionId] || [])].reverse().find(message => message.pendingAction)?.pendingAction;
+    return (await sendMessage(sessionId, 'Yes, run the proposed scrape.', undefined, pending?.proposal?.tool_call_id)) || '';
   };
 
   // Exact match only: falling back to jobs[0] showed an unrelated job's details
@@ -1243,9 +775,11 @@ Which scraper engine would you like to target today, or what specific type of le
     <DataOpsContext.Provider
       value={{
         currentUser,
+        newOnly,
+        setNewOnly,
         switchUser,
         switchRole,
-        allUsers: SYSTEM_USERS,
+        allUsers: authUser ? [currentUser] : [],
         leads,
         datasets,
         activities,
@@ -1263,7 +797,7 @@ Which scraper engine would you like to target today, or what specific type of le
         sendMessage,
         confirmBotDecision,
         retryBotMessage,
-        createSession,
+        clearChat,
         confirmRequirementAndGenerate,
         getLiveJob,
         globalSearch,

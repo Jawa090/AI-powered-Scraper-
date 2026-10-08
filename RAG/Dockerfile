@@ -13,11 +13,11 @@ WORKDIR /app
 RUN useradd -u 1000 -m -s /bin/bash appuser
 
 # Dependencies
-COPY requirements.txt .
+COPY RAG/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code
-COPY . .
+COPY RAG/ ./RAG/
 
 # Set permissions
 RUN chown -R appuser:appuser /app

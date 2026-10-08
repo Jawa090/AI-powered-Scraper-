@@ -17,11 +17,11 @@ export const RecentActivityList: React.FC<RecentActivityListProps> = ({
         return <Phone className="w-3.5 h-3.5 text-blue-600" />;
       case 'email':
       case 'bulk_email':
-        return <Mail className="w-3.5 h-3.5 text-purple-600" />;
+        return <Mail className="w-3.5 h-3.5 text-blue-600" />;
       case 'generation':
-        return <Sparkles className="w-3.5 h-3.5 text-emerald-600" />;
+        return <Sparkles className="w-3.5 h-3.5 text-green-600" />;
       case 'assignment':
-        return <UserPlus className="w-3.5 h-3.5 text-amber-600" />;
+        return <UserPlus className="w-3.5 h-3.5 text-blue-600" />;
       default:
         return <Clock className="w-3.5 h-3.5 text-gray-500" />;
     }
@@ -34,7 +34,7 @@ export const RecentActivityList: React.FC<RecentActivityListProps> = ({
           <h3 className="text-sm font-semibold text-gray-900">Recent Activity</h3>
           <p className="text-xs text-[#848485]">Live stream of team and AI actions</p>
         </div>
-        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+        <span className="text-[10px] font-semibold bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 px-2 py-0.5 rounded border">
           Live Sync
         </span>
       </div>

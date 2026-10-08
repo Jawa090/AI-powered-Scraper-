@@ -85,9 +85,9 @@ export const LeadTable: React.FC<LeadTableProps> = ({
   }, [leads, selectedIds]);
 
   return (
-    <div className="bg-white border border-[#E5E7EB] rounded-xl shadow-card overflow-hidden">
+    <div className="bg-white dark:bg-black border border-[#E5E7EB] dark:border-gray-800 rounded-xl shadow-card overflow-hidden transition-colors">
       {/* Top Filter Bar */}
-      <div className="p-4 border-b border-[#E5E7EB] flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between bg-white">
+      <div className="p-4 border-b border-[#E5E7EB] dark:border-gray-800 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between bg-white dark:bg-black">
         {/* Search */}
         <div className="relative flex-1 max-w-sm">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -99,7 +99,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
               setCurrentPage(1);
             }}
             placeholder="Search leads, companies, locations..."
-            className="w-full bg-[#F8F9FA] border border-[#E5E7EB] rounded-lg pl-9 pr-3 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-[#2D4351]"
+            className="w-full bg-[#F8F9FA] dark:bg-gray-900 border border-[#E5E7EB] dark:border-gray-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-gray-900 dark:text-golden-100 placeholder:text-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#2D4351] dark:focus:ring-golden-500"
           />
         </div>
 
@@ -112,7 +112,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
               setDepartmentFilter(e.target.value);
               setCurrentPage(1);
             }}
-            className="text-xs bg-[#F8F9FA] border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#2D4351]"
+            className="text-xs bg-[#F8F9FA] dark:bg-gray-900 border border-[#E5E7EB] dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-gray-700 dark:text-golden-300 focus:outline-none focus:ring-1 focus:ring-[#2D4351] dark:focus:ring-golden-500"
           >
             <option value="all">All Departments</option>
             <option value="dept-sales-1">Sales 1</option>
@@ -129,7 +129,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
               setStatusFilter(e.target.value);
               setCurrentPage(1);
             }}
-            className="text-xs bg-[#F8F9FA] border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#2D4351]"
+            className="text-xs bg-[#F8F9FA] dark:bg-gray-900 border border-[#E5E7EB] dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-gray-700 dark:text-golden-300 focus:outline-none focus:ring-1 focus:ring-[#2D4351] dark:focus:ring-golden-500"
           >
             <option value="all">All Statuses</option>
             <option value="New">New</option>
@@ -154,7 +154,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
                 onClick={() => onOpenBulkEmail(selectedLeadObjects)}
                 className="px-3 py-1 rounded-md text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] transition-colors flex items-center gap-1.5 shadow-sm"
               >
-                <Mail className="w-3.5 h-3.5 text-purple-300" />
+                <Mail className="w-3.5 h-3.5 text-blue-300" />
                 <span>Email Selected ({selectedIds.length})</span>
               </button>
             )}
@@ -172,7 +172,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead>
-            <tr className="border-b border-[#E5E7EB] bg-[#F8F9FA] text-[#848485] font-semibold">
+            <tr className="border-b border-[#E5E7EB] dark:border-gray-800 bg-[#F8F9FA] dark:bg-gray-900 text-[#848485] dark:text-golden-600 font-semibold">
               <th className="py-2.5 px-3 w-8 text-center">
                 <input
                   type="checkbox"
@@ -210,8 +210,8 @@ export const LeadTable: React.FC<LeadTableProps> = ({
                   <tr
                     key={lead.id}
                     onClick={() => onSelectLead?.(lead)}
-                    className={`hover:bg-[#F8F9FA]/80 transition-colors cursor-pointer ${
-                      isSelected ? 'bg-[#EAEFF2]/40' : ''
+                    className={`hover:bg-[#F8F9FA]/80 dark:hover:bg-gray-800/50 transition-colors cursor-pointer ${
+                      isSelected ? 'bg-[#EAEFF2]/40 dark:bg-golden-900/20' : ''
                     }`}
                   >
                     <td
@@ -225,31 +225,31 @@ export const LeadTable: React.FC<LeadTableProps> = ({
                         className="rounded border-gray-300 text-[#2D4351] focus:ring-[#2D4351]"
                       />
                     </td>
-                    <td className="py-2 px-3 font-semibold text-gray-900 whitespace-nowrap">
+                    <td className="py-2 px-3 font-semibold text-gray-900 dark:text-golden-100 whitespace-nowrap">
                       {lead.name || lead.company || '—'}
                     </td>
-                    <td className="py-2 px-3 text-gray-700 whitespace-nowrap">
+                    <td className="py-2 px-3 text-gray-700 dark:text-golden-300 whitespace-nowrap">
                       {lead.company || '—'}
                     </td>
-                    <td className="py-2 px-3 text-gray-600 truncate max-w-[150px]">
+                    <td className="py-2 px-3 text-gray-600 dark:text-golden-400 truncate max-w-[150px]">
                       {lead.title || '—'}
                     </td>
-                    <td className="py-2 px-3 text-gray-600 truncate max-w-[160px]">
+                    <td className="py-2 px-3 text-gray-600 dark:text-golden-400 truncate max-w-[160px]">
                       <span className="font-mono text-[11px]">{lead.email || '—'}</span>
                     </td>
-                    <td className="py-2 px-3 text-gray-600 font-mono text-[11px] whitespace-nowrap">
+                    <td className="py-2 px-3 text-gray-600 dark:text-golden-400 font-mono text-[11px] whitespace-nowrap">
                       {lead.phone || '—'}
                     </td>
-                    <td className="py-2 px-3 text-gray-600 whitespace-nowrap">
+                    <td className="py-2 px-3 text-gray-600 dark:text-golden-400 whitespace-nowrap">
                       {lead.location || '—'}
                     </td>
                     <td className="py-2 px-3 whitespace-nowrap">
                       <StatusBadge status={lead.status || 'New'} />
                     </td>
-                    <td className="py-2 px-3 text-gray-700 whitespace-nowrap">
+                    <td className="py-2 px-3 text-gray-700 dark:text-golden-300 whitespace-nowrap">
                       {lead.assignedToName || 'Unassigned'}
                     </td>
-                    <td className="py-2 px-3 text-gray-500 whitespace-nowrap">
+                    <td className="py-2 px-3 text-gray-500 dark:text-golden-500 whitespace-nowrap">
                       {lead.lastActivity || '—'}
                     </td>
                     <td
@@ -275,7 +275,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
                             className="px-2 py-1 rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold text-[11px] inline-flex items-center gap-1 transition-colors shadow-sm"
                             title="Email Lead"
                           >
-                            <Mail className="w-3 h-3 text-purple-600" />
+                            <Mail className="w-3 h-3 text-blue-600" />
                             Email
                           </button>
                         )}
@@ -290,7 +290,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
       </div>
 
       {/* Pagination Footer */}
-      <div className="p-3 border-t border-[#E5E7EB] flex items-center justify-between text-xs text-gray-600 bg-white">
+      <div className="p-3 border-t border-[#E5E7EB] dark:border-gray-800 flex items-center justify-between text-xs text-gray-600 dark:text-golden-400 bg-white dark:bg-black">
         <span>
           Showing {(currentPage - 1) * pageSize + 1} to{' '}
           {Math.min(currentPage * pageSize, filteredLeads.length)} of{' '}

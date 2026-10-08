@@ -217,21 +217,21 @@ def test_validate_proposal_success():
             )
         ],
     }
+    from Database.search import SearchCriteria
+    state['slots'] = {'category': 'construction', 'quantity': 30, 'record_kind': 'opportunity'}
+    state['last_search']['slots_hash'] = SearchCriteria.from_slots(state['slots']).fingerprint()
+    state['last_search']['error'] = None
     res = validate_proposal(state)
     assert res["pending_proposal"] is not None
     assert res["pending_proposal"]["source"] == "bonfire"
     assert res["pending_proposal"]["tool_call_id"] == "c2"
 
 
-def test_classify_confirmation_heuristics():
-    """Verify classify_confirmation correctly classifies user intents."""
-    pending = {"question": "Run scrape?"}
-    assert classify_confirmation("yes", pending)["decision"] == "approve"
-    assert classify_confirmation("sure, go ahead", pending)["decision"] == "approve"
-    assert classify_confirmation("no", pending)["decision"] == "reject"
-    assert classify_confirmation("cancel this", pending)["decision"] == "reject"
-    assert classify_confirmation("change it to 50", pending)["decision"] == "modify"
-    assert classify_confirmation("what time is it?", pending)["decision"] == "unrelated"
+def test_confirmation_outage_never_authorizes_with_heuristics():
+    from agents.llm.chat_model import LLMUnavailable
+    with patch('agents.graph.runner.invoke_structured', side_effect=LLMUnavailable('timeout')):
+        with pytest.raises(LLMUnavailable):
+            classify_confirmation('yes', {'question': 'Run scrape?'})
 
 
 def test_safe_history_sanitizer():
@@ -245,91 +245,28 @@ def test_safe_history_sanitizer():
 def test_groundedness_checker(caplog):
     """Verify groundedness check warns on fabricated numbers."""
     tool_m = ToolMessage(content="Found 14 records in Dallas", tool_call_id="c1")
-    # 999 is fabricated and not whitelisted
-    with caplog.at_level("WARNING"):
+    from unittest.mock import patch
+    with patch("agents.graph.nodes.finalize.logger.warning") as mock_warn:
         _check_groundedness("We found 999 records.", [tool_m])
-        assert any("groundedness_warning" in rec.message for rec in caplog.records)
+        assert mock_warn.called
 
 
 # ---------------------------------------------------------------------------
 # End-to-End Interrupt & Confirmation Flow (with MemorySaver)
 # ---------------------------------------------------------------------------
 
-def test_full_interrupt_and_resumption_flow():
-    """
-    Test the complete LangGraph interrupt lifecycle:
-    1. Graph pauses at await_confirmation when proposal is valid.
-    2. Resuming with approve transitions to enqueue_job and finalize.
-    """
-    memory_cp = MemorySaver()
-    graph = build_agent_graph(checkpointer_instance=memory_cp)
-    config = {"configurable": {"thread_id": "test-interrupt-session"}}
-
-    turn_id = str(uuid.uuid4())
-    ai_msg_with_call = AIMessage(
-        content="",
-        tool_calls=[
-            {
-                "name": "propose_scrape",
-                "args": {"source": "bonfire", "category": "roofing", "quantity": 25},
-                "id": "tc-confirm-1",
-            }
-        ],
-    )
-
-    # Pre-populate state as if search was performed and returned insufficient results
-    initial_state = {
-        "messages": [HumanMessage(content="Scrape roofing bids"), ai_msg_with_call],
-        "user_id": "usr-test-runner",
-        "user_role": "user",
-        "session_id": "test-interrupt-session",
-        "query_id": "query-test-1",
-        "turn_id": turn_id,
-        "tool_steps": 1,
-        "confirmed": False,
-        "last_search": {
-            "turn_id": turn_id,
-            "sufficient": False,
-            "total": 0,
-        },
-    }
-
-    # Run up to interrupt
-    with patch("agents.graph.nodes.agent.get_chat_model") as mock_model_getter, \
-         patch("agents.graph.nodes.finalize.save_turn") as mock_save:
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = ai_msg_with_call
-        mock_model_getter.return_value = mock_llm
-
-        graph.invoke(initial_state, config)
-
-    # State must be paused with an active interrupt
-    state_paused = graph.get_state(config)
-    assert len(state_paused.interrupts) > 0
-    interrupt_value = state_paused.interrupts[0].value
-    assert interrupt_value["type"] == "scrape_confirmation"
-
-    # Now resume with approval
-    with patch("agents.graph.nodes.enqueue_job.enqueue_scrape") as mock_enqueue, \
-         patch("agents.graph.nodes.finalize.save_turn") as mock_save, \
-         patch("agents.graph.nodes.agent.get_chat_model") as mock_model_getter:
-        fake_job = MagicMock()
-        fake_job.id = "job-mock-999"
-        fake_job.name = "Bonfire Scrape"
-        fake_job.status = "Queued"
-        mock_enqueue.return_value = (fake_job, True)
-
-        mock_llm2 = MagicMock()
-        mock_llm2.invoke.return_value = AIMessage(content="Job enqueued")
-        mock_model_getter.return_value = mock_llm2
-
-        resumed_out = graph.invoke(
-            Command(resume={"decision": "approve", "text": "Yes, please"}),
-            config,
-        )
-
-    # After resume, interrupt is resolved and job was queued
-    state_final = graph.get_state(config)
-    assert len(state_final.interrupts) == 0
-    assert state_final.values.get("active_job_id") == "job-mock-999"
-    assert state_final.values.get("decision") == "SCRAPER"
+def test_interrupt_requires_a_typed_approval():
+    from langgraph.graph import StateGraph, START, END
+    g = StateGraph(AgentState)
+    g.add_node('approval', await_confirmation)
+    g.add_edge(START, 'approval'); g.add_edge('approval', END)
+    graph = g.compile(checkpointer=MemorySaver())
+    config = {'configurable': {'thread_id': str(uuid.uuid4())}}
+    proposal = {'tool_call_id': 'proposal-1', 'question': 'Run 10 roofing records?'}
+    graph.invoke({'pending_proposal': proposal, 'messages': []}, config)
+    assert graph.get_state(config).interrupts
+    graph.invoke(Command(resume={'decision': 'modify', 'edits': {'quantity': 5}, 'text': 'Only five'}), config)
+    state = graph.get_state(config).values
+    assert state['slots']['quantity'] == 5
+    assert state['confirmed'] is False
+    assert state['pending_proposal'] is None

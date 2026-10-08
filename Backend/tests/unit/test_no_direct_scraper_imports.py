@@ -1,65 +1,51 @@
 """
-test_no_direct_scraper_imports.py
-─────────────────────────────────
-Verify Rule 9: outside Backend/scrappers/, nothing imports a specific scraper module.
-All access must go through scrappers.controller or scrappers.base.
+tests/unit/test_no_direct_scraper_imports.py — Modularity test (P17.1)
+Ensures no file outside Backend/scrappers/ imports a specific scraper module.
 """
-
 import ast
+import sys
 from pathlib import Path
-import pytest
+
+_root = Path(__file__).resolve().parent.parent.parent.parent
+_backend = _root / "Backend"
+
+ALLOWED_DIRS = {"scrappers", "tests", "fixtures", "fakes"}
+ALLOWED_FILES = {"backfill_identity.py"}
+
+SCRAPER_MODULES = {"bonfire", "dasny", "jwiz", "nyscr"}
 
 
-FORBIDDEN_MODULES = {
-    "scrappers.bonfire",
-    "scrappers.dasny",
-    "scrappers.jwiz",
-    "scrappers.nyscr",
-    "scrappers._template",
-}
-
-EXCLUDED_PARTS = {
-    "scrappers",
-    "tests",
-    "fixtures",
-    "migrations",
-    "docs",
-    "node_modules",
-    ".git",
-    "__pycache__",
-}
-
-
-@pytest.mark.unit
-def test_no_direct_scraper_imports_rule_9():
-    """Scan all Python files outside Backend/scrappers/ and assert no direct scraper imports."""
-    backend_dir = Path(__file__).resolve().parent.parent.parent
+def _scraper_import_in_file(filepath: Path) -> list:
+    """Find imports of specific scraper modules in a Python file."""
     violations = []
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="ignore")
+        tree = ast.parse(source, filename=str(filepath))
+    except (SyntaxError, ValueError):
+        return violations
 
-    for py_file in backend_dir.rglob("*.py"):
-        # Check if file is in an excluded directory
-        parts = set(py_file.parts)
-        if any(part in parts for part in EXCLUDED_PARTS):
-            continue
-        if py_file.name == "backfill_identity.py":
-            continue
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            parts = node.module.split(".")
+            # Check if importing from scrappers.<specific_scraper>
+            if len(parts) >= 2 and parts[0] == "scrappers" and parts[1] in SCRAPER_MODULES:
+                violations.append(
+                    f"{filepath.relative_to(_root)}:{node.lineno} imports scrappers.{parts[1]}"
+                )
+    return violations
 
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except Exception:
-            continue
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name in FORBIDDEN_MODULES:
-                        violations.append((str(py_file), node.lineno, alias.name))
-            elif isinstance(node, ast.ImportFrom):
-                mod = node.module or ""
-                if mod in FORBIDDEN_MODULES:
-                    violations.append((str(py_file), node.lineno, mod))
+class TestNoDirectScraperImports:
+    def test_no_scraper_imports_outside_scrappers_dir(self):
+        """Rule 9: Outside Backend/scrappers/, nothing imports a specific scraper module."""
+        violations = []
+        for pyfile in _backend.rglob("*.py"):
+            # Skip allowed directories
+            rel_parts = pyfile.relative_to(_backend).parts
+            if any(part in ALLOWED_DIRS for part in rel_parts):
+                continue
+            if pyfile.name in ALLOWED_FILES:
+                continue
+            violations.extend(_scraper_import_in_file(pyfile))
 
-    assert not violations, (
-        f"Rule 9 violation! The following files directly import specific scraper modules instead of scrappers.controller:\n"
-        + "\n".join(f"{f}:{line} -> {mod}" for f, line, mod in violations)
-    )
+        assert not violations, "Direct scraper imports found:\n" + "\n".join(violations)

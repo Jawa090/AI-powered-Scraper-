@@ -57,11 +57,7 @@ def is_job_visible(job: Job, user: Any, session: Session) -> bool:
         return False
     if job.created_by == user_id:
         return True
-    if job.query_id:
-        q = session.get(Query, job.query_id)
-        if q and q.user_id == user_id:
-            return True
-    return False
+    return session.scalar(select(Query.id).where(Query.job_id == job.id, Query.user_id == user_id).limit(1)) is not None
 
 
 def apply_dataset_scope(stmt: Any, user: Any) -> Any:
@@ -77,8 +73,9 @@ def apply_dataset_scope(stmt: Any, user: Any) -> Any:
     if not user_id:
         return stmt.where(Dataset.id == None)
 
+    linked_jobs = select(Query.job_id).where(Query.user_id == user_id)
     job_dataset_ids = select(Job.dataset_id).where(
-        Job.created_by == user_id,
+        or_(Job.created_by == user_id, Job.id.in_(linked_jobs)),
         Job.dataset_id.isnot(None)
     )
     return stmt.where(or_(Dataset.created_by == user_id, Dataset.id.in_(job_dataset_ids)))
@@ -94,8 +91,8 @@ def is_dataset_visible(dataset: Dataset, user: Any, session: Session) -> bool:
     if dataset.created_by == user_id:
         return True
     # Check if created by user's job
-    job = session.query(Job).filter(Job.dataset_id == dataset.id, Job.created_by == user_id).first()
-    return job is not None
+    job = session.query(Job).filter(Job.dataset_id == dataset.id).first()
+    return bool(job and is_job_visible(job, user, session))
 
 
 def apply_lead_scope(stmt: Any, user: Any) -> Any:

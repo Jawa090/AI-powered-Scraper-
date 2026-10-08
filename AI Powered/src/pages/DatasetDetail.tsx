@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { apiService } from '../services/api.service';
+import { Lead } from '../types';
 import { useDataOps } from '../context/DataOpsContext';
 import { StatusBadge } from '../components/common/StatusBadge';
 import { ArrowLeft, Users2, Database, ShieldCheck, CheckCircle2, FileText } from 'lucide-react';
@@ -9,9 +11,14 @@ interface DatasetDetailProps {
 }
 
 export const DatasetDetail: React.FC<DatasetDetailProps> = ({ id, onNavigate }) => {
-  const { datasets, leads } = useDataOps();
-  const dataset = datasets.find(d => d.id === id) || datasets[0];
-  const datasetLeads = leads.filter(l => l.datasetId === dataset?.id);
+  const { datasets } = useDataOps();
+  const dataset = datasets.find(d => d.id === id);
+  const [datasetLeads, setDatasetLeads] = useState<Lead[]>([]);
+  useEffect(() => {
+    let active = true;
+    void apiService.getLeads(id).then(rows => { if (active) setDatasetLeads(rows); });
+    return () => { active = false; };
+  }, [id]);
 
   if (!dataset) {
     return <div className="p-8 text-center text-xs text-gray-500">Dataset not found</div>;
@@ -56,11 +63,11 @@ export const DatasetDetail: React.FC<DatasetDetailProps> = ({ id, onNavigate }) 
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">Verified Contacts</span>
-            <p className="text-xl font-bold text-emerald-600 font-mono mt-0.5">{dataset.verifiedCount.toLocaleString()}</p>
+            <p className="text-xl font-bold text-green-600 font-mono mt-0.5">{dataset.verifiedCount.toLocaleString()}</p>
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">Deduplicated</span>
-            <p className="text-xl font-bold text-amber-600 font-mono mt-0.5">{dataset.duplicatesCount}</p>
+            <p className="text-xl font-bold text-blue-600 font-mono mt-0.5">{dataset.duplicatesCount}</p>
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">Associated Workflow</span>

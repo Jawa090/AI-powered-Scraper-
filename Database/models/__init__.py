@@ -23,6 +23,7 @@ from Database.models.lead import Lead
 from Database.models.action import AgentAction
 from Database.models.query_result import QueryResult
 from Database.models.lead_source import LeadSource
+from Database.models.session_event import SessionEvent
 
 __all__ = [
     "Department",
@@ -46,4 +47,5 @@ __all__ = [
     "AgentAction",
     "QueryResult",
     "LeadSource",
+    "SessionEvent",
 ]

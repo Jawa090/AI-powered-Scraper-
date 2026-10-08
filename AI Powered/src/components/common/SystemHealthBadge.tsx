@@ -37,19 +37,19 @@ export const SystemHealthBadge: React.FC = () => {
         title="Live Backend & Database Health Status"
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${
           isAllHealthy
-            ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+            ? 'bg-white text-green-600 border-green-200 hover:bg-green-50 dark:bg-black dark:text-green-500 dark:border-green-800'
             : status.backend
-            ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-            : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
+            ? 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50 dark:bg-black dark:text-blue-500 dark:border-blue-800'
+            : 'bg-white text-red-600 border-red-200 hover:bg-red-50 dark:bg-black dark:text-red-500 dark:border-red-800'
         }`}
       >
         <span className="relative flex h-2 w-2">
           {isAllHealthy && (
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
           )}
           <span
             className={`relative inline-flex rounded-full h-2 w-2 ${
-              isAllHealthy ? 'bg-emerald-500' : status.backend ? 'bg-amber-500' : 'bg-rose-500'
+              isAllHealthy ? 'bg-green-600 dark:bg-green-500' : status.backend ? 'bg-blue-600 dark:bg-blue-500' : 'bg-red-600 dark:bg-red-500'
             }`}
           ></span>
         </span>
@@ -63,7 +63,7 @@ export const SystemHealthBadge: React.FC = () => {
           <div className="absolute right-0 mt-2 w-72 rounded-xl bg-white border border-gray-200 shadow-xl z-50 p-3.5 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-gray-100">
               <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-                <Activity className="w-4 h-4 text-indigo-600" />
+                <Activity className="w-4 h-4 text-blue-600" />
                 <span>System Infrastructure Status</span>
               </div>
               <button
@@ -72,7 +72,7 @@ export const SystemHealthBadge: React.FC = () => {
                 className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors"
                 title="Refresh Status"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
               </button>
             </div>
 
@@ -85,13 +85,13 @@ export const SystemHealthBadge: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-1">
                   {status.backend ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 px-2 py-0.5 rounded border">
+                      <CheckCircle2 className="w-3 h-3 text-green-600 dark:text-green-500" />
                       Healthy
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-100/60 px-2 py-0.5 rounded">
-                      <AlertCircle className="w-3 h-3 text-rose-600" />
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white text-red-600 border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 px-2 py-0.5 rounded border">
+                      <AlertCircle className="w-3 h-3 text-red-600 dark:text-red-500" />
                       Offline
                     </span>
                   )}
@@ -106,13 +106,13 @@ export const SystemHealthBadge: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-1">
                   {status.database ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 px-2 py-0.5 rounded border">
+                      <CheckCircle2 className="w-3 h-3 text-green-600 dark:text-green-500" />
                       Connected
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-100/60 px-2 py-0.5 rounded">
-                      <AlertCircle className="w-3 h-3 text-rose-600" />
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white text-red-600 border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 px-2 py-0.5 rounded border">
+                      <AlertCircle className="w-3 h-3 text-red-600 dark:text-red-500" />
                       Disconnected
                     </span>
                   )}
@@ -125,7 +125,7 @@ export const SystemHealthBadge: React.FC = () => {
                   <Activity className="w-4 h-4 text-gray-500" />
                   <span>Scraper Engines</span>
                 </div>
-                <span className="text-[11px] font-bold text-gray-800 bg-gray-200/80 px-2 py-0.5 rounded">
+                <span className="text-[11px] font-semibold bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 px-2 py-0.5 rounded border">
                   {status.registeredScripts} Active (L4)
                 </span>
               </div>

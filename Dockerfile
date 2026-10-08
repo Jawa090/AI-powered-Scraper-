@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY Backend/ ./Backend/
 COPY Database/ ./Database/
 COPY RAG/ ./RAG/
-COPY worker.py ./
+COPY run_worker.py ./
 
 # Set ownership to non-root user
 RUN chown -R appuser:appuser /app

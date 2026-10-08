@@ -1,475 +1,241 @@
-"""
-agents/graph/runner.py
-──────────────────────
-API integration and execution orchestrator for the LangGraph agent.
-Complies with Phase P11.7, P11.9, P11.10 and Experiments E2, E3, E4, E7, E8, E11.
-"""
-
+"""Serialized conversation turns, immutable retries and durable job notifications."""
 from __future__ import annotations
-
 import json
 import logging
-import re
 import time
 import uuid
 from contextlib import contextmanager
-from typing import Any, Dict, List, Literal, Optional
-
+from typing import Any, Literal
 import psycopg
 from fastapi import HTTPException
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import select
-
 from Database.controller import session_scope
-from Database.models.message import AgentMessage
 from Database.models.query import Query
 from Database.models.session import AgentSession
-from Database.models.user import User
+from Database.models.session_event import SessionEvent
+from Database.models.message import AgentMessage
 from agents.graph.graph import get_compiled_graph
-from agents.graph.persist import (
-    save_event_turn,
-    save_llm_failure,
-    save_paused_turn,
-    save_turn,
-)
-from agents.graph.state import AgentState
-from agents.llm.chat_model import LLMUnavailable, get_chat_model, invoke_structured
+from agents.graph.persist import save_llm_failure, save_paused_turn, save_turn
+from agents.graph.utils import normalize_content
+from agents.llm.chat_model import LLMUnavailable, get_chat_model, invoke_llm, invoke_structured
 from settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Structured Models for Confirmation
-# ---------------------------------------------------------------------------
-
 class ConfirmationDecision(BaseModel):
-    decision: Literal["approve", "reject", "modify", "unrelated"] = Field(
-        ...,
-        description="Classification: approve, reject, modify, or unrelated.",
-    )
-    edits: Optional[str] = Field(
-        default=None,
-        description="If decision is modify, details of requested changes.",
-    )
-    text: str = Field(..., description="The user's original response text.")
+    decision: Literal['approve', 'reject', 'modify', 'unrelated']
+    edits: dict[str, Any] | None = None
+    text: str
 
-
-# ---------------------------------------------------------------------------
-# PostgreSQL Advisory Lock per Session (P11.7 Step 2)
-# ---------------------------------------------------------------------------
 
 @contextmanager
-def session_lock(session_id: str, timeout_s: float = 30.0):
-    """
-    Dedicated PostgreSQL connection holding pg_try_advisory_lock(hashtextextended(:sid, 0)).
-    Retries up to timeout_s; raises 409 'session busy' if timed out.
-    """
-    deadline = time.time() + timeout_s
-    acquired = False
+def session_lock(session_id: str, timeout_s: float = 30):
     conn = psycopg.connect(settings.CHECKPOINT_DB_URL, autocommit=True)
+    acquired = False
     try:
-        while time.time() < deadline:
-            with conn.cursor() as cur:
-                cur.execute("SELECT pg_try_advisory_lock(hashtextextended(%s, 0));", (session_id,))
-                row = cur.fetchone()
-                if row and row[0]:
-                    acquired = True
-                    break
-            time.sleep(0.1)
-
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            acquired = bool(conn.execute('SELECT pg_try_advisory_lock(hashtextextended(%s,0))', (session_id,)).fetchone()[0])
+            if acquired:
+                break
+            time.sleep(.1)
         if not acquired:
-            raise HTTPException(status_code=409, detail="Session is busy with another active request.")
-
+            raise HTTPException(409, 'Session is busy with another request.')
         yield
     finally:
         if acquired:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0));", (session_id,))
-            except Exception as e:
-                logger.warning("Error releasing session advisory lock: %s", e)
+            conn.execute('SELECT pg_advisory_unlock(hashtextextended(%s,0))', (session_id,))
         conn.close()
 
 
-def _get_lock(session_id: str):
-    """Compatibility context manager adapter."""
-    return session_lock(session_id)
+_get_lock = session_lock
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def pending_interrupt(graph, config: dict) -> bool:
-    """Check if the graph is currently interrupted awaiting confirmation (E2)."""
-    state = graph.get_state(config)
-    return bool(state.interrupts)
+def pending_interrupt(graph, config):
+    return bool(graph.get_state(config).interrupts)
 
 
-def classify_confirmation(text: str, pending: Any) -> Dict[str, Any]:
-    """
-    Classify user confirmation using LLM structured output with heuristic fallback.
-    """
-    try:
-        question = ""
-        if isinstance(pending, dict):
-            question = pending.get("question", "")
-
-        prompt = (
-            f"The user was asked: '{question}' regarding a proposed web scrape.\n"
-            f"The user replied: '{text}'.\n"
-            f"Classify their reply into one of: 'approve', 'reject', 'modify', or 'unrelated'."
-        )
-        res = invoke_structured(
-            ConfirmationDecision,
-            [HumanMessage(content=prompt)],
-            max_retries=1,
-        )
-        if isinstance(res, ConfirmationDecision):
-            return res.model_dump()
-        elif isinstance(res, dict):
-            return res
-    except Exception as e:
-        logger.warning("Confirmation classification via LLM failed, using heuristics: %s", e)
-
-    # Deterministic heuristic fallback
-    t = text.lower().strip()
-    words = set(re.findall(r"\b\w+\b", t))
-    approve_phrases = ["go ahead", "do it", "yes, run", "sure", "proceed"]
-    reject_phrases = ["cancel this", "no, don't", "dont run"]
-    modify_phrases = ["only", "change", "modify", "limit", "instead"]
-
-    if any(p in t for p in modify_phrases) or any(w in words for w in ["change", "modify", "limit", "instead"]):
-        return {"decision": "modify", "edits": text, "text": text}
-    if any(p in t for p in reject_phrases) or any(w in words for w in ["no", "n", "cancel", "stop", "reject", "nah"]):
-        return {"decision": "reject", "text": text}
-    if any(p in t for p in approve_phrases) or any(w in words for w in ["yes", "y", "haan", "approve", "ok", "sure", "confirm", "proceed"]):
-        return {"decision": "approve", "text": text}
-    return {"decision": "unrelated", "text": text}
+def classify_confirmation(text, pending):
+    prompt = ('Classify the reply to this exact scrape proposal as approve/reject/modify/unrelated. '
+        'Only approve explicit consent to the unchanged proposal. For changes return edits as a JSON object '
+        'using category, city, us_state, quantity, record_kind, has_email, has_phone, source. '
+        'A reduced quantity or changed location is modify and requires another search and approval. '
+        f'Proposal: {json.dumps(pending)}\nReply: {text}')
+    result = invoke_structured(ConfirmationDecision, [HumanMessage(content=prompt)])
+    return ConfirmationDecision.model_validate(result.model_dump() if isinstance(result, BaseModel) else result).model_dump()
 
 
-def to_api_response(
-    out: Any,
-    state_snapshot: Any,
-    query_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Format LangGraph state into the API response schema complying with Phase P11.9.
-    """
-    state = state_snapshot.values if hasattr(state_snapshot, "values") else (out or {})
-    messages = state.get("messages", [])
-
-    # Extract last assistant message
-    last_ai_text = ""
-    for msg in reversed(messages):
-        if getattr(msg, "type", None) == "ai" and not getattr(msg, "tool_calls", None):
-            last_ai_text = getattr(msg, "content", "")
-            break
-
-    slots = state.get("slots") or {}
-    req = {
-        "industry": slots.get("category"),
-        "location": slots.get("city") or slots.get("us_state") or slots.get("location"),
-        "companySize": None,
-        "decisionMakers": [],
-        "quantity": slots.get("quantity", 20),
-        "completionPercentage": 10 if not state.get("active_job_id") else 50,
-        "status": "collecting" if not state.get("active_job_id") else "scraping",
-    }
-
-    last_search = state.get("last_search") or {}
-    items = []
-    total = last_search.get("total", 0)
-
-    # Lead records if available
-    lead_ids = last_search.get("lead_ids", [])
-    if lead_ids:
-        try:
-            from routes.serializers import serialize_lead
-            from Database.controller import Repositories, session_scope
-
-            with session_scope() as session:
-                repo = Repositories(session).leads
-                for lid in lead_ids[:20]:
-                    lead = repo.get_by_id(lid)
-                    if lead:
-                        items.append(serialize_lead(lead))
-        except Exception as e:
-            logger.debug("Error serializing leads for API response: %s", e)
-
-    rag_status = state.get("rag_status") or {}
-    rag_hits = state.get("rag_hits") or []
-    kb_info = {
-        "state": rag_status.get("state", "not_configured"),
-        "available": rag_status.get("available", False),
-        "hits": [
-            {
-                "chunkId": h.get("chunkId"),
-                "title": h.get("title"),
-                "score": h.get("score"),
-            }
-            for h in rag_hits
-            if isinstance(h, dict)
-        ],
-    }
-
-    # Interrupted state (pending confirmation)
-    pending_action = None
-    proposed_actions = []
-
-    if state_snapshot.interrupts:
-        pending_action = state_snapshot.interrupts[0].value
-        proposal = state.get("pending_proposal") or {}
-        proposed_actions.append({
-            "actionType": "scrape",
-            "label": proposal.get("question") or "Would you like me to run this scrape?",
-            "parameters": proposal.get("args") or {},
-            "requiresConfirmation": True,
-        })
-        if not last_ai_text:
-            last_ai_text = proposal.get("question") or "I have a scrape proposal ready for your confirmation."
-
-    return {
-        "reply": last_ai_text or "No response generated.",
-        "records": items,
-        "total": total,
-        "queryId": query_id or state.get("query_id"),
-        "decision": state.get("decision"),
-        "jobId": state.get("active_job_id"),
-        "updatedRequirement": req,
-        "proposedActions": proposed_actions,
-        "pendingAction": pending_action,
-        "kb": kb_info,
-        "suggestions": [],
-        "sessionId": state.get("session_id"),
-        "degraded": state.get("degraded", False),
-    }
+def to_api_response(out, state_snapshot, query_id=None):
+    state = getattr(state_snapshot, 'values', state_snapshot) or out or {}
+    qid = query_id or state.get('query_id')
+    with session_scope() as db:
+        q = db.get(Query, qid) if qid else None
+        if q and q.response:
+            return dict(q.response)
+    raise RuntimeError('A durable response is required before returning a successful turn')
 
 
-# ---------------------------------------------------------------------------
-# Main Turn Execution: run_turn (P11.7)
-# ---------------------------------------------------------------------------
-
-def run_turn(
-    user: Any,
-    session_id: str,
-    text: str,
-    client_message_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Execute one turn of the multi-turn conversational agent graph.
-    Handles locking, retries, interrupts, resumption, and D4/D9 compliance.
-    """
+def run_turn(user, session_id, text, client_message_id=None, new_only=False, expected_proposal_id=None):
+    uid = user.id
+    with session_lock('user:' + uid):
+        with session_scope() as db:
+            sess = db.get(AgentSession, session_id)
+            if not sess:
+                active = db.scalar(select(AgentSession).where(AgentSession.user_id == uid, AgentSession.status == 'active'))
+                if active:
+                    raise HTTPException(409, 'Start or restore your active conversation first.')
+                db.add(AgentSession(id=session_id, user_id=uid, department_id=user.department_id or 'dept-default',
+                    agent_id='agent-master', status='active'))
+            elif sess.user_id != uid:
+                raise HTTPException(403, 'Session does not belong to you.')
+            elif sess.status != 'active':
+                raise HTTPException(409, {'code': 'SESSION_CLOSED'})
     graph = get_compiled_graph()
-    config = {
-        "configurable": {"thread_id": session_id},
-        "recursion_limit": getattr(settings, "RECURSION_LIMIT", 25),
-    }
-
-    user_id = getattr(user, "id", str(user))
-    user_role = getattr(user, "role", "user")
-    department_id = getattr(user, "department_id", None) or "dept-default"
-
-    # Step 1: Ensure session exists & verify ownership (D9)
-    with session_scope() as session:
-        sess = session.get(AgentSession, session_id)
-        if sess:
-            if sess.user_id != user_id and user_role != "admin":
-                raise HTTPException(status_code=403, detail="Session does not belong to you.")
-        else:
-            sess = AgentSession(
-                id=session_id,
-                user_id=user_id,
-                department_id=department_id,
-                agent_id="agent-master",
-                title=text[:50] if text else "New Session",
-                status="active",
-            )
-            session.add(sess)
-            session.commit()
-
-    # Step 2: Acquire session lock
+    config = {'configurable': {'thread_id': session_id}, 'recursion_limit': settings.RECURSION_LIMIT}
     with session_lock(session_id):
-        # Step 3: Check for retry of same message
-        if client_message_id:
-            with session_scope() as session:
-                existing_q = session.scalar(
-                    select(Query)
-                    .where(Query.session_id == session_id)
-                    .where(Query.client_message_id == client_message_id)
-                )
-                if existing_q:
-                    if existing_q.status == "completed":
-                        # Return previously saved response
-                        st = graph.get_state(config)
-                        return to_api_response({}, st, existing_q.id)
-                    elif existing_q.status == "llm_unavailable":
-                        # Resume failed turn per E3
-                        try:
-                            out = graph.invoke(None, config)
-                            st = graph.get_state(config)
-                            return to_api_response(out, st, existing_q.id)
-                        except LLMUnavailable as e:
-                            save_llm_failure(session_id, existing_q.id, text, client_message_id)
-                            raise HTTPException(status_code=503, detail=e.to_dict())
-
-        # Step 4: Check pending interrupt (confirmation flow)
-        state_snap = graph.get_state(config)
-        if state_snap.interrupts:
-            interrupt_val = state_snap.interrupts[0].value
-            decision = classify_confirmation(text, interrupt_val)
-
-            proposal = interrupt_val.get("proposal") or {}
-            orig_query_id = proposal.get("id") or state_snap.values.get("query_id")
-
-            try:
+        with session_scope() as db:
+            from services.sessions import require_active
+            require_active(session_id, db)
+            prior = db.scalar(select(Query).where(Query.session_id == session_id,
+                Query.client_message_id == client_message_id)) if client_message_id else None
+            if prior and prior.response:
+                return dict(prior.response)
+            snap = graph.get_state(config)
+            if expected_proposal_id is not None:
+                pending = snap.interrupts[0].value if snap.interrupts else {}
+                actual_id = (pending.get('proposal') or {}).get('tool_call_id')
+                if actual_id != expected_proposal_id:
+                    raise HTTPException(409, 'This scrape proposal has changed. Reload the conversation and review it again.')
+            qid = prior.id if prior else str(uuid.uuid4())
+            if not prior:
+                db.add(Query(id=qid, user_id=uid, session_id=session_id, query_text=text,
+                    client_message_id=client_message_id, status='received', parameters={}))
+            from datetime import datetime, timezone
+            db.get(AgentSession, session_id).updated_at = datetime.now(timezone.utc)
+        try:
+            if prior and snap.next and snap.values.get('query_id') == qid and not snap.interrupts:
+                out = graph.invoke(None, config)
+            elif snap.interrupts:
+                from agents.graph.nodes.rag_retrieve import rag_retrieve
+                pending = snap.interrupts[0].value
+                decision = classify_confirmation(text, pending)
+                current = {**snap.values, 'user_text': text, 'messages': [HumanMessage(content=text)], 'trace': []}
+                interpreted = {}
+                if decision['decision'] in ('modify', 'unrelated'):
+                    from agents.graph.nodes.gather_requirements import interpret_request
+                    interpreted = interpret_request(current)
+                kb = rag_retrieve({**current, **interpreted})
+                changes = {'query_id': qid, 'client_message_id': client_message_id, 'user_text': text, **interpreted, **kb}
+                if decision['decision'] in ('modify', 'unrelated'):
+                    changes.update(turn_id=str(uuid.uuid4()), served_lead_ids=[], tool_steps=0)
+                else:
+                    changes['last_search'] = {**(snap.values.get('last_search') or {}), 'items': [], 'lead_ids': []}
+                    changes['served_lead_ids'] = []
+                with session_scope() as db:
+                    q = db.get(Query, qid)
+                    q.parameters = {'kind': 'confirmation', 'originatingQueryId': (pending.get('proposal') or {}).get('query_id')}
+                graph.update_state(config, changes)
                 out = graph.invoke(Command(resume=decision), config)
-                new_snap = graph.get_state(config)
-                return to_api_response(out, new_snap, orig_query_id)
-            except LLMUnavailable as e:
-                save_llm_failure(session_id, orig_query_id, text, client_message_id)
-                raise HTTPException(status_code=503, detail=e.to_dict())
-
-        # Step 5: Check failed earlier turn (state.next non-empty)
-        if state_snap.next:
-            with session_scope() as session:
-                old_queries = session.scalars(
-                    select(Query)
-                    .where(Query.session_id == session_id)
-                    .where(Query.status.in_(["received", "running", "awaiting_confirmation"]))
-                ).all()
-                for oq in old_queries:
-                    oq.status = "abandoned"
-
-            # Clean open tool calls per E7/E8
-            last_msgs = state_snap.values.get("messages", [])
-            if last_msgs:
-                last_m = last_msgs[-1]
-                calls = getattr(last_m, "tool_calls", None) or []
-                for c in calls:
-                    repair = ToolMessage(content="error: earlier turn abandoned", tool_call_id=c["id"])
-                    graph.update_state(config, {"messages": [repair]}, as_node="agent")
-
-        # Step 6: Normal turn execution
-        turn_id = str(uuid.uuid4())
-        query_id = str(uuid.uuid4())
-
-        with session_scope() as session:
-            q = Query(
-                id=query_id,
-                session_id=session_id,
-                user_id=user_id,
-                query_text=text,
-                status="received",
-                turn_id=turn_id,
-                client_message_id=client_message_id,
-                parameters={},
-            )
-            session.add(q)
-            session.commit()
-
-        init_input = {
-            "messages": [HumanMessage(content=text)],
-            "user_id": user_id,
-            "user_role": user_role,
-            "department_id": department_id,
-            "session_id": session_id,
-            "query_id": query_id,
-            "turn_id": turn_id,
-            "tool_steps": 0,
-            "confirmed": False,
-        }
-
-        try:
-            out = graph.invoke(init_input, config)
-            snap_after = graph.get_state(config)
-
-            # Step 7: Interrupt pending after invoke
-            if snap_after.interrupts:
-                save_paused_turn(snap_after.values, client_message_id=client_message_id)
-                return to_api_response(out, snap_after, query_id)
-
-            return to_api_response(out, snap_after, query_id)
-
-        except LLMUnavailable as e:
-            save_llm_failure(session_id, query_id, text, client_message_id=client_message_id)
-            raise HTTPException(status_code=503, detail=e.to_dict())
-
+            else:
+                repairs = []
+                for call in getattr((snap.values.get('messages') or [None])[-1], 'tool_calls', []) or []:
+                    repairs.append(ToolMessage(content='Previous turn superseded.', tool_call_id=call['id']))
+                out = graph.invoke({'messages': [*repairs, HumanMessage(content=text)], 'user_id': uid,
+                    'user_role': user.role, 'department_id': user.department_id, 'session_id': session_id,
+                    'query_id': qid, 'turn_id': str(uuid.uuid4()), 'client_message_id': client_message_id,
+                    'user_text': text, 'new_only': new_only, 'event_job_id': None, 'served_lead_ids': []}, config)
+            after = graph.get_state(config)
+            if after.interrupts:
+                save_paused_turn(after.values)
+            else:
+                save_turn(after.values)
+            return to_api_response(out, after, qid)
+        except LLMUnavailable as exc:
+            save_llm_failure(session_id, qid, text, client_message_id)
+            raise HTTPException(503, exc.to_dict()) from exc
+        except HTTPException:
+            raise
         except Exception as exc:
-            logger.error("Unhandled error in agent run_turn: %s", exc, exc_info=True)
-            with session_scope() as session:
-                failed_q = session.get(Query, query_id)
-                if failed_q:
-                    failed_q.status = "failed"
-            raise HTTPException(
-                status_code=500,
-                detail={"error": {"code": "INTERNAL_ERROR", "message": str(exc)}},
-            )
+            logger.exception('chat_turn_failed', extra={'query_id': qid, 'session_id': session_id})
+            with session_scope() as db:
+                db.get(Query, qid).status = 'failed'
+            raise HTTPException(500, {'error': {'code': 'INTERNAL_ERROR',
+                'message': 'The request could not be completed.'}}) from exc
 
 
-# ---------------------------------------------------------------------------
-# Event Turn Execution: run_event_turn (P11.10)
-# ---------------------------------------------------------------------------
-
-def run_event_turn(session_id: str, job_id: str) -> None:
-    """
-    Executes an asynchronous system event turn when a scrape job completes.
-    Complies with Phase P11.10 and Experiment E10.
-    """
-    graph = get_compiled_graph()
-    config = {
-        "configurable": {"thread_id": session_id},
-        "recursion_limit": getattr(settings, "RECURSION_LIMIT", 25),
-    }
-
+def run_event_turn(session_id, job_id):
+    """Deliver one durable completion; an AI failure leaves the event pending."""
+    from datetime import datetime, timezone
+    from Database.models.job import Job
+    from services.delivery import delivery_rows, record_delivery
     with session_lock(session_id):
-        snap = graph.get_state(config)
-        # Skip event turn if session is waiting for user confirmation
-        if snap.interrupts:
-            logger.info("Skipping event turn for session %s: pending interrupt active.", session_id)
-            return
-
-        from Database.models.job import Job
-        summary_payload = {}
-        with session_scope() as session:
-            job = session.get(Job, job_id)
-            if job:
-                summary_payload = {
-                    "job_id": job.id,
-                    "status": job.status,
-                    "records_found": job.records_found,
-                    "verified_count": job.verified_count,
-                    "duplicates_count": job.duplicates_count,
-                }
-
-        evt_message = HumanMessage(
-            content=f"[JOB EVENT] {json.dumps(summary_payload)}",
-            additional_kwargs={"hidden": True},
-        )
-
-        try:
-            out = graph.invoke(
-                {
-                    "messages": [evt_message],
-                    "event_job_id": job_id,
-                },
-                config,
-            )
-            final_snap = graph.get_state(config)
-            # Find the notification message
-            msgs = final_snap.values.get("messages", [])
-            reply_text = ""
-            for m in reversed(msgs):
-                if getattr(m, "type", None) == "ai":
-                    reply_text = getattr(m, "content", "")
-                    break
-
-            save_event_turn(session_id, job_id, query_id=None, reply_text=reply_text)
-
-        except LLMUnavailable:
-            logger.warning("LLM unavailable during event turn for job %s; leaving unseen.", job_id)
-        except Exception as e:
-            logger.error("Error executing event turn for job %s: %s", job_id, e, exc_info=True)
+        with session_scope() as db:
+            event = db.scalar(select(SessionEvent).where(SessionEvent.session_id == session_id,
+                SessionEvent.job_id == job_id).order_by((SessionEvent.status == 'pending').desc(), SessionEvent.created_at).with_for_update())
+            if not event:
+                return {'pending': True}
+            closed_session = db.get(AgentSession, session_id)
+            if closed_session and closed_session.status == 'cleared' and event.status == 'delivered':
+                return {'suppressed': True, 'alreadyDelivered': True}
+            if event.status == 'delivered':
+                return {'alreadyDelivered': True, 'queryId': event.query_id}
+            q = db.get(Query, event.query_id)
+            job = db.get(Job, job_id)
+            sess = db.get(AgentSession, session_id)
+            if sess and sess.status == 'cleared':
+                from services.completion import log_cleared_collection
+                from services.delivery import recovered_job_records
+                recovered = recovered_job_records(db, job)
+                q.parameters = {**(q.parameters or {}), 'chatCleared': True, 'requestFulfilled': False,
+                    'collectionCancelled': True, 'deliveryKind': 'recovered', 'recoveredRecords': len(recovered), 'timeoutOptions': None}
+                log_cleared_collection(db, q, event, recovered, job)
+                return q.response
+            records = delivery_rows(db, q.id)
+            initial = (q.parameters or {}).get('initialRecordsDelivered', 0)
+            outcome = {key: (q.parameters or {}).get(key) for key in (
+                'requestFulfilled', 'deliveryKind', 'matchingRecordsDelivered', 'requestedRecords',
+                'recoveredRecords', 'understoodRequest', 'collectionCancelled', 'timedOut', 'timeoutOptions')}
+            matching_count = outcome['matchingRecordsDelivered']
+            if matching_count is None:  # Older pending events contained only matching rows.
+                matching_count = len(records)
+            facts = {'status': job.status, 'recordsFound': job.records_found,
+                'recordsDelivered': len(records), 'requested': (q.parameters or {}).get('slots', {}).get('quantity'),
+                **outcome, 'initialRecordsDelivered': initial, 'requestTotalDelivered': initial + matching_count,
+                'error': job.error_message, 'records': records}
+            try:
+                timeout_instruction = (' If timedOut is true, explain that the scraper was stopped after five minutes without records. '
+                    'Ask whether the user wants to rerun it or try another compatible scraper. Give a short description of every '
+                    'source in timeoutOptions. Identify recommendedSource as the most likely compatible alternative based on '
+                    'record type and coverage, without promising results. If it is null, explain that there is no other '
+                    'compatible source; bid scrapers cannot supply contractor companies.') if outcome.get('timedOut') else ''
+                answer = invoke_llm(get_chat_model(), [SystemMessage(content='Report the completed scrape using only supplied facts. When requestFulfilled is false, explicitly say the requested requirements were not met and the displayed rows are the data recovered, which may differ in category, location or contact availability. Never describe recovered rows as matching, verified fulfillment. Explain the understoodRequest and matching count against the requested count. All recovered rows were saved with deduplication. When fulfilled, only requested matching rows are displayed. Explain source errors separately. Use concise, natural language for the user; do not expose internal field names, JSON values, identifiers or code terminology. The displayed table supplies the individual rows. Do not execute new work. Recovery choices require fresh user approval.'),
+                    HumanMessage(content=json.dumps(facts) + timeout_instruction)])
+                from agents.graph.nodes.finalize import grounded_reply
+                answer = grounded_reply(get_chat_model(), [HumanMessage(content=json.dumps(facts))], facts, answer)
+            except LLMUnavailable as exc:
+                if not outcome.get('timedOut'):
+                    raise HTTPException(503, exc.to_dict()) from exc
+                from services.recovery_options import timeout_reply
+                from langchain_core.messages import AIMessage
+                answer = AIMessage(content=timeout_reply(facts))
+            reply = normalize_content(answer.content)
+            if not reply.strip():
+                raise HTTPException(503, {'error': {'code': 'LLM_UNAVAILABLE', 'message': 'Empty completion response'}})
+            record_delivery(db, q, records)
+            q.status = 'completed'
+            q.response = {'reply': reply, 'records': records, 'total': len(records), 'queryId': q.id,
+                'showAllDetails': outcome['deliveryKind'] == 'recovered' or bool((q.parameters or {}).get('slots', {}).get('show_all_details')),
+                'jobId': job.id, 'sessionId': session_id, 'status': job.status, 'decision': q.decision,
+                **outcome, 'initialRecordsDelivered': initial, 'requestTotalDelivered': initial + matching_count}
+            db.add(AgentMessage(id=q.id + ':agent', session_id=session_id, sender='agent', role='agent',
+                text=reply, message_metadata={'queryId': q.id, 'jobId': job.id, 'records': records,
+                                             **outcome, 'showAllDetails': q.response['showAllDetails'], 'event': True}))
+            event.status, event.reply, event.delivered_at = 'delivered', reply, datetime.now(timezone.utc)
+            db.flush()
+            more = db.scalar(select(SessionEvent.id).where(SessionEvent.session_id == session_id,
+                SessionEvent.job_id == job_id, SessionEvent.status == 'pending').limit(1))
+            return {**q.response, 'morePending': bool(more)}

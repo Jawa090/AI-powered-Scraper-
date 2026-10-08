@@ -1,6 +1,6 @@
 """
 Database/normalize.py
-─────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Pure normalization functions for deduplication.
 
 All functions are stateless, idempotent, and return None for invalid input.

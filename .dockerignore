@@ -4,6 +4,7 @@
 
 # Environment & Secrets (STOP S1)
 .env*
+**/.env*
 !.env.example
 !.env.test.example
 
@@ -49,3 +50,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.log
+.audit-tools/
+.nyscr-browser-profile/
+docs/audit/

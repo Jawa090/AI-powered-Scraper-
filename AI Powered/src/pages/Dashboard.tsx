@@ -40,7 +40,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             onClick={() => onNavigate('/agent')}
             className="px-3.5 py-2 rounded-lg bg-[#2D4351] text-white hover:bg-[#20313C] text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
           >
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+            <Sparkles className="w-3.5 h-3.5 text-green-400" />
             <span>Launch AI Data Request</span>
           </button>
         </div>

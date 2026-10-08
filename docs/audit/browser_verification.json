@@ -1,0 +1,13 @@
+{
+  "browser": "Chrome",
+  "api": "real PostgreSQL preview",
+  "checks": {
+    "emailAndAdminHeadingsWithActualRows": true,
+    "adminReload": true,
+    "emailManagement": true,
+    "ownHistorySurvivesReload": true,
+    "normalUserCannotViewAdmin": true,
+    "missingDatasetShowsNoUnrelatedData": true
+  },
+  "passed": true
+}

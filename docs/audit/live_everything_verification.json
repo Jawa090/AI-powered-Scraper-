@@ -1,0 +1,110 @@
+{
+  "realProvider": true,
+  "isolatedDatabase": true,
+  "controlledRecord": true,
+  "checks": [
+    {
+      "request": "everything",
+      "slots": {
+        "city": "New York",
+        "source": null,
+        "category": "general contractor audite0ccc70fb56941f9a1d3680015321261",
+        "new_only": false,
+        "quantity": 1,
+        "us_state": "NY",
+        "has_email": true,
+        "has_phone": true,
+        "record_kind": "company",
+        "location_scope": "city",
+        "include_expired": false,
+        "show_all_details": true,
+        "detail_record_ids": [],
+        "fresh_within_days": null,
+        "category_specified": true,
+        "needs_record_choice": false
+      },
+      "sameRecord": true,
+      "fullFields": true,
+      "reply": "I found a matching verified record with both an email and a phone number.\n\n**Result:** 1 of 1 available record returned \u2014 no scraping needed.\n\n| Field | Value |\n|---|---|\n| Company | Everything audit contractor |\n| Category / Industry | general contractor audite0ccc70fb56941f9a1d3680015321261 |\n| Location | New York, NY |\n| Email | everything-check-30833f1b5c174dea871f45c1a38ee9d2@example.test |\n| Phone | +12125550101 |\n| Website | https://details.example.test |\n| Source | jwiz |\n| Status | New |\n\nThe UI shows the full stored record details. Note that the **name** field is empty in the stored record; all other requested fields (email and phone) are present as shown."
+    },
+    {
+      "request": "get me everything about it in the db",
+      "slots": {
+        "city": "New York",
+        "source": null,
+        "category": "general contractor audite0ccc70fb56941f9a1d3680015321261",
+        "new_only": false,
+        "quantity": 1,
+        "us_state": "NY",
+        "has_email": true,
+        "has_phone": true,
+        "record_kind": "company",
+        "location_scope": "city",
+        "include_expired": false,
+        "show_all_details": true,
+        "detail_record_ids": [
+          "e7f8c3c7-c226-4f09-9577-f2cadf815cb4"
+        ],
+        "fresh_within_days": null,
+        "category_specified": true,
+        "needs_record_choice": false
+      },
+      "sameRecord": true,
+      "fullFields": true,
+      "reply": "Here is the complete stored record for **Everything audit contractor** \u2014 every field currently in the database:\n\n| Field | Value |\n|---|---|\n| ID | e7f8c3c7-c226-4f09-9577-f2cadf815cb4 |\n| Record Kind | company |\n| Record Version | 1 |\n| Company | Everything audit contractor |\n| Name | *(empty)* |\n| Title | *(empty)* |\n| Category | general contractor audite0ccc70fb56941f9a1d3680015321261 |\n| Industry | general contractor audite0ccc70fb56941f9a1d3680015321261 |\n| Email | everything-check-30833f1b5c174dea871f45c1a38ee9d2@example.test |\n| Phone | +12125550101 |\n| Location | New York, NY |\n| City | New York |\n| State | NY |\n| Website | https://details.example.test |\n| Source Code | jwiz |\n| Source URL | https://example.test/everything-check-30833f1b5c174dea871f45c1a38ee9d2 |\n| Dataset ID | *(empty)* |\n| Status | New |\n| Due At | *(empty)* |\n| Assigned To | *(empty)* |\n| Assigned To Name | *(empty)* |\n| Department ID | *(empty)* |\n| Department Name | *(empty)* |\n| Last Activity | *(empty)* |\n| Company Size | *(empty)* |\n| Notes | Controlled full-record verification |\n| Created At | 2026-10-07T20:56:07.740389+05:00 |\n| Updated At | 2026-10-07T20:56:07.740389+05:00 |\n\nThat's the full record \u2014 nothing further is stored. The fields marked *(empty)* (name, title, dataset ID, due date, assignment, department, last activity, company size) genuinely have no value in the database, so I can't provide data for them."
+    },
+    {
+      "request": "show me all his information",
+      "slots": {
+        "city": "New York",
+        "source": null,
+        "category": null,
+        "new_only": false,
+        "quantity": 1,
+        "us_state": "NY",
+        "has_email": true,
+        "has_phone": true,
+        "record_kind": "company",
+        "location_scope": "city",
+        "include_expired": false,
+        "show_all_details": true,
+        "detail_record_ids": [
+          "e7f8c3c7-c226-4f09-9577-f2cadf815cb4"
+        ],
+        "fresh_within_days": null,
+        "category_specified": true,
+        "needs_record_choice": false
+      },
+      "sameRecord": true,
+      "fullFields": true,
+      "reply": "This is everything the database holds for this record \u2014 every field returned:\n\n| Field | Value |\n|---|---|\n| ID | e7f8c3c7-c226-4f09-9577-f2cadf815cb4 |\n| Record Kind | company |\n| Record Version | 1 |\n| Company | Everything audit contractor |\n| Name | *(empty)* |\n| Title | *(empty)* |\n| Category | general contractor audite0ccc70fb56941f9a1d3680015321261 |\n| Industry | general contractor audite0ccc70fb56941f9a1d3680015321261 |\n| Email | everything-check-30833f1b5c174dea871f45c1a38ee9d2@example.test |\n| Phone | +12125550101 |\n| Location | New York, NY |\n| City | New York |\n| State | NY |\n| Website | https://details.example.test |\n| Source Code | jwiz |\n| Source URL | https://example.test/everything-check-30833f1b5c174dea871f45c1a38ee9d2 |\n| Dataset ID | *(empty)* |\n| Status | New |\n| Due At | *(empty)* |\n| Assigned To | *(empty)* |\n| Assigned To Name | *(empty)* |\n| Department ID | *(empty)* |\n| Department Name | *(empty)* |\n| Last Activity | *(empty)* |\n| Company Size | *(empty)* |\n| Notes | Controlled full-record verification |\n| Created At | 2026-10-07T20:56:07.740389+05:00 |\n| Updated At | 2026-10-07T20:56:07.740389+05:00 |\n\nA quick note: this is a **company record**, so the fields are the organization's \u2014 there isn't a separate individual contact person stored (name and title are empty). The contact details available are the email and phone shown above.\n\nThat's the complete record; there's no additional information to show. The fields marked *(empty)* have no stored value."
+    },
+    {
+      "request": "Give me the complete profile for the contractor you just showed me, including every available contact channel",
+      "slots": {
+        "city": "New York",
+        "source": null,
+        "category": null,
+        "new_only": false,
+        "quantity": 1,
+        "us_state": "NY",
+        "has_email": true,
+        "has_phone": true,
+        "record_kind": "company",
+        "location_scope": "city",
+        "include_expired": false,
+        "show_all_details": true,
+        "detail_record_ids": [
+          "e7f8c3c7-c226-4f09-9577-f2cadf815cb4"
+        ],
+        "fresh_within_days": null,
+        "category_specified": true,
+        "needs_record_choice": false
+      },
+      "sameRecord": true,
+      "fullFields": true,
+      "reply": "Here's the complete profile for the contractor, with every contact channel the database holds:\n\n**Everything audit contractor** \u2014 Company Profile\n\n| Field | Value |\n|---|---|\n| ID | e7f8c3c7-c226-4f09-9577-f2cadf815cb4 |\n| Record Kind | company |\n| Record Version | 1 |\n| Company | Everything audit contractor |\n| Name | *(empty)* |\n| Title | *(empty)* |\n| Category | general contractor audite0ccc70fb56941f9a1d3680015321261 |\n| Industry | general contractor audite0ccc70fb56941f9a1d3680015321261 |\n| Location | New York, NY |\n| City | New York |\n| State | NY |\n| Status | New |\n| Notes | Controlled full-record verification |\n| Source Code | jwiz |\n| Source URL | https://example.test/everything-check-30833f1b5c174dea871f45c1a38ee9d2 |\n| Dataset ID | *(empty)* |\n| Due At | *(empty)* |\n| Assigned To | *(empty)* |\n| Assigned To Name | *(empty)* |\n| Department ID | *(empty)* |\n| Department Name | *(empty)* |\n| Last Activity | *(empty)* |\n| Company Size | *(empty)* |\n| Created At | 2026-10-07T20:56:07.740389+05:00 |\n| Updated At | 2026-10-07T20:56:07.740389+05:00 |\n\n**Available contact channels:**\n- \ud83d\udce7 Email: everything-check-30833f1b5c174dea871f45c1a38ee9d2@example.test\n- \ud83d\udcde Phone: +12125550101\n- \ud83c\udf10 Website: https://details.example.test\n\nThose three are the only contact channels stored. There is no individual contact person (name/title are empty), and no other channels (e.g., fax, social, secondary email) exist in the record. Everything above is the full extent of the stored data."
+    }
+  ],
+  "passed": true
+}

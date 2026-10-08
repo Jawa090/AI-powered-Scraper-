@@ -18,7 +18,7 @@ export const Jobs: React.FC<JobsProps> = ({ onNavigate }) => {
             <h1 className="text-xl font-bold tracking-tight text-gray-900">
               Background Job Infrastructure
             </h1>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 border">
               Admin Only
             </span>
           </div>
@@ -64,7 +64,7 @@ export const Jobs: React.FC<JobsProps> = ({ onNavigate }) => {
                     <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
                       <div
                         className={`h-full rounded-full ${
-                          job.status === 'Completed' ? 'bg-emerald-500' : 'bg-[#2D4351]'
+                          job.status === 'Completed' ? 'bg-[#26619C]' : 'bg-[#2D4351]'
                         }`}
                         style={{ width: `${job.progress}%` }}
                       />

@@ -5,8 +5,6 @@ Lead search, count, and detail tools for the LangGraph agent.
 Complies with Phase P11.5 and Experiment E1.
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 import logging
@@ -22,254 +20,120 @@ logger = logging.getLogger(__name__)
 
 @tool
 def search_leads(
-    category: Optional[str] = None,
-    city: Optional[str] = None,
-    us_state: Optional[str] = None,
-    has_email: Optional[bool] = None,
-    has_phone: Optional[bool] = None,
-    source: Optional[str] = None,
-    quantity: int = 20,
-    fresh_within_days: Optional[int] = None,
-    include_expired: bool = False,
-    page: int = 1,
-    tool_call_id: Annotated[str, InjectedToolCallId] = "",
+    category: Optional[str] = None, city: Optional[str] = None, us_state: Optional[str] = None,
+    has_email: Optional[bool] = None, has_phone: Optional[bool] = None,
+    source: Optional[str] = None, quantity: Optional[int] = None,
+    fresh_within_days: Optional[int] = None, include_expired: Optional[bool] = None,
+    record_kind: Optional[str] = None, page: int = 1, reset_filters: bool = False,
+    tool_call_id: Annotated[str, InjectedToolCallId] = '',
     state: Annotated[dict, InjectedState] = None,
 ) -> Command:
-    """Search the local verified leads database.
+    """Search verified records by trade, separate city/state, required fields and freshness.
 
-    IMPORTANT: Always call this BEFORE proposing any scrape. Returns matching leads
-    and indicates whether the database has sufficient results.
-
-    Args:
-        category: Industry, trade, or keyword (e.g. "plumbing", "electrical", "construction").
-        city: City name (e.g. "Dallas", "Brooklyn").
-        us_state: Two-letter US state code (e.g. "TX", "NY").
-        has_email: If True, only return leads with email addresses.
-        has_phone: If True, only return leads with phone numbers.
-        source: Filter by scraper source code (e.g. "bonfire", "dasny", "jwiz", "nyscr").
-        quantity: Desired number of records (1-1000; default 20 if unstated).
-        fresh_within_days: Filter to leads discovered within the last N days.
-        include_expired: If True, include expired opportunities/contracts.
-        page: Page number for pagination (1-indexed).
-
-    Returns:
-        Command updating last_search and slots state while returning compact lead results.
+    Call before any scrape proposal. Companies use record_kind=company; bids use
+    opportunity. For '10 roofing constructors from NY newyork', use roofing,
+    New York, NY, company and quantity=10. Do not broaden the location or category.
+    Existing criteria carry forward when a filter is omitted. Set reset_filters=True
+    for a new request, a switch between companies and bids, or an explicit removal
+    of earlier restrictions; then supply all filters for the new request.
     """
     from Database.controller import Repositories, session_scope
-
+    from Database.search import SearchCriteria
+    from routes.serializers import serialize_lead
     st = state or {}
-    qty = min(max(1, quantity), 1000)
-    limit = min(qty, 20)  # Compact output: <= 20 items
-    offset = max(0, (page - 1) * limit)
-
-    location = None
-    if city and us_state:
-        location = f"{city}, {us_state}"
-    elif city:
-        location = city
-    elif us_state:
-        location = us_state
-
-    items: List[Dict[str, Any]] = []
-    total_count = 0
-    err_msg = None
-
-    try:
-        with session_scope() as session:
-            lead_repo = Repositories(session).leads
-            leads, total_count = lead_repo.search_leads(
-                category=category,
-                location=location,
-                source_code=source,
-                has_email=has_email or False,
-                has_phone=has_phone or False,
-                limit=limit,
-                offset=offset,
-            )
-
-            for lead in leads:
-                org_name = lead.organization.name if lead.organization else None
-                contact_name = lead.contact.full_name if lead.contact else None
-
-                email = None
-                if lead.contact and lead.contact.emails:
-                    email = lead.contact.emails[0].email
-                elif lead.organization and lead.organization.emails:
-                    email = lead.organization.emails[0].email
-
-                phone = None
-                if lead.contact and lead.contact.phones:
-                    phone = lead.contact.phones[0].phone_raw
-                elif lead.organization and lead.organization.phones:
-                    phone = lead.organization.phones[0].phone_raw
-
-                items.append({
-                    "id": lead.id,
-                    "company": org_name,
-                    "contact": contact_name,
-                    "title": lead.title,
-                    "email": email,
-                    "phone": phone,
-                    "status": lead.status,
-                })
-    except Exception as e:
-        logger.error("search_leads execution error: %s", e, exc_info=True)
-        err_msg = str(e)
-
-    sufficient = (total_count >= qty and total_count > 0)
-    reasons = [] if sufficient else ["Insufficient verified leads matching criteria."]
-
-    slots = {
-        "category": category,
-        "city": city,
-        "us_state": us_state,
-        "quantity": qty,
-        "required_fields": {"has_email": bool(has_email), "has_phone": bool(has_phone)},
-        "source": source,
-        "fresh_within_days": fresh_within_days,
-    }
-    slots_hash = hashlib.sha256(json.dumps(slots, sort_keys=True).encode()).hexdigest()
-
-    last_search = {
-        "turn_id": st.get("turn_id", ""),
-        "slots_hash": slots_hash,
-        "total": total_count,
-        "returned": len(items),
-        "lead_ids": [it["id"] for it in items],
-        "sufficient": sufficient,
-        "reasons": reasons,
-    }
-
-    trace_entry = {
-        "tool": "search_leads",
-        "category": category,
-        "location": location,
-        "total": total_count,
-        "returned": len(items),
-        "sufficient": sufficient,
-    }
-    new_trace = list(st.get("trace", [])) + [trace_entry]
-
-    tool_result = {
-        "total": total_count,
-        "returned": len(items),
-        "sufficient": sufficient,
-        "items": items,
-        "error": err_msg,
-    }
-
-    return Command(
-        update={
-            "last_search": last_search,
-            "slots": slots,
-            "trace": new_trace,
-            "messages": [
-                ToolMessage(
-                    content=json.dumps(tool_result),
-                    tool_call_id=tool_call_id,
-                )
-            ],
-        }
-    )
+    authoritative = st.get('request_intent') == 'records'
+    from agents.graph.nodes.gather_requirements import missing_requirements
+    missing = missing_requirements(st.get('slots')) if authoritative else []
+    if missing:
+        return Command(update={'decision': 'CLARIFY', 'missing_requirements': missing, 'requirements_met': False,
+            'messages': [ToolMessage(content='Ask the user for the missing requirements before searching: ' + '; '.join(missing), tool_call_id=tool_call_id)]})
+    if (st.get('slots') or {}).get('detail_record_ids'):
+        return Command(update={'messages': [ToolMessage(content='Use get_lead for the referenced records; do not search for replacements.', tool_call_id=tool_call_id)]})
+    values = SearchCriteria.from_slots(st.get('slots') if authoritative else {} if reset_filters else st.get('slots')).model_dump()
+    for key, value in {'category': category, 'city': city, 'us_state': us_state,
+        'has_email': has_email, 'has_phone': has_phone, 'source': source,
+        'quantity': quantity, 'fresh_within_days': fresh_within_days,
+        'include_expired': include_expired, 'record_kind': record_kind}.items():
+        if value is not None and not authoritative:
+            values[key] = value
+    values['new_only'] = st.get('new_only', values.get('new_only', False))
+    criteria = SearchCriteria.model_validate(values)
+    args = criteria.model_dump()
+    args['source_code'] = args.pop('source')
+    qty = args.pop('quantity')
+    with session_scope() as session:
+        leads, total = Repositories(session).leads.search_leads(**args, user_id=st.get('user_id'),
+            limit=qty, offset=max(0, page-1)*qty)
+        items = [serialize_lead(lead) for lead in leads]
+    evidence = {'turn_id': st.get('turn_id'), 'slots_hash': criteria.fingerprint(),
+        'total': total, 'returned': len(items), 'lead_ids': [row['id'] for row in items],
+        'items': items, 'sufficient': total >= qty, 'error': None,
+        'reasons': [] if total >= qty else ['Insufficient matching records.']}
+    trace = {'tool_name': 'search_leads', 'filters': criteria.model_dump(),
+        'counts': {'available': total, 'returned': len(items)}, 'ids': evidence['lead_ids']}
+    return Command(update={'last_search': evidence, 'slots': {**(st.get('slots') or {}), **criteria.model_dump()} if authoritative else criteria.model_dump(),
+        'trace': [*st.get('trace', []), trace],
+        'messages': [ToolMessage(content=json.dumps({'total': total, 'returned': len(items),
+            'sufficient': evidence['sufficient'], 'items': items}), tool_call_id=tool_call_id)]})
 
 
 @tool
-def count_leads(
-    category: Optional[str] = None,
-    city: Optional[str] = None,
-    us_state: Optional[str] = None,
-    has_email: Optional[bool] = None,
-    has_phone: Optional[bool] = None,
-    source: Optional[str] = None,
-    group_by: Optional[str] = None,
-    state: Annotated[dict, InjectedState] = None,
-) -> Dict[str, Any]:
-    """Count matching leads in the database, with optional grouping.
+def count_leads(category: Optional[str] = None, city: Optional[str] = None, us_state: Optional[str] = None,
+    has_email: Optional[bool] = None, has_phone: Optional[bool] = None, source: Optional[str] = None,
+    record_kind: Optional[str] = None, fresh_within_days: Optional[int] = None,
+    include_expired: Optional[bool] = None, reset_filters: bool = False,
+    state: Annotated[dict, InjectedState] = None) -> dict:
+    """Count using exactly the search filters, including new-only and record kind.
 
-    Args:
-        category: Industry, trade, or keyword.
-        city: City name.
-        us_state: Two-letter US state code.
-        has_email: Filter by presence of email.
-        has_phone: Filter by presence of phone.
-        source: Filter by scraper source code.
-        group_by: Optional grouping field: 'source', 'city', 'state', 'category', or 'status'.
-
-    Returns:
-        Dict with total count and optional grouped breakdown.
+    Database failures propagate as errors and never count as zero available rows.
     """
     from Database.controller import Repositories, session_scope
-
-    location = None
-    if city and us_state:
-        location = f"{city}, {us_state}"
-    elif city:
-        location = city
-    elif us_state:
-        location = us_state
-
-    try:
-        with session_scope() as session:
-            lead_repo = Repositories(session).leads
-            _, total_count = lead_repo.search_leads(
-                category=category,
-                location=location,
-                source_code=source,
-                has_email=has_email or False,
-                has_phone=has_phone or False,
-                limit=1,
-                offset=0,
-            )
-            return {"total": total_count, "group_by": group_by, "counts": {}}
-    except Exception as e:
-        logger.error("count_leads error: %s", e)
-        return {"total": 0, "error": str(e)}
+    from Database.search import SearchCriteria
+    authoritative = (state or {}).get('request_intent') == 'records'
+    from agents.graph.nodes.gather_requirements import missing_requirements
+    missing = missing_requirements((state or {}).get('slots')) if authoritative else []
+    if missing:
+        return {'error': 'Requirements incomplete', 'missingRequirements': missing}
+    values = SearchCriteria.from_slots((state or {}).get('slots') if authoritative else {} if reset_filters else (state or {}).get('slots')).model_dump()
+    for key, value in {'category': category, 'city': city, 'us_state': us_state, 'has_email': has_email,
+        'has_phone': has_phone, 'source': source, 'record_kind': record_kind,
+        'fresh_within_days': fresh_within_days, 'include_expired': include_expired}.items():
+        if value is not None and not authoritative:
+            values[key] = value
+    values['new_only'] = (state or {}).get('new_only', values['new_only'])
+    criteria = SearchCriteria.model_validate(values)
+    args = criteria.model_dump(); args['source_code'] = args.pop('source'); args.pop('quantity')
+    with session_scope() as db:
+        _, total = Repositories(db).leads.search_leads(**args, user_id=(state or {}).get('user_id'), limit=1)
+    return {'total': total, 'criteria': criteria.model_dump()}
 
 
 @tool
-def get_lead(lead_id: str) -> Dict[str, Any]:
-    """Retrieve complete verified details for a single lead record.
-
-    Args:
-        lead_id: The unique ID of the lead.
-
-    Returns:
-        Dict containing full lead details including contact, organization, and locations.
-    """
-    from Database.controller import Repositories, session_scope
-
-    try:
-        with session_scope() as session:
-            lead = Repositories(session).leads.get_by_id(lead_id)
-            if not lead:
-                return {"error": f"Lead '{lead_id}' not found."}
-
-            org = lead.organization
-            contact = lead.contact
-
-            emails = []
-            if contact and contact.emails:
-                emails.extend([e.email for e in contact.emails])
-            if org and org.emails:
-                emails.extend([e.email for e in org.emails])
-
-            phones = []
-            if contact and contact.phones:
-                phones.extend([p.phone_raw for p in contact.phones])
-            if org and org.phones:
-                phones.extend([p.phone_raw for p in org.phones])
-
-            return {
-                "id": lead.id,
-                "title": lead.title,
-                "status": lead.status,
-                "confidence_score": float(lead.confidence_score or 0.0),
-                "organization": org.name if org else None,
-                "contact_name": contact.full_name if contact else None,
-                "emails": list(set(emails)),
-                "phones": list(set(phones)),
-                "notes": lead.notes,
-            }
-    except Exception as e:
-        logger.error("get_lead error: %s", e)
-        return {"error": str(e)}
+def get_lead(lead_id: str, tool_call_id: Annotated[str, InjectedToolCallId] = '',
+    state: Annotated[dict, InjectedState] = None) -> Command:
+    """Read a record from your search results or previously accessible deliveries."""
+    from sqlalchemy import select
+    from Database.controller import session_scope
+    from Database.models.lead import Lead
+    from Database.models.user import User
+    from services.visibility import apply_lead_scope
+    from routes.serializers import serialize_lead
+    st = state or {}
+    from agents.graph.nodes.gather_requirements import missing_requirements
+    missing = missing_requirements(st.get('slots')) if st.get('request_intent') == 'records' else []
+    if missing:
+        return Command(update={'decision': 'CLARIFY', 'messages': [ToolMessage(
+            content='Requirements incomplete: ' + '; '.join(missing), tool_call_id=tool_call_id)]})
+    targets = (st.get('slots') or {}).get('detail_record_ids') or []
+    if targets and lead_id not in targets:
+        return Command(update={'messages': [ToolMessage(content='Retrieve only the record the user referred to.', tool_call_id=tool_call_id)]})
+    item = next((r for r in (st.get('last_search') or {}).get('items', []) if r['id'] == lead_id), None)
+    if item is None:
+        with session_scope() as db:
+            user = db.get(User, st.get('user_id'))
+            lead = db.scalar(apply_lead_scope(select(Lead).where(Lead.id == lead_id), user))
+            item = serialize_lead(lead) if lead else None
+    result = item or {'error': 'Record not found in your accessible results.'}
+    return Command(update={'served_lead_ids': list(dict.fromkeys([*st.get('served_lead_ids', []), *([lead_id] if item else [])])),
+        **({'decision': 'DB'} if item else {}),
+        'messages': [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)]})

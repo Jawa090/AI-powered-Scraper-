@@ -175,7 +175,7 @@ export const Settings: React.FC = () => {
       {isAdmin && activeTab === 'roles' && (
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-6 shadow-card space-y-4">
           <h3 className="text-sm font-bold text-gray-900">Roles & Permission Matrix</h3>
-          <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-lg text-xs text-blue-900 leading-relaxed">
+          <div className="p-3 bg-white text-blue-900 border border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 rounded-lg text-xs leading-relaxed">
             Admin has global permission. Sales & Email Marketing representatives have scoped workspace access limited to direct calling and email campaigns.
           </div>
         </div>
@@ -190,7 +190,7 @@ export const Settings: React.FC = () => {
                 <span className="font-semibold text-gray-900 block">Default Reasoning Engine</span>
                 <span className="text-gray-500">DataOps Neural v4.2 Cross-Questioning Model</span>
               </div>
-              <span className="font-mono text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded">
+              <span className="font-mono text-green-600 dark:text-green-500 font-semibold bg-white border-green-200 dark:bg-black dark:border-green-800 px-2 py-0.5 rounded border">
                 Active
               </span>
             </div>
@@ -199,7 +199,7 @@ export const Settings: React.FC = () => {
                 <span className="font-semibold text-gray-900 block">Deduplication Matching Engine</span>
                 <span className="text-gray-500">Strict corporate entity & root domain matching</span>
               </div>
-              <span className="font-mono text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded">
+              <span className="font-mono text-green-600 dark:text-green-500 font-semibold bg-white border-green-200 dark:bg-black dark:border-green-800 px-2 py-0.5 rounded border">
                 Enabled
               </span>
             </div>

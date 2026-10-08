@@ -7,10 +7,12 @@ Tracks which leads were served for each user query (for admin audit trail).
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Any
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import JSON
+from sqlalchemy.dialects.postgresql import JSONB
 
 from Database.base import Base
 
@@ -31,6 +33,8 @@ class QueryResult(Base):
         primary_key=True,
     )
     rank: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    record_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    snapshot: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

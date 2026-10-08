@@ -8,8 +8,6 @@ NOTE: This tool is NOT executed by ToolNode. Calls to propose_scrape are interce
 by the graph's route_after_agent conditional edge and routed directly to validate_proposal.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Optional
 from langchain_core.tools import tool
@@ -20,10 +18,7 @@ logger = logging.getLogger(__name__)
 @tool
 def propose_scrape(
     source: str,
-    category: Optional[str] = None,
-    city: Optional[str] = None,
-    us_state: Optional[str] = None,
-    quantity: int = 20,
+    quantity: Optional[int] = None,
 ) -> dict:
     """Propose running a web scraper to collect new leads or contracts.
 
@@ -35,10 +30,11 @@ def propose_scrape(
 
     Args:
         source: Scraper source ID (e.g. "bonfire", "dasny", "jwiz", "nyscr").
-        category: Industry, trade, or keyword for the scrape.
-        city: Geographic target city (e.g. "Dallas", "New York").
-        us_state: Two-letter US state code (e.g. "TX", "NY").
-        quantity: Desired number of records to target (1-1000; default 20).
+        quantity: Missing number of matching records to collect (1-1000).
+
+    Category, city, state, record type, and required fields come from the exact
+    validated search in this turn. Do not change filters in a proposal. To change
+    or remove a filter, call search_leads again with the correct criteria first.
 
     Returns:
         Dict confirming proposal registration.
@@ -47,9 +43,6 @@ def propose_scrape(
     return {
         "status": "proposal_registered",
         "source": source,
-        "category": category,
-        "city": city,
-        "us_state": us_state,
         "quantity": quantity,
         "message": "Scrape proposal submitted for validation and user confirmation.",
     }

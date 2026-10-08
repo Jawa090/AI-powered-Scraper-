@@ -60,7 +60,7 @@ class TestDockerCompose:
 
     def test_postgres_service(self, compose_config):
         pg = compose_config["services"]["postgres"]
-        assert pg.get("image") == "pgvector/pgvector:pg15"
+        assert pg.get("image") == "pgvector/pgvector:pg16"
         assert "healthcheck" in pg
         assert "pg_isready" in str(pg["healthcheck"].get("test", []))
         assert "postgres_data" in str(pg.get("volumes", []))
@@ -104,7 +104,8 @@ class TestDockerCompose:
 
     def test_rag_service(self, compose_config):
         rag = compose_config["services"]["rag"]
-        assert "./RAG" in rag.get("build", {}).get("context", "")
+        assert rag.get("build", {}).get("context") == "."
+        assert rag.get("build", {}).get("dockerfile") == "RAG/Dockerfile"
         cmd = rag.get("command", [])
         cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
         assert "python -m RAG" in cmd_str or ["python", "-m", "RAG"] == cmd

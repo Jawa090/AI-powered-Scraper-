@@ -5,8 +5,6 @@ Knowledge Base (RAG) tools for the LangGraph agent.
 Complies with Phase P11.5.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List, Optional
 from langchain_core.tools import tool

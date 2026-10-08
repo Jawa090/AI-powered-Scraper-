@@ -28,90 +28,18 @@ const AGENT_CONFIGS: Record<
   string,
   { name: string; title: string; icon: React.ComponentType<{ className?: string }>; color: string; bg: string }
 > = {
-  data: {
-    name: 'Data Agent',
-    title: 'Lead Discovery & Ingestion',
-    icon: Database,
-    color: 'text-blue-600',
-    bg: 'bg-blue-50 border-blue-200',
-  },
-  database: {
-    name: 'Database Agent',
-    title: 'Local Repository & Index Query',
-    icon: Database,
-    color: 'text-blue-600',
-    bg: 'bg-blue-50 border-blue-200',
-  },
-  research: {
-    name: 'Research Agent',
-    title: 'Market Intelligence & Sources',
-    icon: Search,
-    color: 'text-purple-600',
-    bg: 'bg-purple-50 border-purple-200',
-  },
-  sales: {
-    name: 'Sales Agent',
-    title: 'Lead Prioritization & Scoring',
-    icon: Target,
-    color: 'text-amber-600',
-    bg: 'bg-amber-50 border-amber-200',
-  },
-  email: {
-    name: 'Email Agent',
-    title: 'Personalized Outreach Drafting',
-    icon: Mail,
-    color: 'text-rose-600',
-    bg: 'bg-rose-50 border-rose-200',
-  },
-  growth: {
-    name: 'Growth Agent',
-    title: 'Expansion Strategy & GTM',
-    icon: TrendingUp,
-    color: 'text-emerald-600',
-    bg: 'bg-emerald-50 border-emerald-200',
-  },
-  scraper: {
-    name: 'Scraper Engine',
-    title: 'Autonomous Web Extraction',
-    icon: Bot,
-    color: 'text-cyan-600',
-    bg: 'bg-cyan-50 border-cyan-200',
-  },
-  bonfire: {
-    name: 'Bonfire Agent',
-    title: 'Dallas City Hall Portal',
-    icon: Bot,
-    color: 'text-orange-600',
-    bg: 'bg-orange-50 border-orange-200',
-  },
-  dasny: {
-    name: 'DASNY Agent',
-    title: 'NY Construction Portal',
-    icon: Bot,
-    color: 'text-indigo-600',
-    bg: 'bg-indigo-50 border-indigo-200',
-  },
-  jwiz: {
-    name: 'JWiz Agent',
-    title: 'Jewish Business Directory',
-    icon: Bot,
-    color: 'text-sky-600',
-    bg: 'bg-sky-50 border-sky-200',
-  },
-  nyscr: {
-    name: 'NYSCR Agent',
-    title: 'NY State Contract Reporter',
-    icon: Bot,
-    color: 'text-teal-600',
-    bg: 'bg-teal-50 border-teal-200',
-  },
-  orchestrator: {
-    name: 'Orchestrator',
-    title: 'Pipeline Coordination',
-    icon: Bot,
-    color: 'text-indigo-600',
-    bg: 'bg-indigo-50 border-indigo-200',
-  },
+  data: { name: 'Data Agent', title: 'Lead Discovery & Ingestion', icon: Database, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  database: { name: 'Database Agent', title: 'Local Repository & Index Query', icon: Database, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  research: { name: 'Research Agent', title: 'Market Intelligence & Sources', icon: Search, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  sales: { name: 'Sales Agent', title: 'Lead Prioritization & Scoring', icon: Target, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  email: { name: 'Email Agent', title: 'Personalized Outreach Drafting', icon: Mail, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  growth: { name: 'Growth Agent', title: 'Expansion Strategy & GTM', icon: TrendingUp, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  scraper: { name: 'Scraper Engine', title: 'Autonomous Web Extraction', icon: Bot, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  bonfire: { name: 'Bonfire Agent', title: 'Dallas City Hall Portal', icon: Bot, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  dasny: { name: 'DASNY Agent', title: 'NY Construction Portal', icon: Bot, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  jwiz: { name: 'JWiz Agent', title: 'Jewish Business Directory', icon: Bot, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  nyscr: { name: 'NYSCR Agent', title: 'NY State Contract Reporter', icon: Bot, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
+  orchestrator: { name: 'Orchestrator', title: 'Pipeline Coordination', icon: Bot, color: 'text-blue-600 dark:text-blue-500', bg: 'bg-white border-blue-200 dark:bg-black dark:border-blue-800' },
 };
 
 export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizerProps> = ({
@@ -130,38 +58,38 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
     switch (collaborationStatus?.toUpperCase()) {
       case 'COMPLETED':
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/70 border border-emerald-300 px-2 py-0.5 rounded-full">
-            <CheckCircle2 className="w-3 h-3" /> Completed
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 border px-2 py-0.5 rounded-full">
+            <CheckCircle2 className="w-3 h-3 text-green-600 dark:text-green-500" /> Completed
           </span>
         );
       case 'PARTIAL':
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100/70 border border-amber-300 px-2 py-0.5 rounded-full">
-            <Clock className="w-3 h-3" /> Partial Success
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 border px-2 py-0.5 rounded-full">
+            <Clock className="w-3 h-3 text-blue-600 dark:text-blue-500" /> Partial Success
           </span>
         );
       case 'FAILED':
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-100/70 border border-rose-300 px-2 py-0.5 rounded-full">
-            <AlertCircle className="w-3 h-3" /> Pipeline Failed
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-white text-red-600 border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 border px-2 py-0.5 rounded-full">
+            <AlertCircle className="w-3 h-3 text-red-600 dark:text-red-500" /> Pipeline Failed
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-100/70 border border-indigo-300 px-2 py-0.5 rounded-full">
-            <Sparkles className="w-3 h-3" /> Multi-Agent Workflow
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 border px-2 py-0.5 rounded-full">
+            <Sparkles className="w-3 h-3 text-blue-600 dark:text-blue-500" /> Multi-Agent Workflow
           </span>
         );
     }
   };
 
   return (
-    <div className="my-3 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/40 via-white to-slate-50/50 p-3.5 shadow-sm space-y-3">
+    <div className="my-3 rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50/40 via-white to-slate-50/50 p-3.5 shadow-sm space-y-3">
       {/* Header Bar */}
-      <div className="flex items-center justify-between pb-2 border-b border-indigo-100/60">
+      <div className="flex items-center justify-between pb-2 border-b border-blue-100/60">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-200" />
+          <div className="w-6 h-6 rounded-lg bg-blue-600 text-white flex items-center justify-center">
+            <Sparkles className="w-3.5 h-3.5 text-blue-200" />
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -175,7 +103,7 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
         </div>
 
         <div className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+          <ShieldCheck className="w-3.5 h-3.5 text-green-600" />
           <span>{agentsInvolved.length || agentSteps.length} Agents Coordinated</span>
         </div>
       </div>
@@ -220,12 +148,12 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
               key={stepId}
               className={`rounded-lg border transition-all text-xs ${
                 isCompleted
-                  ? 'border-gray-200 bg-white hover:border-gray-300'
+                  ? 'border-gray-200 bg-white hover:border-gray-300 dark:bg-gray-900 dark:border-gray-800'
                   : isFailed
-                  ? 'border-rose-200 bg-rose-50/40'
+                  ? 'bg-red-50/40 border-red-200 dark:bg-red-900/10 dark:border-red-800'
                   : isBlocked
-                  ? 'border-amber-200 bg-amber-50/30'
-                  : 'border-gray-200 bg-gray-50/50'
+                  ? 'bg-blue-50/30 border-blue-200 dark:bg-blue-900/10 dark:border-blue-800'
+                  : 'border-gray-200 bg-gray-50/50 dark:bg-gray-800/50 dark:border-gray-700'
               }`}
             >
               <div
@@ -258,18 +186,18 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
                 {/* Status Indicator & Accordion Toggle */}
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {isCompleted && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Done
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 border px-2 py-0.5 rounded">
+                      <CheckCircle2 className="w-3 h-3 text-green-600 dark:text-green-500" /> Done
                     </span>
                   )}
                   {isFailed && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                      <AlertCircle className="w-3 h-3 text-rose-600" /> Failed
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-white text-red-600 border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 border px-2 py-0.5 rounded">
+                      <AlertCircle className="w-3 h-3 text-red-600 dark:text-red-500" /> Failed
                     </span>
                   )}
                   {isBlocked && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                      <Clock className="w-3 h-3 text-amber-600" /> Blocked
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 border px-2 py-0.5 rounded">
+                      <Clock className="w-3 h-3 text-blue-600 dark:text-blue-500" /> Blocked
                     </span>
                   )}
 
@@ -292,7 +220,7 @@ export const MultiAgentWorkflowVisualizer: React.FC<MultiAgentWorkflowVisualizer
                     </div>
                   )}
                   {step.error && (
-                    <div className="p-2 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10px]">
+                    <div className="p-2 rounded bg-white text-red-600 border border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 text-[10px]">
                       <strong>Error:</strong> {typeof step.error === 'string' ? step.error : JSON.stringify(step.error)}
                     </div>
                   )}

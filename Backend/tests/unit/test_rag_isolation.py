@@ -1,77 +1,60 @@
 """
-RAG Service Isolation Test
-Implements P10.7:
-Scan the AST of Backend/ and Database/ for imports of RAG,
-and of RAG/ for imports of Backend or Database -> none allowed.
+tests/unit/test_rag_isolation.py — RAG isolation test (P17.1)
+Rule 11: Backend/ and Database/ never import RAG; RAG/ never imports Backend/Database.
 """
 import ast
 from pathlib import Path
-import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-
-EXCLUDED_PARTS = {
-    "__pycache__",
-    ".pytest_cache",
-    ".git",
-    "node_modules",
-    "dist",
-    "build",
-}
+_root = Path(__file__).resolve().parent.parent.parent.parent
+_backend = _root / "Backend"
+_database = _root / "Database"
+_rag = _root / "RAG"
 
 
-def _get_imports(file_path: Path):
-    try:
-        content = file_path.read_text(encoding="utf-8")
-        tree = ast.parse(content, filename=str(file_path))
-    except Exception:
-        return []
-
-    imports = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                imports.append((node.lineno, alias.name))
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                imports.append((node.lineno, node.module))
-    return imports
-
-
-@pytest.mark.unit
-def test_rag_isolation():
-    """Verify that Backend and Database do not import RAG, and RAG does not import Backend/Database."""
-    backend_dir = PROJECT_ROOT / "Backend"
-    database_dir = PROJECT_ROOT / "Database"
-    rag_dir = PROJECT_ROOT / "RAG"
-
+def _find_imports(directory: Path, forbidden_modules: set) -> list:
+    """Find imports of forbidden modules in a directory."""
     violations = []
+    if not directory.exists():
+        return violations
 
-    # 1. Check Backend/ and Database/ for imports of RAG
-    for search_dir in (backend_dir, database_dir):
-        if not search_dir.exists():
+    for pyfile in directory.rglob("*.py"):
+        if "__pycache__" in str(pyfile):
             continue
-        for py_file in search_dir.rglob("*.py"):
-            parts = set(py_file.parts)
-            if any(p in parts for p in EXCLUDED_PARTS):
-                continue
-            for lineno, mod in _get_imports(py_file):
-                if mod == "RAG" or mod.startswith("RAG."):
-                    violations.append(f"{py_file}:{lineno} -> {mod} (Backend/Database cannot import RAG)")
+        try:
+            source = pyfile.read_text(encoding="utf-8", errors="ignore")
+            tree = ast.parse(source, filename=str(pyfile))
+        except (SyntaxError, ValueError):
+            continue
 
-    # 2. Check RAG/ for imports of Backend or Database
-    if rag_dir.exists():
-        for py_file in rag_dir.rglob("*.py"):
-            parts = set(py_file.parts)
-            if any(p in parts for p in EXCLUDED_PARTS):
-                continue
-            for lineno, mod in _get_imports(py_file):
-                if (
-                    mod == "Backend"
-                    or mod.startswith("Backend.")
-                    or mod == "Database"
-                    or mod.startswith("Database.")
-                ):
-                    violations.append(f"{py_file}:{lineno} -> {mod} (RAG cannot import Backend or Database)")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top = alias.name.split(".")[0]
+                    if top in forbidden_modules:
+                        violations.append(
+                            f"{pyfile.relative_to(_root)}:{node.lineno} imports {alias.name}"
+                        )
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                top = node.module.split(".")[0]
+                if top in forbidden_modules:
+                    violations.append(
+                        f"{pyfile.relative_to(_root)}:{node.lineno} imports from {node.module}"
+                    )
+    return violations
 
-    assert not violations, "RAG isolation violations detected:\n" + "\n".join(violations)
+
+class TestRagIsolation:
+    def test_backend_does_not_import_rag(self):
+        """Backend/ should never import RAG/ directly."""
+        violations = _find_imports(_backend, {"RAG"})
+        assert not violations, "Backend imports RAG:\n" + "\n".join(violations)
+
+    def test_database_does_not_import_rag(self):
+        """Database/ should never import RAG/ directly."""
+        violations = _find_imports(_database, {"RAG"})
+        assert not violations, "Database imports RAG:\n" + "\n".join(violations)
+
+    def test_rag_does_not_import_backend_or_database(self):
+        """RAG/ should never import Backend/ or Database/ directly."""
+        violations = _find_imports(_rag, {"Backend", "Database"})
+        assert not violations, "RAG imports Backend/Database:\n" + "\n".join(violations)

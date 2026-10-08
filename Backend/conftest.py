@@ -22,11 +22,11 @@ BACKEND_DIR = _paths.BACKEND_DIR
 PROJECT_ROOT = _paths.PROJECT_ROOT
 
 # Set DATAOPS_ENV_FILE to test env
-test_env_path = BACKEND_DIR / ".env.test"
+test_env_path = Path(os.environ.get("DATAOPS_ENV_FILE", str(BACKEND_DIR / ".env.test")))
 if not test_env_path.exists():
     test_env_path = BACKEND_DIR / ".env.test.example"
 
-os.environ["DATAOPS_ENV_FILE"] = str(test_env_path)
+os.environ.setdefault("DATAOPS_ENV_FILE", str(test_env_path))
 
 # Load test env values into os.environ
 env_vals = dotenv_values(test_env_path)
@@ -44,46 +44,33 @@ _postgres_container = None
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
-    """Start Postgres container if Docker is available, or use local DB; then run alembic."""
-    global _postgres_container
-    use_container = False
-
-    try:
-        from testcontainers.postgres import PostgresContainer
-        _postgres_container = PostgresContainer("pgvector/pgvector:pg15")
-        _postgres_container.start()
-        container_url = _postgres_container.get_connection_url()
-        # Ensure psycopg driver is specified
-        if "postgresql://" in container_url and "+psycopg" not in container_url:
-            db_url = container_url.replace("postgresql://", "postgresql+psycopg://")
-        else:
-            db_url = container_url
-        os.environ["DATABASE_URL"] = db_url
-        os.environ["CHECKPOINT_DB_URL"] = container_url.replace("+psycopg", "")
-        use_container = True
-        logger.info("Using testcontainer Postgres on %s", db_url)
-    except Exception as exc:
-        logger.info("Docker/testcontainer not available (%s); using configured test DATABASE_URL", exc)
-
-    # Run alembic upgrade head
-    try:
-        from alembic.config import Config
-        from alembic import command
-        alembic_cfg = Config(str(BACKEND_DIR / "alembic.ini"))
-        from settings import settings
-        alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
-        command.upgrade(alembic_cfg, "head")
-    except Exception as exc:
-        logger.warning("Alembic upgrade in conftest encountered: %s", exc)
-
+    """Never run a mutating test suite against a non-test database."""
+    from settings import settings
+    from sqlalchemy.engine import make_url
+    assert settings.ENVIRONMENT == 'test', 'Tests require ENVIRONMENT=test'
+    assert 'test' in (make_url(settings.DATABASE_URL).database or '').lower(), 'Refusing non-test database'
+    from alembic.config import Config
+    from alembic import command
+    config = Config(str(BACKEND_DIR / 'alembic.ini'))
+    config.set_main_option('script_location', str(BACKEND_DIR / 'migrations'))
+    command.upgrade(config, 'head')
+    from Database.seed import seed
+    seed()
+    # The allocated test DB may survive earlier runs with different credentials.
+    # Reset only its test accounts; production seeding deliberately preserves them.
+    from Database.controller import session_scope
+    from Database.models.user import User
+    from services.auth import hash_password
+    with session_scope() as db:
+        for uid, username, password in [
+            ('usr-env-admin', settings.AUTH_ADMIN_USERNAME, settings.AUTH_ADMIN_PASSWORD),
+            ('usr-env-user', settings.AUTH_USER_USERNAME, settings.AUTH_USER_PASSWORD),
+        ]:
+            account = db.get(User, uid)
+            account.username, account.password_hash, account.status = username, hash_password(password), 'Active'
+    from agents.graph.checkpointer import setup_checkpointer
+    setup_checkpointer()
     yield
-
-    if use_container and _postgres_container is not None:
-        try:
-            _postgres_container.stop()
-        except Exception:
-            pass
-
 
 # ---------------------------------------------------------------------------
 # Test Fixtures
@@ -118,17 +105,21 @@ def client():
 @pytest.fixture
 def admin_token():
     """Generates a valid Bearer token for the admin user."""
-    from settings import settings
-    token = jwt.encode({"sub": "usr-env-admin", "role": "admin"}, settings.JWT_SECRET, algorithm="HS256")
-    return token
+    from Database.controller import session_scope
+    from Database.models.user import User
+    from services.auth import create_access_token
+    with session_scope() as db:
+        return create_access_token(db.get(User, 'usr-env-admin'))
 
 
 @pytest.fixture
 def user_token():
     """Generates a valid Bearer token for a standard user."""
-    from settings import settings
-    token = jwt.encode({"sub": "usr-env-user", "role": "user"}, settings.JWT_SECRET, algorithm="HS256")
-    return token
+    from Database.controller import session_scope
+    from Database.models.user import User
+    from services.auth import create_access_token
+    with session_scope() as db:
+        return create_access_token(db.get(User, 'usr-env-user'))
 
 
 @pytest.fixture
@@ -136,12 +127,8 @@ def login(client):
     """Helper fixture to log in or obtain token."""
     def _login(username: str, password: str) -> str:
         res = client.post("/api/auth/login", json={"username": username, "password": password})
-        if res.status_code == 200:
-            return res.json().get("accessToken", "")
-        # Fallback if auth route is not yet implemented (pre-P3)
-        from settings import settings
-        role = "admin" if username.lower() == "admin" else "user"
-        return jwt.encode({"sub": f"usr-{username.lower()}", "role": role}, settings.JWT_SECRET, algorithm="HS256")
+        assert res.status_code == 200, f'Login failed: {res.status_code}'
+        return res.json()['accessToken']
     return _login
 
 
@@ -159,6 +146,8 @@ def make_user(db_session):
         u_id = f"usr-{username or uuid.uuid4().hex[:8]}"
         user = User(
             id=u_id,
+            username=username or u_id,
+            status="Active",
             name=name or username or "Test User",
             email=email or f"{u_id}@example.com",
             role=role,

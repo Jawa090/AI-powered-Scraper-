@@ -85,8 +85,8 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
             <span
               className={`text-xs font-semibold px-2 py-0.5 rounded border ${
                 backendOnline
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                  ? 'bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800'
+                  : 'bg-white text-red-600 border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800'
               }`}
             >
               {backendOnline ? 'FastAPI Connected (Port 8000)' : 'Offline / Standalone'}
@@ -120,7 +120,7 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
                   </span>
                 </div>
                 {script.file && (
-                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-indigo-600">
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-blue-600">
                     <Terminal className="w-3 h-3" />
                     <span>Backend/{script.file}</span>
                   </div>
@@ -158,7 +158,7 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
                   </span>
                 )}
                 <span className="font-mono">
-                  Success: <strong className="text-emerald-700">{script.successRate || '99%'}</strong>
+                  Success: <strong className="text-green-700">{script.successRate || '99%'}</strong>
                 </span>
               </div>
 
@@ -176,7 +176,7 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
           <div className="bg-white rounded-2xl border border-gray-200 shadow-2xl max-w-md w-full p-6 space-y-5">
             <div>
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-white text-blue-600 border border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 flex items-center justify-center">
                   <Play className="w-4 h-4 fill-current" />
                 </div>
                 <div>
@@ -184,7 +184,7 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
                     Execute {selectedScript.name}
                   </h2>
                   <p className="text-xs text-gray-500">
-                    Target Script: <code className="text-indigo-600 font-mono">{selectedScript.file || selectedScript.id}</code>
+                    Target Script: <code className="text-blue-600 font-mono">{selectedScript.file || selectedScript.id}</code>
                   </p>
                 </div>
               </div>
@@ -201,7 +201,7 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
                   max={200}
                   value={limit}
                   onChange={e => setLimit(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
                 <span className="text-[11px] text-gray-400 mt-0.5 block">
                   Recommended test run: 10 - 25 records
@@ -219,7 +219,7 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
                       value={keyword}
                       onChange={e => setKeyword(e.target.value)}
                       placeholder="e.g. contractor, plumber, electrician"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
                   </div>
 
@@ -232,7 +232,7 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
                       value={location}
                       onChange={e => setLocation(e.target.value)}
                       placeholder="e.g. new-york, brooklyn, lakewood"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
                   </div>
                 </>
@@ -252,7 +252,7 @@ export const Scripts: React.FC<ScriptsProps> = ({ onNavigate }) => {
                 type="button"
                 onClick={handleExecute}
                 disabled={running}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm disabled:opacity-50"
               >
                 {running ? (
                   <>

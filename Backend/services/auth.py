@@ -39,22 +39,8 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 def authenticate(session, username: str, password: str) -> User | None:
-    # 1) env admin 
-    if username.lower() == settings.AUTH_ADMIN_USERNAME.lower():
-        if hmac.compare_digest(password, settings.AUTH_ADMIN_PASSWORD):
-            return session.query(User).filter(User.id == ENV_ADMIN_ID).first()
-        return None
-    
-    # 2) env user
-    if username.lower() == settings.AUTH_USER_USERNAME.lower():
-        if hmac.compare_digest(password, settings.AUTH_USER_PASSWORD):
-            return session.query(User).filter(User.id == ENV_USER_ID).first()
-        return None
-    
-    # 3) DB users
     user = session.query(User).filter(
         User.username.ilike(username),
-        User.auth_source == 'db',
         User.status == 'Active'
     ).first()
     
@@ -68,7 +54,7 @@ def create_access_token(user: User) -> str:
         "sub": user.id,
         "role": user.role,
         "iat": now,
-        "exp": now + timedelta(days=1)
+        "exp": now + timedelta(hours=8)
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -93,36 +79,19 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 
-def enforce_scrape_limit(session, user_id: str) -> None:
-    limit = settings.SCRAPES_PER_HOUR
-    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
-    
-    count = session.query(Job).filter(
-        Job.created_by == user_id,
-        Job.created_at >= one_hour_ago
-    ).count()
-    
-    if count >= limit:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS, 
-            detail=f"Rate limit exceeded: max {limit} scrapes per hour."
-        )
-
 def sync_env_users(session) -> None:
-    for user_id, role, username in [
-        (ENV_ADMIN_ID, "admin", settings.AUTH_ADMIN_USERNAME),
-        (ENV_USER_ID, "user", settings.AUTH_USER_USERNAME)
+    """Create or migrate built-ins once, preserving resets and disabled status."""
+    for uid, role, username, password in [
+        (ENV_ADMIN_ID, 'admin', settings.AUTH_ADMIN_USERNAME, settings.AUTH_ADMIN_PASSWORD),
+        (ENV_USER_ID, 'user', settings.AUTH_USER_USERNAME, settings.AUTH_USER_PASSWORD),
     ]:
-        user = session.get(User, user_id)
+        user = session.get(User, uid)
         if not user:
-            user = User(id=user_id)
+            user = User(id=uid, username=username, name=username, role=role, status='Active',
+                department_id='dept-default', role_title='Built-in account', auth_source='db')
             session.add(user)
-        user.username = username
-        user.name = username
-        user.email = None
-        user.role = role
-        user.department_id = "dept-default"
-        user.auth_source = "env"
-        user.password_hash = None
-        user.status = "Active"
-        user.role_title = "Built-in account"
+        if not user.password_hash:
+            user.password_hash = hash_password(password)
+        user.auth_source = 'db'
+        if role == 'user' and not user.email:
+            user.email = settings.AUTH_USER_EMAIL or (username if '@' in username else None)

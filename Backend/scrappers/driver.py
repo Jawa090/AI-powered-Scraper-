@@ -26,14 +26,10 @@ def get_chrome_options(headless: bool = True) -> Options:
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
-    options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
     return options
 
 
-def make_driver(headless: bool = True) -> webdriver.Remote | webdriver.Chrome:
+def make_driver(headless: bool = True, debugger_address: str | None = None) -> webdriver.Remote | webdriver.Chrome:
     """
     Factory function creating a configured Selenium WebDriver.
 
@@ -41,10 +37,14 @@ def make_driver(headless: bool = True) -> webdriver.Remote | webdriver.Chrome:
     - 'remote': connects to standalone Chrome grid at settings.SELENIUM_REMOTE_URL
     - 'local': creates local Chrome instance using Selenium Manager (no webdriver-manager)
     """
-    options = get_chrome_options(headless=headless)
+    options = Options() if debugger_address else get_chrome_options(headless=headless)
+    if debugger_address:
+        options.debugger_address = debugger_address
 
     mode = settings.SELENIUM_MODE.lower() if settings.SELENIUM_MODE else "local"
 
+    if debugger_address and mode != 'local':
+        raise ValueError('An existing debugging browser requires SELENIUM_MODE=local.')
     if mode == "remote":
         remote_url = settings.SELENIUM_REMOTE_URL
         if not remote_url:
@@ -56,20 +56,42 @@ def make_driver(headless: bool = True) -> webdriver.Remote | webdriver.Chrome:
         driver = webdriver.Chrome(options=options)
 
     # Configure anti-detection script injection
-    try:
-        driver.execute_cdp_cmd(
-            "Page.addScriptToEvaluateOnNewDocument",
-            {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
-        )
-    except Exception as e:
-        logger.debug("Failed to set CDP webdriver property: %s", e)
+    if not debugger_address:
+        try:
+            driver.execute_cdp_cmd(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
+            )
+        except Exception as e:
+            logger.debug("Failed to set CDP webdriver property: %s", e)
 
     # Enforce explicit timeouts
     driver.set_page_load_timeout(45)
-    driver.implicitly_wait(10)
     driver.set_script_timeout(30)
 
     return driver
+
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
+
+def wait_css(driver: WebDriver, css: str, timeout: int = 15) -> WebElement:
+    """Wait for an element to be present and return it, or raise TimeoutException."""
+    return WebDriverWait(driver, timeout).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, css))
+    )
+
+def find_or_none(driver: WebDriver | WebElement, by: str, selector: str) -> Optional[WebElement]:
+    """Find an element or return None immediately."""
+    try:
+        return driver.find_element(by, selector)
+    except NoSuchElementException:
+        return None
+
 
 
 def retry_driver_call(

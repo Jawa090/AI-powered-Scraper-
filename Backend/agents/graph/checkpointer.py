@@ -22,7 +22,7 @@ _raw_url = settings.CHECKPOINT_DB_URL
 pool = ConnectionPool(
     conninfo=_raw_url,
     max_size=10,
-    open=True,
+    open=False,
     kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": 0},
 )
 
@@ -33,7 +33,10 @@ checkpointer = PostgresSaver(pool)
 def setup_checkpointer() -> None:
     """Initialize checkpoint tables in PostgreSQL. Idempotent."""
     try:
+        if pool.closed:
+            pool.open()
         checkpointer.setup()
+
         logger.info("LangGraph PostgresSaver checkpointer initialized successfully.")
     except Exception as e:
         logger.error("Failed to setup PostgresSaver checkpointer: %s", e, exc_info=True)

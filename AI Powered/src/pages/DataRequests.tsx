@@ -26,7 +26,7 @@ export const DataRequests: React.FC<DataRequestsProps> = ({ onNavigate }) => {
           onClick={() => onNavigate('/agent')}
           className="px-3.5 py-2 rounded-lg bg-[#2D4351] text-white hover:bg-[#20313C] text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
         >
-          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+          <Sparkles className="w-3.5 h-3.5 text-green-400" />
           <span>New AI Data Request</span>
         </button>
       </div>
@@ -70,7 +70,7 @@ export const DataRequests: React.FC<DataRequestsProps> = ({ onNavigate }) => {
                     <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
                       <div
                         className={`h-full rounded-full ${
-                          job.status === 'Completed' ? 'bg-emerald-500' : 'bg-[#2D4351]'
+                          job.status === 'Completed' ? 'bg-[#26619C]' : 'bg-[#2D4351]'
                         }`}
                         style={{ width: `${Math.min(100, job.progress)}%` }}
                       />

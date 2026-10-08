@@ -119,24 +119,24 @@ async def proxy_rag_request(
             )
 
     except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as exc:
-        logger.warning("RAG proxy communication error to %s: %s", target_url, exc)
+        logger.warning("RAG proxy communication error")
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={
                 "error": {
                     "code": "RAG_UNREACHABLE",
-                    "message": f"RAG service at {target_url} is unreachable",
+                    "message": "RAG service is unreachable.",
                 }
             },
         )
     except Exception as exc:
-        logger.error("RAG proxy unexpected error: %s", exc)
+        logger.error("RAG proxy unexpected error")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": {
                     "code": "RAG_PROXY_ERROR",
-                    "message": f"Proxy request failed: {exc}",
+                    "message": "Proxy request failed.",
                 }
             },
         )

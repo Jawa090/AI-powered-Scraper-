@@ -1,6 +1,6 @@
 """
 Backend/services/ingest.py
-──────────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Duplicate-free ingestion service for scraped leads.
 Implements Phase P5:
 - upsert_leads(session, records, *, dataset_id, scrape_run_id, source_id, department_id)
@@ -13,12 +13,14 @@ Implements Phase P5:
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -132,7 +134,7 @@ def upsert_leads(
     valid_source_id: Optional[str] = None
     if source_id:
         src_row = session.execute(
-            select(Source.id).where(or_(Source.id == source_id, Source.code == source_id.upper()))
+            select(Source.id).where(or_(Source.id == source_id, func.lower(Source.code) == source_id.lower()))
         ).first()
         if src_row:
             valid_source_id = src_row[0]
@@ -162,9 +164,7 @@ def upsert_leads(
             valid_scrape_run_id = sr_row[0]
 
     # Pre-cache known sources by id
-    valid_sources_cache: Set[str] = {
-        s[0] for s in session.execute(select(Source.id)).fetchall()
-    }
+    valid_sources_cache = {code.lower(): sid for sid, code in session.execute(select(Source.id, Source.code)).all()}
 
     # Master map of record index -> lead_id to maintain input order
     input_to_lead_id: Dict[int, Optional[str]] = {}
@@ -234,7 +234,7 @@ def _process_batch_with_retry(
             logger.error("Error ingesting batch at offset %d: %s", batch_offset, exc)
             result.failed += len(batch)
             result.errors.append(f"Batch offset {batch_offset} failed: {exc}")
-            raise
+            break
 
 
 def _process_batch(
@@ -259,6 +259,10 @@ def _process_batch(
     merged_items_by_key: Dict[str, Dict[str, Any]] = {}
     key_to_input_indices: Dict[str, List[int]] = {}
 
+    # Serialize observations sharing the same source identifier before resolving aliases.
+    aliases = sorted({str(_get(r, 'source_code') or source_id) + ':' + str(_get(r, 'external_id') or '') for r in batch})
+    for alias in aliases:
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": "ingest-source:" + alias})
     for idx_in_batch, rec in enumerate(batch):
         global_idx = batch_offset + idx_in_batch
 
@@ -386,6 +390,11 @@ def _process_batch(
             fingerprint=fp,
         )
 
+        if src_code and ext_id:
+            alias_key = session.scalar(select(Lead.identity_key).join(LeadSource, LeadSource.lead_id == Lead.id).where(
+                LeadSource.source_code == src_code, LeadSource.external_id == str(ext_id)))
+            if alias_key:
+                id_key = alias_key
         if not id_key:
             local_skipped += 1
             local_errors.append(
@@ -451,13 +460,15 @@ def _process_batch(
         return
 
     merged_items = list(merged_items_by_key.values())
+    for key in sorted(merged_items_by_key):
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": "ingest-identity:" + key})
 
     # Helper to resolve per-item source_id
     def resolve_source_id(item_src: Optional[str]) -> Optional[str]:
         if source_id:
             return source_id
         if item_src and item_src.lower() in valid_sources_cache:
-            return item_src.lower()
+            return valid_sources_cache[item_src.lower()]
         return None
 
     # Step 2: Organizations Upsert
@@ -683,8 +694,9 @@ def _process_batch(
     # Documented Method: Pre-select existing identity_keys in the same transaction
     # to deterministically identify inserts vs updates.
     batch_keys = [item["identity_key"] for item in merged_items]
-    existing_keys_stmt = select(Lead.identity_key).where(Lead.identity_key.in_(batch_keys))
-    existing_keys: Set[str] = set(session.scalars(existing_keys_stmt).all())
+    old_rows = {row.identity_key: row for row in session.scalars(select(Lead).where(Lead.identity_key.in_(batch_keys)).with_for_update()).all()}
+    existing_keys = set(old_rows)
+    material_changes = set()
 
     lead_values = []
     for item in merged_items:
@@ -693,6 +705,24 @@ def _process_batch(
         c_name = item.get("contact_name")
         c_id = contact_map.get((org_id, c_name.strip().lower())) if (c_name and c_name.strip()) else None
 
+        previous = old_rows.get(id_k)
+        payload = dict(previous.lead_metadata or {}) if previous else {}
+        incoming = {**(item.get('extra') or {}), 'category': item.get('category'), 'city': item.get('city'),
+            'state': item.get('norm_state'), 'email': item.get('norm_email'), 'phone': item.get('norm_phone') or item.get('phone'),
+            'website': item.get('website'), 'organization_name': item.get('organization_name'),
+            'contact_name': item.get('contact_name'), 'source_url': item.get('source_url')}
+        for field, value in incoming.items():
+            if value not in (None, '', [], {}):
+                payload[field] = value
+        stable = {k: v for k, v in payload.items() if k not in {'search_keyword', 'search_location', 'source_url'}}
+        stable.update({'title': item.get('title') or (previous.title if previous else None),
+            'description': item.get('description') or (previous.notes if previous else None),
+            'due_at': str(item.get('due_at') or (previous.due_at if previous else '') or '')})
+        content_hash = hashlib.sha256(json.dumps(stable, sort_keys=True, default=str).encode()).hexdigest()
+        changed = previous is not None and previous.content_hash != content_hash
+        if changed:
+            material_changes.add(id_k)
+        version = (previous.content_version or 1) + int(changed) if previous else 1
         lead_values.append({
             "id": str(uuid.uuid4()),
             "identity_key": id_k,
@@ -709,7 +739,10 @@ def _process_batch(
             "title": item.get("title"),
             "notes": item.get("description"),
             "due_at": item.get("due_at"),
-            "lead_metadata": item.get("extra") if item.get("extra") else None,
+            "lead_metadata": payload,
+            "record_kind": item.get("kind") or "company",
+            "category": payload.get("category"), "city": payload.get("city"), "us_state": payload.get("state"),
+            "source_url": payload.get("source_url"), "content_hash": content_hash, "content_version": version,
             "first_seen_at": func.now(),
             "last_seen_at": func.now(),
             "created_at": func.now(),
@@ -723,15 +756,16 @@ def _process_batch(
     lead_stmt = lead_stmt.on_conflict_do_update(
         index_elements=["identity_key"],
         set_={
+            **{field: getattr(lead_stmt.excluded, field) for field in ['record_kind', 'category', 'city', 'us_state', 'source_url', 'content_hash', 'content_version']},
             "last_seen_at": func.now(),
             "scrape_run_id": func.coalesce(lead_stmt.excluded.scrape_run_id, Lead.scrape_run_id),
             "department_id": func.coalesce(Lead.department_id, lead_stmt.excluded.department_id),
             "due_at": func.coalesce(lead_stmt.excluded.due_at, Lead.due_at),
-            "title": func.coalesce(lead_stmt.excluded.title, Lead.title),
-            "notes": func.coalesce(lead_stmt.excluded.notes, Lead.notes),
+            "title": func.coalesce(func.nullif(lead_stmt.excluded.title, ''), Lead.title),
+            "notes": func.coalesce(func.nullif(lead_stmt.excluded.notes, ''), Lead.notes),
             "lead_metadata": func.coalesce(lead_stmt.excluded.lead_metadata, Lead.lead_metadata),
             "organization_id": func.coalesce(Lead.organization_id, lead_stmt.excluded.organization_id),
-            "contact_id": func.coalesce(Lead.contact_id, lead_stmt.excluded.contact_id),
+            "contact_id": func.coalesce(lead_stmt.excluded.contact_id, Lead.contact_id),
             "source_id": func.coalesce(Lead.source_id, lead_stmt.excluded.source_id),
             "updated_at": func.now(),
         },
@@ -782,7 +816,9 @@ def _process_batch(
                 seen_ls.add(ls_key)
                 uniq_ls.append(ls)
         uniq_ls.sort(key=lambda x: (x["source_code"], x["external_id"]))
-        ls_stmt = pg_insert(LeadSource).values(uniq_ls).on_conflict_do_nothing()
+        ls_stmt = pg_insert(LeadSource).values(uniq_ls)
+        ls_stmt = ls_stmt.on_conflict_do_update(index_elements=['source_code', 'external_id'],
+            set_={'seen_at': func.now(), 'source_url': func.coalesce(ls_stmt.excluded.source_url, LeadSource.source_url)})
         session.execute(ls_stmt)
 
     if dataset_records_to_insert:
@@ -803,8 +839,10 @@ def _process_batch(
     batch_unchanged = 0
 
     for k in batch_keys:
-        if k in existing_keys:
+        if k in material_changes:
             batch_updated += 1
+        elif k in existing_keys:
+            batch_unchanged += 1
         else:
             batch_inserted += 1
 

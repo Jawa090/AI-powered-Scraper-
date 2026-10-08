@@ -3,6 +3,7 @@ RAG Service FastAPI Route Handlers
 Implements CONTRACT.md v1 and P10.4 endpoints.
 """
 import os
+import hmac
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -17,8 +18,8 @@ router = APIRouter()
 def verify_service_token(
     x_rag_service_token: Optional[str] = Header(None, alias="X-RAG-Service-Token"),
 ) -> None:
-    expected = os.environ.get("RAG_SERVICE_TOKEN", "rag-secret-token-change-in-production")
-    if not x_rag_service_token or x_rag_service_token != expected:
+    expected = os.environ.get("RAG_SERVICE_TOKEN", "")
+    if not expected or not x_rag_service_token or not hmac.compare_digest(x_rag_service_token, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": {"code": "unauthorized", "message": "Invalid or missing X-RAG-Service-Token"}},
@@ -73,9 +74,8 @@ def search(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": {"code": "internal_error", "message": str(exc)}},
+            detail={"error": {"code": "internal_error", "message": "Internal search error."}},
         )
-
 
 # ---------------------------------------------------------------------------
 # Documents & Ingestion (Admin only)
@@ -111,7 +111,7 @@ def create_document(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": {"code": "ingest_failed", "message": str(exc)}},
+            detail={"error": {"code": "ingest_failed", "message": "Ingest failed."}},
         )
 
 
@@ -207,10 +207,10 @@ def bulk_chunks(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": {"code": "bad_request", "message": str(exc)}},
+            detail={"error": {"code": "bad_request", "message": "Bad request data."}},
         )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": {"code": "bulk_insert_failed", "message": str(exc)}},
+            detail={"error": {"code": "bulk_insert_failed", "message": "Bulk insert failed."}},
         )

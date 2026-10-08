@@ -1,0 +1,11 @@
+{
+  "source": "nyscr",
+  "mode": "live",
+  "ready": true,
+  "params": {
+    "limit": 2,
+    "timeout_s": 45
+  },
+  "errorType": "LoginFailed",
+  "error": "Login failed: Username field is still visible."
+}

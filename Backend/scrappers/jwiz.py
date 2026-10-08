@@ -37,23 +37,26 @@ Profile URL
 
 from __future__ import annotations
 
-import csv
+
 import logging
 import math
 import re
 import sys
 import time
-
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Iterator, Dict, Any, List, Optional, Tuple
 from urllib.parse import quote_plus, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup, Tag
 from requests.adapters import HTTPAdapter
-from typing import Iterator, Dict, Any, List, Optional
-from scrappers.base import BaseScraper, ScrapeParams, ScrapeContext, ScraperMeta, StandardRecord, RawRecord
+from urllib3.util.retry import Retry
+
+from scrappers.base import BaseScraper, ScrapeParams, ScrapeContext, ScraperMeta, StandardRecord, RawRecord, InvalidScrapeParams
+from settings import settings
+
+logger = logging.getLogger(__name__)
 
 def build_location_slug(params: ScrapeParams) -> str:
     """Derive search location slug from city, us_state, or raw location."""
@@ -61,9 +64,11 @@ def build_location_slug(params: ScrapeParams) -> str:
         return f"{params.city.strip()}-{params.us_state.strip()}".lower().replace(" ", "-")
     if params.city:
         return params.city.strip().lower().replace(" ", "-")
+    if params.us_state:
+        return params.us_state.strip().lower()
     if params.location:
         return params.location.strip().lower().replace(",", "").replace(" ", "-")
-    return "new-york"
+    raise InvalidScrapeParams("Location (city, state, or raw location) is required for JWiz scraper.")
 
 # ============================================================
 # CONFIGURATION
@@ -84,12 +89,6 @@ PROFILE_DELAY = 1.0
 
 MAX_RETRIES = 3
 
-MASTER_FILE = Path("master_leads.csv")
-
-LOG_DIR = Path("logs")
-
-NOT_FOUND = "Not Found"
-
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -97,21 +96,7 @@ USER_AGENT = (
 )
 
 
-# ============================================================
-# FINAL OUTPUT SCHEMA
-# ============================================================
 
-OUTPUT_FIELDS = [
-    "Company Name",
-    "City",
-    "State",
-    "Email",
-    "Phone",
-    "LinkedIn/Social",
-    "Residential/Commercial/Both",
-    "Lead Priority",
-    "Profile URL",
-]
 
 
 # ============================================================
@@ -536,10 +521,13 @@ class Lead:
     source_url: str = ""
 
     source_category: str = ""
+    description: str = ""
 
     source_keyword: str = ""
 
     source_location: str = ""
+
+    website: str = ""
 
 
 # ============================================================
@@ -958,6 +946,9 @@ def extract_location_line(
     We DO NOT use arbitrary surrounding description text.
     """
 
+    address = card.select_one('.mic-info')
+    if address:
+        return clean_text(address.get_text(' ', strip=True))
     text = card.get_text(
         "\n",
         strip=True,
@@ -1038,6 +1029,13 @@ def extract_city_state(
 
     if not location:
         return "", ""
+
+    # Current cards often omit ZIP codes; preserve their observed city/state.
+    match = re.search(r'^(.*?),\s*([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?\s*$', location, re.I)
+    if match and match.group(2).upper() in STATE_CODES:
+        return extract_city(match.group(1)), STATE_CODES[match.group(2).upper()]
+    if location.upper() in STATE_CODES:
+        return '', STATE_CODES[location.upper()]
 
     # --------------------------------------------------------
     # STATE ABBREVIATION
@@ -1415,7 +1413,7 @@ def is_blocked_social(
 def enrich_profile(
     client: HTTPClient,
     lead: Lead,
-) -> None:
+) -> bool:
 
     """
     PROFILE PAGE IS ENRICHMENT ONLY.
@@ -1430,7 +1428,7 @@ def enrich_profile(
     """
 
     if not lead.profile_url:
-        return
+        return True
 
     time.sleep(
         PROFILE_DELAY
@@ -1441,13 +1439,20 @@ def enrich_profile(
     )
 
     if response is None:
-        return
+        return False
 
     soup = BeautifulSoup(
         response.text,
         "html.parser",
     )
 
+    # --------------------------------------------------------
+    # CATEGORY VERIFICATION
+    # --------------------------------------------------------
+    categories = [a.get_text(' ', strip=True) for a in soup.select('a.green-link[href*="/search/everywhere/"]')]
+    lead.source_category = '; '.join(dict.fromkeys(categories))
+    description = soup.select_one('meta[name="description"]')
+    lead.description = description.get('content', '').strip() if description else ''
     # --------------------------------------------------------
     # EMAIL
     # --------------------------------------------------------
@@ -1490,6 +1495,16 @@ def enrich_profile(
         )
 
     # --------------------------------------------------------
+    # WEBSITE
+    # --------------------------------------------------------
+
+    for link in soup.find_all("a", href=True):
+        href = link["href"].strip()
+        if href.startswith("http") and "jwiz.com" not in href.lower() and "facebook.com" not in href.lower() and "twitter.com" not in href.lower() and "instagram.com" not in href.lower():
+            lead.website = href
+            break
+
+    # --------------------------------------------------------
     # IMPORTANT:
     #
     # NO COMPANY NAME EXTRACTION HERE.
@@ -1500,6 +1515,8 @@ def enrich_profile(
     #
     # Company Name was already captured from the search card.
     # --------------------------------------------------------
+
+    return True
 
 
 def extract_profile_email(
@@ -1681,6 +1698,9 @@ def validate_company_name(
     return True
 
 
+# Missing source values remain null in legacy exports.
+NOT_FOUND = None
+
 def validate_lead(
     lead: Lead,
 ) -> bool:
@@ -1732,16 +1752,16 @@ def calculate_priority(
 
     score = 0
 
-    if lead.email != NOT_FOUND:
+    if lead.email:
         score += 2
 
-    if lead.phone != NOT_FOUND:
+    if lead.phone:
         score += 2
 
-    if lead.city != NOT_FOUND:
+    if lead.city:
         score += 1
 
-    if lead.profile_url != NOT_FOUND:
+    if lead.profile_url:
         score += 1
 
     if score >= 5:
@@ -1827,943 +1847,16 @@ def make_fallback_key(
     return ""
 
 
-class MasterStore:
 
-    def __init__(
-        self,
-        path: Path,
-    ):
-
-        self.path = path
-
-        self.profile_keys = set()
-
-        self.fallback_keys = set()
-
-        self.create_file()
-
-        self.load()
-
-
-    def create_file(self):
-
-        if self.path.exists():
-            return
-
-        with self.path.open(
-            "w",
-            newline="",
-            encoding="utf-8-sig",
-        ) as file:
-
-            writer = csv.DictWriter(
-                file,
-                fieldnames=OUTPUT_FIELDS,
-            )
-
-            writer.writeheader()
-
-
-    def load(self):
-
-        if not self.path.exists():
-            return
-
-        with self.path.open(
-            "r",
-            newline="",
-            encoding="utf-8-sig",
-        ) as file:
-
-            reader = csv.DictReader(
-                file
-            )
-
-            for row in reader:
-
-                profile = row.get(
-                    "Profile URL",
-                    "",
-                )
-
-                if profile:
-                    key = make_profile_key(
-                        profile
-                    )
-
-                    if key:
-                        self.profile_keys.add(
-                            key
-                        )
-
-                fallback = make_fallback_key(
-                    row.get(
-                        "Company Name",
-                        "",
-                    ),
-                    row.get(
-                        "Phone",
-                        "",
-                    ),
-                )
-
-                if fallback:
-                    self.fallback_keys.add(
-                        fallback
-                    )
-
-
-    def exists(
-        self,
-        lead: Lead,
-    ) -> bool:
-
-        if lead.profile_url:
-
-            key = make_profile_key(
-                lead.profile_url
-            )
-
-            if key in self.profile_keys:
-                return True
-
-        fallback = make_fallback_key(
-            lead.company_name,
-            lead.phone,
-        )
-
-        if fallback in self.fallback_keys:
-            return True
-
-        return False
-
-
-    def append(
-        self,
-        records: List[dict],
-    ):
-
-        if not records:
-            return
-
-        with self.path.open(
-            "a",
-            newline="",
-            encoding="utf-8-sig",
-        ) as file:
-
-            writer = csv.DictWriter(
-                file,
-                fieldnames=OUTPUT_FIELDS,
-            )
-
-            for record in records:
-                writer.writerow(record)
-
-        for record in records:
-
-            profile = record.get(
-                "Profile URL",
-                "",
-            )
-
-            if profile:
-                key = make_profile_key(
-                    profile
-                )
-
-                if key:
-                    self.profile_keys.add(
-                        key
-                    )
-
-            fallback = make_fallback_key(
-                record.get(
-                    "Company Name",
-                    "",
-                ),
-                record.get(
-                    "Phone",
-                    "",
-                ),
-            )
-
-            if fallback:
-                self.fallback_keys.add(
-                    fallback
-                )
-
-
-# ============================================================
-# SCRAPER
-# ============================================================
-
-class LegacyJWizScraper:
-
-    def __init__(
-        self,
-        client: HTTPClient,
-        store: MasterStore,
-        target: int,
-        locations: List[str],
-        categories: List[Category],
-    ):
-
-        self.client = client
-
-        self.store = store
-
-        self.target = target
-
-        self.locations = locations
-
-        self.categories = categories
-
-        self.records = []
-
-        self.seen_profiles = set()
-
-        self.seen_fallback = set()
-
-        self.raw_results = 0
-
-        self.duplicates = 0
-
-        self.rejected = 0
-
-        self.pages = 0
-
-        self.profile_pages = 0
-
-
-    def target_reached(self):
-
-        return (
-            len(self.records)
-            >= self.target
-        )
-
-
-    def run(self):
-
-        for location in self.locations:
-
-            if self.target_reached():
-                break
-
-            for category in self.categories:
-
-                if self.target_reached():
-                    break
-
-                for keyword in category.keywords:
-
-                    if self.target_reached():
-                        break
-
-                    self.scrape_search(
-                        location,
-                        category,
-                        keyword,
-                    )
-
-
-    def scrape_search(
-        self,
-        location: str,
-        category: Category,
-        keyword: str,
-    ):
-
-        offset = 0
-
-        url = build_search_url(
-            location,
-            keyword,
-            offset,
-        )
-
-        response = self.client.get(
-            url
-        )
-
-        if response is None:
-            return
-
-        soup = BeautifulSoup(
-            response.text,
-            "html.parser",
-        )
-
-        total = get_result_count(
-            soup
-        )
-
-        if total is None:
-            total_pages = 1
-        else:
-            total_pages = max(
-                1,
-                math.ceil(
-                    total
-                    / RESULTS_PER_PAGE
-                ),
-            )
-
-        self.process_page(
-            soup,
-            location,
-            category,
-            keyword,
-            offset,
-            url,
-        )
-
-        if self.target_reached():
-            return
-
-        for page in range(
-            1,
-            total_pages,
-        ):
-
-            if self.target_reached():
-                return
-
-            time.sleep(
-                SEARCH_DELAY
-            )
-
-            offset = (
-                page
-                * RESULTS_PER_PAGE
-            )
-
-            url = build_search_url(
-                location,
-                keyword,
-                offset,
-            )
-
-            response = self.client.get(
-                url
-            )
-
-            if response is None:
-                continue
-
-            soup = BeautifulSoup(
-                response.text,
-                "html.parser",
-            )
-
-            self.process_page(
-                soup,
-                location,
-                category,
-                keyword,
-                offset,
-                url,
-            )
-
-
-    def process_page(
-        self,
-        soup: BeautifulSoup,
-        location: str,
-        category: Category,
-        keyword: str,
-        offset: int,
-        source_url: str,
-    ):
-
-        cards = find_result_cards(
-            soup
-        )
-
-        self.pages += 1
-
-        self.raw_results += len(
-            cards
-        )
-
-        logging.info(
-            "PAGE | location=%s | "
-            "keyword=%s | offset=%s | "
-            "cards=%s",
-            location,
-            keyword,
-            offset,
-            len(cards),
-        )
-
-        for card in cards:
-
-            if self.target_reached():
-                return
-
-            lead = self.parse_card(
-                card,
-                location,
-                category,
-                keyword,
-                source_url,
-            )
-
-            if lead is None:
-                continue
-
-            self.process_lead(
-                lead,
-                category,
-            )
-
-
-    def parse_card(
-        self,
-        card: Tag,
-        location: str,
-        category: Category,
-        keyword: str,
-        source_url: str,
-    ) -> Optional[Lead]:
-
-        # ========================================================
-        # COMPANY NAME
-        # ========================================================
-
-        company = extract_company_name(
-            card
-        )
-
-        if not company:
-
-            self.rejected += 1
-
-            logging.warning(
-                "REJECTED | "
-                "No company name | %s",
-                source_url,
-            )
-
-            return None
-
-        # ========================================================
-        # LOCATION
-        # ========================================================
-
-        location_line = (
-            extract_location_line(
-                card
-            )
-        )
-
-        city, state = (
-            extract_city_state(
-                location_line
-            )
-        )
-
-        # ========================================================
-        # PHONE
-        # ========================================================
-
-        phone = extract_phone(
-            card
-        )
-
-        # ========================================================
-        # EMAIL
-        # ========================================================
-
-        email = extract_email(
-            card
-        )
-
-        # ========================================================
-        # SOCIAL
-        # ========================================================
-
-        social = extract_social(
-            card
-        )
-
-        # ========================================================
-        # PROFILE
-        # ========================================================
-
-        profile_url = (
-            extract_profile_url(
-                card
-            )
-        )
-
-        return Lead(
-            company_name=company,
-            city=city,
-            state=state,
-            email=email,
-            phone=phone,
-            social=social,
-            profile_url=profile_url,
-            source_url=source_url,
-            source_category=category.name,
-            source_keyword=keyword,
-            source_location=location,
-        )
-
-
-    def process_lead(
-        self,
-        lead: Lead,
-        category: Category,
-    ):
-
-        # ========================================================
-        # VALIDATE BEFORE PROFILE
-        # ========================================================
-
-        if not validate_lead(
-            lead
-        ):
-            self.rejected += 1
-            return
-
-        # ========================================================
-        # CURRENT RUN DUPLICATE
-        # ========================================================
-
-        if lead.profile_url:
-
-            profile_key = (
-                make_profile_key(
-                    lead.profile_url
-                )
-            )
-
-            if profile_key in (
-                self.seen_profiles
-            ):
-
-                self.duplicates += 1
-                return
-
-        fallback_key = (
-            make_fallback_key(
-                lead.company_name,
-                lead.phone,
-            )
-        )
-
-        if (
-            fallback_key
-            and fallback_key in (
-                self.seen_fallback
-            )
-        ):
-
-            self.duplicates += 1
-            return
-
-        # ========================================================
-        # MASTER FILE DUPLICATE
-        # ========================================================
-
-        if self.store.exists(
-            lead
-        ):
-
-            self.duplicates += 1
-            return
-
-        # ========================================================
-        # MARK SEEN
-        # ========================================================
-
-        if lead.profile_url:
-
-            profile_key = (
-                make_profile_key(
-                    lead.profile_url
-                )
-            )
-
-            if profile_key:
-                self.seen_profiles.add(
-                    profile_key
-                )
-
-        if fallback_key:
-            self.seen_fallback.add(
-                fallback_key
-            )
-
-        # ========================================================
-        # PROFILE ENRICHMENT
-        # ========================================================
-        #
-        # IMPORTANT:
-        #
-        # This function is NOT allowed to modify company_name.
-        #
-        # It may enrich email/phone/social only.
-        # ========================================================
-
-        if lead.profile_url:
-
-            self.profile_pages += 1
-
-            enrich_profile(
-                self.client,
-                lead,
-            )
-
-        # ========================================================
-        # FINAL VALIDATION
-        # ========================================================
-
-        if not validate_lead(
-            lead
-        ):
-            self.rejected += 1
-            return
-
-        # ========================================================
-        # OUTPUT
-        # ========================================================
-
-        record = lead_to_record(
-            lead,
-            category,
-        )
-
-        self.records.append(
-            record
-        )
-
-        logging.info(
-            "NEW LEAD %s/%s | %s | %s | %s",
-            len(self.records),
-            self.target,
-            record["Company Name"],
-            record["City"],
-            record["State"],
-        )
-
-
-# ============================================================
-# LOGGING
-# ============================================================
-
-def setup_logging():
-
-    LOG_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    log_file = (
-        LOG_DIR
-        / "jwiz_scraper.log"
-    )
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format=(
-            "%(asctime)s | "
-            "%(levelname)s | "
-            "%(message)s"
-        ),
-        handlers=[
-            logging.FileHandler(
-                log_file,
-                encoding="utf-8",
-            ),
-            logging.StreamHandler(
-                sys.stdout
-            ),
-        ],
-    )
-
-
-# ============================================================
-# CSV RUN OUTPUT
-# ============================================================
-
-def write_run_file(
-    records: List[dict],
-) -> Optional[Path]:
-
-    if not records:
-        return None
-
-    path = (
-        LOG_DIR
-        / (
-            "run_"
-            f"{time.strftime('%Y%m%d_%H%M%S')}.csv"
-        )
-    )
-
-    with path.open(
-        "w",
-        newline="",
-        encoding="utf-8-sig",
-    ) as file:
-
-        writer = csv.DictWriter(
-            file,
-            fieldnames=OUTPUT_FIELDS,
-        )
-
-        writer.writeheader()
-
-        writer.writerows(
-            records
-        )
-
-    return path
-
-
-# ============================================================
-# CLI
-# ============================================================
-
-def choose_target() -> int:
-
-    print()
-    print("1. 100 leads")
-    print("2. 250 leads")
-    print("3. 1000 leads")
-    print()
-
-    while True:
-
-        value = input(
-            "Select target: "
-        ).strip()
-
-        if value == "1":
-            return 100
-
-        if value == "2":
-            return 250
-
-        if value == "3":
-            return 1000
-
-        print(
-            "Invalid selection."
-        )
-
-
-def choose_locations() -> List[str]:
-
-    print()
-    print(
-        "Enter location(s), separated by comma."
-    )
-    print(
-        "Example: Newyork, New Jersey"
-    )
-    print()
-
-    while True:
-
-        raw = input(
-            "Location: "
-        ).strip()
-
-        values = [
-            clean_text(x)
-            for x in raw.split(",")
-            if clean_text(x)
-        ]
-
-        if values:
-            return values
-
-        print(
-            "Please enter at least one location."
-        )
-
-
-def choose_categories() -> List[Category]:
-
-    print()
-
-    for category in CATEGORIES:
-
-        print(
-            f"{category.number:02d}. "
-            f"{category.name}"
-        )
-
-    print(
-        "00. All Categories"
-    )
-
-    print()
-
-    while True:
-
-        raw = input(
-            "Category(s): "
-        ).strip()
-
-        if raw == "0":
-            return CATEGORIES
-
-        try:
-
-            numbers = [
-                int(x.strip())
-                for x in raw.split(",")
-                if x.strip()
-            ]
-
-        except ValueError:
-
-            print(
-                "Invalid category."
-            )
-
-            continue
-
-        selected = [
-            category
-            for category in CATEGORIES
-            if category.number in numbers
-        ]
-
-        if selected:
-            return selected
-
-        print(
-            "Invalid category."
-        )
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main():
-
-    setup_logging()
-
-    print()
-    print("=" * 72)
-    print(
-        "JWIZ PRODUCTION DATA SCRAPER"
-    )
-    print("=" * 72)
-    print()
-
-    target = choose_target()
-
-    locations = choose_locations()
-
-    categories = choose_categories()
-
-    print()
-    print(
-        "Starting production scraper..."
-    )
-    print()
-
-    store = MasterStore(
-        MASTER_FILE
-    )
-
-    client = HTTPClient()
-
-    try:
-
-        scraper = LegacyJWizScraper(
-            client=client,
-            store=store,
-            target=target,
-            locations=locations,
-            categories=categories,
-        )
-
-        scraper.run()
-
-    finally:
-
-        client.close()
-
-    # ========================================================
-    # SAVE
-    # ========================================================
-
-    if scraper.records:
-
-        store.append(
-            scraper.records
-        )
-
-    run_file = write_run_file(
-        scraper.records
-    )
-
-    # ========================================================
-    # SUMMARY
-    # ========================================================
-
-    print()
-    print("=" * 72)
-    print("SCRAPING COMPLETE")
-    print("=" * 72)
-
-    print(
-        f"Target:                 {target}"
-    )
-
-    print(
-        f"New leads:              "
-        f"{len(scraper.records)}"
-    )
-
-    print(
-        f"Raw cards inspected:    "
-        f"{scraper.raw_results}"
-    )
-
-    print(
-        f"Duplicates skipped:     "
-        f"{scraper.duplicates}"
-    )
-
-    print(
-        f"Rejected records:       "
-        f"{scraper.rejected}"
-    )
-
-    print(
-        f"Pages processed:        "
-        f"{scraper.pages}"
-    )
-
-    print(
-        f"Profile pages visited:  "
-        f"{scraper.profile_pages}"
-    )
-
-    print()
-
-    print(
-        f"Master file: {MASTER_FILE}"
-    )
-
-    if run_file:
-        print(
-            f"Run file:    {run_file}"
-        )
-
-    print("=" * 72)
-
+def priority_from(email: Optional[str], phone: Optional[str], city: Optional[str], profile_url: Optional[str]) -> str:
+    score = 0
+    if email: score += 2
+    if phone: score += 2
+    if city: score += 1
+    if profile_url: score += 1
+    if score >= 5: return "High"
+    if score >= 3: return "Medium"
+    return "Low"
 
 class JWizScraper(BaseScraper):
     """Modular scraper for JWiz Commercial & Services Directory."""
@@ -2776,6 +1869,7 @@ class JWizScraper(BaseScraper):
         category="Commercial B2B Directory",
         version="1.0.0",
         coverage={"country": "USA"},
+        requires_location=True,
         supports=["limit", "keyword", "location"],
         fields=[
             "source_code",
@@ -2804,19 +1898,20 @@ class JWizScraper(BaseScraper):
     def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
         """Scrape company cards from JWiz directory listings."""
         location = build_location_slug(params)
-        keyword = params.keyword or "contractor"
+        from Database.search import category_terms
+        keyword = ' '.join(category_terms(params.keyword)) if params.keyword else "contractor"
         limit = params.limit or 25
 
         client = HTTPClient()
         try:
-            found_names: set[str] = set()
+            found_profiles: set[str] = set()
             page = 0
-            max_pages = max(1, (limit + 99) // 100)
+            max_pages = 1
             yielded = 0
+            enrich = getattr(settings, "JWIZ_ENRICH_PROFILES", True)
 
             while yielded < limit and page < max_pages:
-                if self.ctx.should_cancel():
-                    break
+                self.check_cancel()
                 offset = page * 100
                 url = build_search_url(location, keyword, offset)
                 res = client.get(url)
@@ -2828,40 +1923,75 @@ class JWizScraper(BaseScraper):
 
                 from bs4 import BeautifulSoup
                 soup = BeautifulSoup(res.text, "html.parser")
+
+                if page == 0:
+                    total_results = get_result_count(soup) or 0
+                    max_pages = max(1, math.ceil(total_results / 100))
+
                 cards = find_result_cards(soup)
                 if not cards:
                     break
 
                 for card in cards:
-                    if yielded >= limit or self.ctx.should_cancel():
+                    if yielded >= limit:
                         break
+                    self.check_cancel()
 
                     name = extract_company_name(card)
-                    if not name or len(name) < 3 or name in found_names:
+                    if not name or len(name) < 3:
                         continue
 
-                    found_names.add(name)
                     phone = extract_phone(card)
                     email = extract_email(card)
                     loc_line = extract_location_line(card)
                     city, state = extract_city_state(loc_line)
                     profile_link = extract_profile_url(card)
+                    profile_key = profile_link or f'{name}|{loc_line}'
+                    if profile_key in found_profiles:
+                        continue
+                    found_profiles.add(profile_key)
+                    social = extract_social(card)
 
-                    # external_id = profile_url or None (identity via fingerprint)
-                    external_id = profile_link if profile_link else None
+                    lead = Lead(
+                        company_name=name,
+                        city=city,
+                        state=state,
+                        email=email,
+                        phone=phone,
+                        social=social,
+                        profile_url=profile_link,
+                        source_url=url,
+                        source_category='',
+                        source_keyword=keyword,
+                        source_location=location,
+                    )
+
+                    profile_enriched = False
+                    if enrich and profile_link:
+                        profile_enriched = enrich_profile(client, lead)
+                        if not profile_enriched:
+                            self.ctx.log('warning', f'Profile unavailable for {profile_link}; preserving the recovered listing.')
+
+                    from Database.search import normalize_city
 
                     yield {
-                        "company_name": name,
-                        "category": keyword.title(),
-                        "city": city,
-                        "state": state,
-                        "phone": phone,
-                        "email": email,
-                        "profile_url": profile_link,
+                        "company_name": lead.company_name,
+                        "category": lead.source_category,
+                        "description": lead.description,
+                        "city": normalize_city(lead.city),
+                        "state": lead.state,
+                        "phone": lead.phone,
+                        "email": lead.email,
+                        "profile_url": lead.profile_url,
                         "location_line": loc_line,
-                        "lead_priority": extract_lead_priority(card),
-                        "external_id": external_id,
-                        "source_url": profile_link or url,
+                        "lead_priority": priority_from(lead.email, lead.phone, lead.city, lead.profile_url),
+                        "external_id": lead.profile_url,
+                        "source_url": lead.profile_url or lead.source_url,
+                        "social": lead.social,
+                        "website": lead.website,
+                        "source_keyword": lead.source_keyword,
+                        "source_location": lead.source_location,
+                        "profile_enriched": profile_enriched,
                     }
                     yielded += 1
 
@@ -2873,37 +2003,38 @@ class JWizScraper(BaseScraper):
     def to_standard(self, raw: Dict[str, Any]) -> StandardRecord:
         """Map raw JWiz dict to StandardRecord with record_kind='company'."""
         profile_url = raw.get("profile_url") or None
-        company_name = raw.get("company_name")
-        category = raw.get("category") or "Contractor"
+
+        us_state = raw.get("state")
+        if us_state and len(us_state) > 2:
+            us_state = {v.lower(): k for k, v in STATE_CODES.items()}.get(us_state.lower(), us_state)
 
         return StandardRecord(
             source_code=self.meta.id,
             record_kind=self.meta.record_kind,
-            external_id=profile_url,
+            external_id=profile_url or raw.get("company_name"),
             source_url=profile_url or raw.get("source_url"),
-            title=f"{category} Owner / Manager",
-            description=None,
-            organization_name=company_name,
+            title=None,
+            description=raw.get('description'),
+            organization_name=raw.get("company_name"),
             contact_name=None,
             contact_title=None,
             email=raw.get("email"),
             phone=raw.get("phone"),
-            website=profile_url,
+            website=raw.get("website"),
             city=raw.get("city"),
-            us_state=raw.get("state"),
-            postal_code=raw.get("postal_code"),
-            category=category,
+            us_state=us_state,
+            postal_code=None,
+            category=raw.get("category"),
             due_at=None,
             extra={
                 "lead_priority": raw.get("lead_priority"),
                 "raw_location": raw.get("location_line"),
+                "social": raw.get("social"),
+                "profile_enriched": raw.get("profile_enriched"),
+                "search_keyword": raw.get("source_keyword"),
+                "search_location": raw.get("source_location"),
+                "market": raw.get("market", "Both"),
             },
         )
 
-
-# Backwards compatibility alias
 JWizAdapter = JWizScraper
-
-
-if __name__ == "__main__":
-    main()

@@ -16,6 +16,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+import { loadChatData, saveChatData } from '../services/chatStorage';
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(() => apiService.getToken());
@@ -36,7 +38,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Check existing session
-    const initAuth = async () => {
+    const initAuth = async (retries = 3) => {
       const existingToken = apiService.getToken();
       if (existingToken) {
         try {
@@ -48,7 +50,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } else {
             logout();
           }
-        } catch {
+        } catch (error) {
+          if (retries > 0) {
+            setTimeout(() => initAuth(retries - 1), 1000);
+            return; // Wait for retry to finish
+          }
           logout();
         }
       } else {

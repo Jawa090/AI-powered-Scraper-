@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.types import interrupt
 
 from agents.graph.state import AgentState
+from agents.graph.utils import normalize_content
 from agents.llm.chat_model import get_chat_model, invoke_llm
 
 logger = logging.getLogger(__name__)
@@ -29,26 +30,24 @@ def ask_confirmation(state: AgentState) -> Dict[str, Any]:
         return {}
 
     args = proposal.get("args") or {}
-    source = proposal.get("source", "")
-    qty = args.get("quantity", 20)
+    #source = proposal.get("source", "")
+    qty = args.get("quantity")
     category = args.get("category") or "relevant"
     location = args.get("city") or args.get("us_state") or ""
     loc_str = f" in {location}" if location else ""
 
-    fallback_question = f"Would you like me to scrape {qty} {category} leads from {source.upper()}{loc_str}?"
-
-    try:
-        model = get_chat_model()
-        prompt = (
-            f"You are asking the user for confirmation to execute a web scrape.\n"
-            f"Parameters: source={source}, category={category}, location={location}, target_quantity={qty}.\n"
-            f"Write a single, friendly, concise question in the user's language asking if they want to proceed."
-        )
-        resp = invoke_llm(model, [HumanMessage(content=prompt)], max_retries=1)
-        question = getattr(resp, "content", "").strip() or fallback_question
-    except Exception as e:
-        logger.warning("Error generating confirmation question via LLM: %s", e)
-        question = fallback_question
+    model = get_chat_model()
+    prompt = ('Ask for explicit permission to START this proposed scrape. It has not run yet. '
+        'State the quantity and filters accurately; ask whether to proceed. '
+        'Do not report results, invent an outcome, or ask whether a past scrape succeeded. '
+        'Use the language of these actual user messages; use English for English messages: '
+        + str([str(m.content) for m in state.get('messages', []) if getattr(m, 'type', '') == 'human'][-3:])
+        + f'. Proposal: {proposal}')
+    resp = invoke_llm(model, [HumanMessage(content=prompt)], max_retries=1)
+    question = normalize_content(getattr(resp, 'content', '')).strip()
+    if not question:
+        from agents.llm.chat_model import LLMUnavailable
+        raise LLMUnavailable('provider_error', 'Empty confirmation response')
 
     updated_proposal = dict(proposal)
     updated_proposal["question"] = question
@@ -82,13 +81,7 @@ def await_confirmation(state: AgentState) -> Dict[str, Any]:
         edits = resumed.get("edits")
         text = resumed.get("text", "")
     elif isinstance(resumed, str):
-        t = resumed.strip().lower()
-        if t in ["approve", "yes", "confirm"]:
-            decision_type = "approve"
-        elif t in ["reject", "no", "cancel"]:
-            decision_type = "reject"
-        else:
-            decision_type = "unrelated"
+        # Only the typed classifier result may authorize execution.
         text = resumed
 
     if decision_type == "approve":
@@ -103,19 +96,18 @@ def await_confirmation(state: AgentState) -> Dict[str, Any]:
             tool_call_id=tool_call_id,
         )
         return {
-            "messages": [tool_msg],
+            "messages": [tool_msg, HumanMessage(content=text)],
             "decision": "DECLINED",
             "pending_proposal": None,
         }
 
     elif decision_type == "modify":
-        updated = dict(proposal)
+        slots = dict(state.get('slots') or {})
         if isinstance(edits, dict):
-            updated["args"].update(edits)
-        return {
-            "pending_proposal": updated,
-            "confirmed": True,
-        }
+            slots.update(edits)
+        return {'slots': slots, 'confirmed': False, 'pending_proposal': None, 'last_search': None,
+            'messages': [ToolMessage(content='Proposal changed. Search again and request fresh confirmation.', tool_call_id=tool_call_id),
+                         HumanMessage(content=text)]}
 
     else:
         # Unrelated message: answer open call and append new human message

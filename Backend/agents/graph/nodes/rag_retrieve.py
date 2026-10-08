@@ -23,8 +23,9 @@ def rag_retrieve(state: AgentState) -> Dict[str, Any]:
     Never raises an exception; records trace entry.
     """
     # Event turns don't require KB search
-    if state.get("event_job_id"):
-        return {}
+    if state.get("event_job_id") or state.get('request_intent') == 'greeting' or (
+        state.get('request_intent') == 'records' and not state.get('requirements_met')):
+        return {'rag_status': {'state': 'not_checked', 'available': False}, 'rag_hits': []}
 
     messages = state.get("messages", [])
     last_human_text = ""
@@ -43,6 +44,7 @@ def rag_retrieve(state: AgentState) -> Dict[str, Any]:
 
         trace_entry = {
             "tool": "rag_retrieve",
+            "tool_name": "rag_retrieve",
             "state": status_info.get("state"),
             "hit_ids": [h.get("chunkId") for h in hits if isinstance(h, dict)],
         }

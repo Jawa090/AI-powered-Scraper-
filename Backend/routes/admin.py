@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -56,6 +57,7 @@ router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 class UserCreate(BaseModel):
     name: Optional[str] = None
+    email: Optional[str] = None
     username: str
     password: str
     role: Optional[str] = "user"
@@ -63,6 +65,7 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+    email: Optional[str] = None
     password: Optional[str] = None
     status: Optional[str] = None
 
@@ -83,10 +86,11 @@ def list_users(
             "id": u.id,
             "name": u.name,
             "username": u.username,
+            "email": u.email,
             "role": u.role,
             "status": u.status,
             "auth_source": u.auth_source,
-            "builtIn": u.auth_source == "env",
+            "builtIn": u.role == 'admin',
         }
         for u in db_users
     ]
@@ -102,17 +106,25 @@ def create_user(
     if req.role == "admin":
         raise HTTPException(
             status_code=400,
-            detail="Only one admin is allowed (defined in .env)",
+            detail="Only one admin is allowed",
         )
 
     clean_username = req.username.strip().lower()
+    email = (req.email or (clean_username if '@' in clean_username else '')).strip().lower()
+    if not email or '@' not in email or '.' not in email.rsplit('@', 1)[1]:
+        raise HTTPException(422, 'A valid user email is required.')
+    if not clean_username or not req.password:
+        raise HTTPException(422, 'Username and password are required.')
+    if session.scalar(select(User.id).where(func.lower(User.username) == clean_username)):
+        raise HTTPException(409, 'Username already exists.')
     if clean_username in [settings.AUTH_ADMIN_USERNAME.lower(), settings.AUTH_USER_USERNAME.lower()]:
         raise HTTPException(status_code=409, detail="Username conflicts with built-in env account")
 
     new_user = User(
         id=f"usr-{uuid.uuid4()}",
         name=req.name or req.username,
-        username=req.username,
+        username=clean_username,
+        email=email,
         password_hash=hash_password(req.password),
         role="user",
         status="Active",
@@ -136,17 +148,25 @@ def update_user(
     session: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> Dict[str, Any]:
-    """Update user properties. Env users cannot be modified via API."""
+    """Update normal database users; protect the sole administrator."""
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.auth_source == "env":
-        raise HTTPException(status_code=400, detail="edit .env")
+    if user.role == 'admin':
+        raise HTTPException(400, 'The sole administrator account is protected.')
+
+    if req.email is not None:
+        email = req.email.strip().lower()
+        if '@' not in email or '.' not in email.rsplit('@', 1)[1]:
+            raise HTTPException(422, 'A valid user email is required.')
+        user.email = email
 
     if req.name is not None:
         user.name = req.name
     if req.status is not None:
+        if req.status not in ('Active', 'Disabled'):
+            raise HTTPException(422, 'Status must be Active or Disabled.')
         user.status = req.status
     if req.password is not None and req.password != "":
         user.password_hash = hash_password(req.password)
@@ -166,8 +186,8 @@ def delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.auth_source == "env":
-        raise HTTPException(status_code=400, detail="Cannot disable env users here")
+    if user.role == 'admin':
+        raise HTTPException(400, 'The sole administrator account is protected.')
 
     user.status = "Disabled"
     session.commit()
@@ -177,6 +197,66 @@ def delete_user(
 # ---------------------------------------------------------------------------
 # Filter Helper for Requests
 # ---------------------------------------------------------------------------
+
+@router.get('/deliveries/export.csv')
+def export_deliveries(session: Session = Depends(get_db), admin: User = Depends(require_admin),
+    user_id: Optional[str] = None, query_id: Optional[str] = None):
+    """Export exact recorded delivery values, with the same admin permission."""
+    from services.delivery import delivery_rows
+    stmt = select(Query).where(Query.served_at.isnot(None), Query.records_returned > 0,
+        Query.parameters['collectionCancelled'].as_boolean().is_not(True)).order_by(Query.served_at, Query.id)
+    if user_id: stmt = stmt.where(Query.user_id == user_id, Query.parameters['collectionCancelled'].as_boolean().is_not(True),
+               Query.parameters['kind'].as_string().is_distinct_from('reset_receipt'))
+    if query_id: stmt = stmt.where(Query.id == query_id)
+    output = io.StringIO(); writer = csv.writer(output)
+    writer.writerow(['User', 'Query ID', 'Request', 'Served At', 'Record ID', 'Company', 'Title', 'Category',
+        'City', 'State', 'Email', 'Phone', 'Source', 'Source URL', 'Record Version', 'Historical Snapshot',
+        'Request Fulfilled', 'Delivery Kind', 'Matching Records', 'Requested Records', 'Understood Request'])
+    def csv_value(value):
+        text = str(value if value is not None else '')
+        return "'" + text if text.startswith(('=', '+', '-', '@')) else text
+    for query in session.scalars(stmt):
+        user = session.get(User, query.user_id)
+        heading = 'admin' if user and user.role == 'admin' else (user.email or user.username if user else query.user_id)
+        entries = session.scalars(select(QueryResult).where(QueryResult.query_id == query.id).order_by(QueryResult.rank, QueryResult.lead_id)).all()
+        for row, entry in zip(delivery_rows(session, query.id), entries):
+            writer.writerow([csv_value(v) for v in [heading, query.id, query.query_text, query.served_at.isoformat(),
+                row['id'], row.get('company'), row.get('title'), row.get('category'), row.get('city'), row.get('state'),
+                row.get('email'), row.get('phone'), row.get('sourceCode'), row.get('sourceUrl'), entry.record_version,
+                entry.snapshot is not None, (query.parameters or {}).get('requestFulfilled'),
+                (query.parameters or {}).get('deliveryKind'), (query.parameters or {}).get('matchingRecordsDelivered'),
+                (query.parameters or {}).get('requestedRecords'), json.dumps((query.parameters or {}).get('slots', {}))]])
+    return StreamingResponse(iter([output.getvalue()]), media_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=delivered_data.csv'})
+
+
+@router.get('/deliveries')
+def list_deliveries(session: Session = Depends(get_db), admin: User = Depends(require_admin),
+    user_id: Optional[str] = None, page: int = QueryParam(1, ge=1),
+    page_size: int = QueryParam(50, ge=1, le=200)):
+    """Exact served values grouped by user email, including the administrator."""
+    from services.delivery import delivery_rows
+    users = session.scalars(select(User).order_by(User.role, User.email, User.id)).all()
+    groups = []
+    for user in users:
+        if user_id and user.id != user_id:
+            continue
+        where = (Query.user_id == user.id, Query.served_at.isnot(None),
+            Query.parameters['collectionCancelled'].as_boolean().is_not(True),
+            or_(Query.records_returned > 0, Query.parameters['kind'].as_string() == 'event'))
+        total = session.scalar(select(func.count(Query.id)).where(*where)) or 0
+        requests = session.scalars(select(Query).where(*where).order_by(Query.served_at.desc(), Query.id)
+            .offset((page - 1) * page_size).limit(page_size)).all()
+        groups.append({'userId': user.id, 'email': user.email, 'username': user.username,
+            'heading': 'admin' if user.role == 'admin' else (user.email or user.username + ' (email not set)'),
+            'total': total, 'page': page, 'pageSize': page_size,
+            'deliveries': [{'queryId': q.id, 'request': q.query_text,
+                'servedAt': q.served_at.isoformat(), 'jobId': q.job_id, 'records': delivery_rows(session, q.id),
+                'understoodRequest': (q.parameters or {}).get('slots', {}),
+                **{key: (q.parameters or {}).get(key) for key in ('requestFulfilled', 'deliveryKind',
+                    'matchingRecordsDelivered', 'requestedRecords', 'recoveredRecords', 'collectionCancelled', 'timedOut')},
+                'snapshotAvailable': all(r.snapshot is not None for r in session.scalars(select(QueryResult).where(QueryResult.query_id == q.id)))} for q in requests]})
+    return {'groups': groups}
 
 def _build_requests_query(
     user_id: Optional[str],
@@ -195,7 +275,8 @@ def _build_requests_query(
         .order_by(Query.created_at.desc())
     )
 
-    conditions = []
+    conditions = [Query.parameters['collectionCancelled'].as_boolean().is_not(True),
+        Query.parameters['kind'].as_string().is_distinct_from('reset_receipt')]
     if user_id:
         conditions.append(Query.user_id == user_id)
     if decision:
@@ -259,7 +340,6 @@ def list_requests(
             "userId": q.user_id,
             "userName": q.user.name if q.user else None,
             "sessionId": q.session_id,
-            "queryText": q.query_text,
             "parameters": q.parameters or {},
             "decision": q.decision,
             "status": q.status,
@@ -301,7 +381,7 @@ def export_requests_csv(
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
-            "ID", "User ID", "User Name", "Query Text", "Decision",
+            "ID", "User ID", "User Name", "Decision",
             "Status", "Job ID", "Records Returned", "Records New",
             "Records Updated", "Served At", "Created At",
         ])
@@ -314,7 +394,6 @@ def export_requests_csv(
                 q.id,
                 q.user_id or "",
                 q.user.name if q.user else "",
-                q.query_text or "",
                 q.decision or "",
                 q.status or "",
                 q.job_id or "",
@@ -357,7 +436,7 @@ def get_request_detail(
     - exact rows served via single selectinload query (no N+1)
     """
     query = session.get(Query, request_id)
-    if not query:
+    if not query or (query.parameters or {}).get('collectionCancelled'):
         raise HTTPException(status_code=404, detail=f"Request '{request_id}' not found.")
 
     # Related job details
@@ -368,22 +447,8 @@ def get_request_detail(
             job_data = serialize_job(job)
 
     # Transcript from session messages (including hidden event messages)
-    transcript = []
-    ordered_tool_trace = []
-    if query.session_id:
-        msg_stmt = (
-            select(AgentMessage)
-            .where(AgentMessage.session_id == query.session_id)
-            .order_by(AgentMessage.created_at.asc())
-        )
-        messages = list(session.scalars(msg_stmt).all())
-        for m in messages:
-            transcript.append(serialize_message(m))
-            if m.tool_trace:
-                if isinstance(m.tool_trace, list):
-                    ordered_tool_trace.extend(m.tool_trace)
-                elif isinstance(m.tool_trace, dict):
-                    ordered_tool_trace.append(m.tool_trace)
+    params = query.parameters if isinstance(query.parameters, dict) else {}
+    ordered_tool_trace = params.get("trace", [])
 
     # Rows served loaded in a single query with selectinload (no N+1)
     qr_stmt = (
@@ -396,18 +461,16 @@ def get_request_detail(
         .order_by(QueryResult.rank.asc())
     )
     qr_results = list(session.scalars(qr_stmt).all())
-    rows_served = []
-    for qr in qr_results:
-        lead = qr.lead
-        rows_served.append({
-            "leadId": qr.lead_id,
-            "rank": qr.rank,
-            "company": lead.organization.name if lead and lead.organization else None,
-            "contact": lead.contact.full_name if lead and lead.contact else None,
-            "title": lead.title if lead else None,
-        })
 
-    params = query.parameters if isinstance(query.parameters, dict) else {}
+    from routes.serializers import serialize_lead
+    from services.delivery import delivery_rows
+    rows_served = [{**row, 'leadId': row['id'], 'rank': index, 'contact': row.get('name')}
+        for index, row in enumerate(delivery_rows(session, request_id))]
+    transcript = session.scalars(select(AgentMessage).where(
+        AgentMessage.session_id == query.session_id,
+        AgentMessage.message_metadata['queryId'].as_string() == query.id
+    ).order_by(AgentMessage.created_at, AgentMessage.id)).all()
+
     slots = params.get("slots", {})
 
     return {
@@ -430,10 +493,10 @@ def get_request_detail(
         "slots": slots,
         "decision": query.decision,
         "kbState": params.get("kb_state"),
-        "kbHits": params.get("kb_hits", []),
+        "kbHits": params.get("kb_hit_ids", []),
         "job": job_data,
-        "transcript": transcript,
         "toolTrace": ordered_tool_trace,
+        "transcript": [serialize_message(message) for message in transcript],
         "rowsServed": rows_served,
     }
 
@@ -457,7 +520,8 @@ def get_user_requests(
 
     stmt = (
         select(Query)
-        .where(Query.user_id == user_id)
+        .where(Query.user_id == user_id, Query.parameters['collectionCancelled'].as_boolean().is_not(True),
+               Query.parameters['kind'].as_string().is_distinct_from('reset_receipt'))
         .order_by(Query.created_at.desc())
     )
 
@@ -471,7 +535,6 @@ def get_user_requests(
     for q in queries:
         items.append({
             "id": q.id,
-            "queryText": q.query_text,
             "decision": q.decision,
             "status": q.status,
             "jobId": q.job_id,
@@ -520,27 +583,7 @@ def get_user_sessions(
     }
 
 
-@router.get("/sessions/{session_id}/messages")
-def get_admin_session_messages(
-    session_id: str,
-    session: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
-) -> Dict[str, Any]:
-    """Admin endpoint to read any chat, including hidden event messages."""
-    sess = session.get(AgentSession, session_id)
-    if not sess:
-        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
 
-    stmt = (
-        select(AgentMessage)
-        .where(AgentMessage.session_id == session_id)
-        .order_by(AgentMessage.created_at.asc())
-    )
-    messages = list(session.scalars(stmt).all())
-    return {
-        "sessionId": session_id,
-        "messages": [serialize_message(m) for m in messages],
-    }
 
 
 # ---------------------------------------------------------------------------

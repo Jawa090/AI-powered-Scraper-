@@ -3,7 +3,8 @@ import { useDataOps } from '../../context/DataOpsContext';
 import { useAuth } from '../../context/AuthContext';
 import { NotificationsDropdown } from './NotificationsDropdown';
 import { SystemHealthBadge } from '../common/SystemHealthBadge';
-import { Search, Menu, Building2, LogOut, Shield, User as UserIcon } from 'lucide-react';
+import { Search, Menu, Building2, LogOut, Shield, User as UserIcon, Moon, Sun } from 'lucide-react';
+import { useDarkMode } from '../../hooks/useDarkMode';
 
 interface TopHeaderProps {
   onToggleSidebar: () => void;
@@ -18,6 +19,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 }) => {
   const { currentUser, globalSearch, setGlobalSearch } = useDataOps();
   const { role, logout } = useAuth();
+  const { isDark, toggle } = useDarkMode();
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -25,7 +27,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const displayName = currentUser.name || currentUser.username || 'User';
 
   return (
-    <header className="h-14 bg-white/85 backdrop-blur-md border-b border-[#E5E7EB]/80 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-subtle">
+    <header className="h-14 bg-white/85 dark:bg-black/85 backdrop-blur-md border-b border-[#E5E7EB]/80 dark:border-gray-800 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-subtle transition-colors">
       {/* Left: Mobile Menu & Page Title */}
       <div className="flex items-center gap-3">
         <button
@@ -38,7 +40,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold text-gray-900 tracking-tight">{pageTitle}</h1>
+            <h1 className="text-sm font-semibold text-gray-900 dark:text-golden-500 tracking-tight">{pageTitle}</h1>
             {breadcrumb && (
               <span className="text-xs text-[#848485] hidden sm:inline">
                 / {breadcrumb}
@@ -46,7 +48,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             )}
           </div>
           <p className="text-[11px] text-[#848485] hidden md:block">
-            {greeting}, <span className="font-medium text-gray-700">{displayName.split(' ')[0]}</span> •{' '}
+            {greeting}, <span className="font-medium text-gray-700 dark:text-golden-400">{displayName.split(' ')[0]}</span> •{' '}
             <span className="inline-flex items-center gap-1">
               <Building2 className="w-3 h-3 inline text-gray-400" />
               {currentUser.departmentName || 'Operations'}
@@ -64,7 +66,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             value={globalSearch}
             onChange={e => setGlobalSearch(e.target.value)}
             placeholder="Search leads, datasets... (Press /)"
-            className="w-full bg-[#F8F9FA] border border-[#E5E7EB] rounded-lg pl-9 pr-4 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-[#2D4351] focus:border-[#2D4351] transition-all"
+            className="w-full bg-[#F8F9FA] dark:bg-gray-900 border border-[#E5E7EB] dark:border-gray-700 rounded-lg pl-9 pr-4 py-1.5 text-xs text-gray-900 dark:text-golden-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-[#2D4351] dark:focus:ring-golden-500 focus:border-[#2D4351] dark:focus:border-golden-500 transition-all"
           />
         </div>
       </div>
@@ -74,16 +76,25 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         <SystemHealthBadge />
         <NotificationsDropdown />
 
+        {/* Dark Mode Toggle */}
+        <button
+          onClick={toggle}
+          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          className="p-1.5 text-gray-500 hover:text-golden-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors border border-transparent cursor-pointer"
+        >
+          {isDark ? <Sun className="w-4 h-4 text-golden-500" /> : <Moon className="w-4 h-4" />}
+        </button>
+
         {/* User Role Badge */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-gray-50 text-xs">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#E5E7EB] dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-xs">
           {role === 'admin' ? (
-            <Shield className="w-3.5 h-3.5 text-amber-600" />
+            <Shield className="w-3.5 h-3.5 text-blue-600" />
           ) : (
-            <UserIcon className="w-3.5 h-3.5 text-indigo-600" />
+            <UserIcon className="w-3.5 h-3.5 text-blue-600" />
           )}
-          <span className="font-semibold text-gray-800">{displayName}</span>
-          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
-            role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'
+          <span className="font-semibold text-gray-800 dark:text-gray-200">{displayName}</span>
+          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase border ${
+            role === 'admin' ? 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800' : 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800'
           }`}>
             {role}
           </span>
@@ -93,7 +104,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         <button
           onClick={logout}
           title="Sign out of DataOps"
-          className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
+          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-500 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-transparent hover:border-red-200 dark:hover:border-red-800 cursor-pointer"
         >
           <LogOut className="w-4 h-4" />
         </button>

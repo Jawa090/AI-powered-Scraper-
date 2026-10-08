@@ -40,8 +40,6 @@ __all__ = [
     "list_datasets",
     "get_dataset_leads",
     "get_job_status",
-    "resume_job",
-    "cancel_job",
     "propose_scrape",
     "READ_TOOLS",
     "ALL_TOOLS",

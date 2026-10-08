@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -56,13 +56,20 @@ class Lead(Base):
     )
 
     # Phase 2 & Phase 5 — dedup, identity, and freshness columns
-    identity_key: Mapped[Optional[str]] = mapped_column(String(300), nullable=True, unique=True, index=True)
+    identity_key: Mapped[str] = mapped_column(String(300), nullable=False, unique=True, index=True)
     due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     source_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=False)
     first_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    record_kind: Mapped[str] = mapped_column(String(30), default="company", nullable=False, index=True)
+    category: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    us_state: Mapped[Optional[str]] = mapped_column(String(2), nullable=True, index=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    content_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True, nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(

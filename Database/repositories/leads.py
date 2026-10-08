@@ -1,6 +1,6 @@
 """
 repositories/leads.py
-──────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Repository for the Lead model with support for domain-specific queries and database-filtered search.
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from sqlalchemy import and_, exists, func as sa_func, or_, select
+from sqlalchemy import and_, case, exists, func as sa_func, or_, select
 from sqlalchemy.orm import selectinload
 
 from Database.models.contact import Contact
@@ -25,7 +25,7 @@ class LeadRepository(BaseRepository[Lead]):
     model = Lead
 
     # ------------------------------------------------------------------
-    # Eager loading options — prevents N+1 queries when serializing leads
+    # Eager loading options â€” prevents N+1 queries when serializing leads
     # ------------------------------------------------------------------
     @staticmethod
     def _eager_options():
@@ -131,130 +131,84 @@ class LeadRepository(BaseRepository[Lead]):
     # ------------------------------------------------------------------
 
     def search_leads(
-        self,
-        *,
-        category: Optional[str] = None,
-        location: Optional[str] = None,
-        source_code: Optional[str] = None,
-        status: Optional[str] = None,
-        has_email: Optional[bool] = None,
-        has_phone: Optional[bool] = None,
-        assigned_to: Optional[str] = None,
-        department_id: Optional[str] = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> Tuple[List[Lead], int]:
-        """
-        Database-filtered search for Lead records matching specified filters.
-        Executes query via joins and returns (matching_leads, total_available_count).
-        """
-        base_stmt = select(Lead.id).outerjoin(Lead.organization).outerjoin(Lead.contact).outerjoin(Lead.source)
-
-        conditions = []
-
-        if category:
-            cat_pat = f"%{category.lower()}%"
-            conditions.append(
-                or_(
-                    Lead.title.ilike(cat_pat),
-                    Lead.notes.ilike(cat_pat),
-                    Organization.industry.ilike(cat_pat),
-                    Organization.name.ilike(cat_pat),
-                    sa_func.jsonb_extract_path_text(Lead.lead_metadata, 'category').ilike(cat_pat),
-                )
-            )
-
-        if location:
-            loc_pat = f"%{location.lower()}%"
-            base_stmt = base_stmt.outerjoin(Organization.locations)
-            conditions.append(
-                or_(
-                    Lead.notes.ilike(loc_pat),
-                    Organization.name.ilike(loc_pat),
-                    Location.city.ilike(loc_pat),
-                    Location.state.ilike(loc_pat),
-                    Location.raw_location.ilike(loc_pat),
-                    sa_func.jsonb_extract_path_text(Lead.lead_metadata, 'city').ilike(loc_pat),
-                    sa_func.jsonb_extract_path_text(Lead.lead_metadata, 'state').ilike(loc_pat),
-                )
-            )
-
+        self, *, category=None, location=None, city=None, us_state=None,
+        source_code=None, status=None, has_email=False, has_phone=False,
+        assigned_to=None, department_id=None, fresh_within_days=None,
+        include_expired=False, record_kind=None, user_id=None, new_only=False,
+        exclude_query_id=None, exclude_lead_ids=(), limit=100, offset=0,
+    ):
+        """Filter first, count distinct IDs and return a stable ordered page."""
+        from datetime import datetime, timedelta, timezone
+        from Database.search import category_terms, normalize_city
+        from Database.normalize import normalize_state, parse_location
+        from Database.models.query import Query
+        from Database.models.query_result import QueryResult
+        from Database.models.lead_source import LeadSource
+        if location and not city and not us_state:
+            if normalize_state(location):
+                us_state = normalize_state(location)
+            elif ',' in location:
+                city, us_state, _ = parse_location(location)
+            else:
+                city = location
+        city, us_state = normalize_city(city), normalize_state(us_state) if us_state else None
+        stmt = select(Lead.id).outerjoin(Lead.organization)
+        filters = []
+        if exclude_lead_ids:
+            filters.append(Lead.id.notin_(exclude_lead_ids))
+        # Category evidence is trade/category/title/description, never company name.
+        searchable = sa_func.lower(sa_func.concat_ws(' ', Lead.category, Lead.title, Lead.notes,
+            case((Lead.record_kind == 'company', Organization.industry)), Lead.lead_metadata['category'].as_string()))
+        for term in category_terms(category):
+            filters.append(searchable.like('%' + term.replace('%', '').replace('_', '') + '%'))
+        if city or us_state:
+            direct, related = [], [Location.organization_id == Lead.organization_id]
+            missing = []
+            if city:
+                direct.append(sa_func.lower(sa_func.trim(Lead.city)) == city.lower())
+                related.append(sa_func.lower(sa_func.trim(Location.city)) == city.lower())
+                missing.append(Lead.city.is_(None))
+            if us_state:
+                direct.append(sa_func.upper(Lead.us_state) == us_state)
+                related.append(sa_func.upper(Location.state) == us_state)
+                missing.append(Lead.us_state.is_(None))
+            filters.append(or_(and_(*direct), and_(Lead.record_kind == 'company', or_(*missing), exists(select(Location.id).where(*related)))))
         if source_code:
-            src_pat = f"%{source_code.lower()}%"
-            conditions.append(
-                or_(
-                    Source.code.ilike(src_pat),
-                    Source.name.ilike(src_pat),
-                )
-            )
-
+            code = source_code.strip().lower()
+            filters.append(or_(sa_func.lower(Lead.source_code) == code,
+                exists(select(LeadSource.id).where(LeadSource.lead_id == Lead.id, sa_func.lower(LeadSource.source_code) == code))))
+        if record_kind:
+            filters.append(Lead.record_kind == record_kind)
         if status:
-            conditions.append(Lead.status.ilike(status))
-
+            filters.append(Lead.status == status)
         if assigned_to:
-            conditions.append(Lead.assigned_to == assigned_to)
-
+            filters.append(Lead.assigned_to == assigned_to)
         if department_id:
-            conditions.append(Lead.department_id == department_id)
-
+            filters.append(Lead.department_id == department_id)
         if has_email:
-            email_exists = exists().where(
-                or_(
-                    Email.organization_id == Lead.organization_id,
-                    Email.contact_id == Lead.contact_id,
-                )
-            )
-            conditions.append(
-                or_(
-                    email_exists,
-                    sa_func.jsonb_extract_path_text(Lead.lead_metadata, 'email').isnot(None),
-                    sa_func.jsonb_extract_path_text(Lead.lead_metadata, 'email_address').isnot(None),
-                )
-            )
-
+            filters.append(or_(sa_func.trim(Lead.lead_metadata['email'].as_string()) != '',
+                exists(select(Email.id).where(or_(Email.contact_id == Lead.contact_id,
+                    and_(Lead.record_kind == 'company', Email.organization_id == Lead.organization_id)),
+                    Email.email.isnot(None), sa_func.trim(Email.email) != ''))))
         if has_phone:
-            phone_exists = exists().where(
-                or_(
-                    Phone.organization_id == Lead.organization_id,
-                    Phone.contact_id == Lead.contact_id,
-                )
-            )
-            conditions.append(
-                or_(
-                    phone_exists,
-                    sa_func.jsonb_extract_path_text(Lead.lead_metadata, 'phone').isnot(None),
-                    sa_func.jsonb_extract_path_text(Lead.lead_metadata, 'phone_number').isnot(None),
-                )
-            )
-
-        if conditions:
-            base_stmt = base_stmt.where(and_(*conditions))
-
-        # Distinct Lead IDs subquery
-        lead_ids_query = base_stmt.distinct()
-
-        # Count total matching distinct leads
-        subq = lead_ids_query.subquery()
-        total_count = self.session.scalar(select(sa_func.count()).select_from(subq)) or 0
-
-        if total_count == 0:
-            return [], 0
-
-        # Paginated fetch of Lead IDs
-        paginated_ids = list(
-            self.session.scalars(
-                select(subq.c.id).offset(offset).limit(min(limit, 1000))
-            ).all()
-        )
-
-        if not paginated_ids:
-            return [], total_count
-
-        # Retrieve Lead instances by ID
-        records = list(
-            self.session.scalars(
-                select(Lead).where(Lead.id.in_(paginated_ids)).order_by(Lead.created_at.desc())
-            ).all()
-        )
-
-        return records, total_count
+            filters.append(or_(sa_func.trim(Lead.lead_metadata['phone'].as_string()) != '',
+                exists(select(Phone.id).where(or_(Phone.contact_id == Lead.contact_id,
+                    and_(Lead.record_kind == 'company', Phone.organization_id == Lead.organization_id)),
+                    or_(sa_func.trim(Phone.normalized_phone) != '', sa_func.trim(Phone.phone_raw) != '')))))
+        now = datetime.now(timezone.utc)
+        if not include_expired:
+            filters.append(or_(Lead.record_kind != 'opportunity', Lead.due_at.is_(None), Lead.due_at >= now))
+        if fresh_within_days:
+            filters.append(Lead.last_seen_at >= now - timedelta(days=fresh_within_days))
+        if new_only and user_id:
+            delivered = select(QueryResult.lead_id).join(Query, Query.id == QueryResult.query_id).where(
+                Query.user_id == user_id, QueryResult.lead_id == Lead.id,
+                QueryResult.record_version == Lead.content_version, Query.served_at.isnot(None))
+            if exclude_query_id:
+                delivered = delivered.where(Query.id != exclude_query_id)
+            filters.append(~exists(delivered))
+        ids = stmt.where(*filters).distinct().subquery()
+        total = self.session.scalar(select(sa_func.count()).select_from(ids)) or 0
+        page = select(Lead).where(Lead.id.in_(select(ids.c.id))).options(*self._eager_options()).order_by(
+            Lead.created_at.desc(), Lead.id.asc()).offset(max(0, offset)).limit(min(max(1, limit), 1000))
+        return list(self.session.scalars(page).all()), total

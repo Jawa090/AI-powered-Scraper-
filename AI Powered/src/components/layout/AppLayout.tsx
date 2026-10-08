@@ -23,7 +23,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const [isOpenMobile, setIsOpenMobile] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA]/85 text-[#111827] flex relative selection:bg-emerald-500/20">
+    <div className="min-h-screen bg-[#F8F9FA]/85 dark:bg-black text-[#111827] dark:text-golden-500 flex relative selection:bg-green-500/20 transition-colors">
       {/* Interactive Animated Dynamic Background with Particles & Constellation */}
       <InteractiveBackground variant="adaptive" showControls={true} />
 

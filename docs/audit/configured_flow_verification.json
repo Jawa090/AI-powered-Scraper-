@@ -1,0 +1,96 @@
+{
+  "database": "configured",
+  "syntheticRecordsWritten": false,
+  "checks": [
+    {
+      "source": "jwiz",
+      "slots": {
+        "city": "Yonkers",
+        "source": "jwiz",
+        "category": "roofing companies",
+        "new_only": false,
+        "quantity": 2,
+        "us_state": "NY",
+        "has_email": false,
+        "has_phone": false,
+        "record_kind": "company",
+        "include_expired": false,
+        "fresh_within_days": null
+      },
+      "returned": 2,
+      "initialReturned": 2,
+      "completionReturned": 0,
+      "jobId": null,
+      "queryId": "1c99c583-9e22-43a1-aadb-2bac8c9fed87",
+      "snapshotMatches": true
+    },
+    {
+      "source": "dasny",
+      "slots": {
+        "city": null,
+        "source": "dasny",
+        "category": null,
+        "new_only": false,
+        "quantity": 2,
+        "us_state": "NY",
+        "has_email": false,
+        "has_phone": false,
+        "record_kind": "opportunity",
+        "include_expired": false,
+        "fresh_within_days": null
+      },
+      "returned": 2,
+      "initialReturned": 1,
+      "completionReturned": 2,
+      "jobId": "d841bb34-25bf-4786-972b-5e4aed1b6e6f",
+      "queryId": "1ceedec7-1d90-5cd0-8467-8e4c94c9b978",
+      "snapshotMatches": true
+    },
+    {
+      "source": "bonfire",
+      "slots": {
+        "city": "Dallas",
+        "source": "bonfire",
+        "category": null,
+        "new_only": false,
+        "quantity": 2,
+        "us_state": "TX",
+        "has_email": false,
+        "has_phone": false,
+        "record_kind": "opportunity",
+        "include_expired": false,
+        "fresh_within_days": null
+      },
+      "returned": 2,
+      "initialReturned": 1,
+      "completionReturned": 2,
+      "jobId": "96d54759-4561-41fc-beee-0433e136dac5",
+      "queryId": "268de080-72d3-58bf-9e9a-cd33f3df343c",
+      "snapshotMatches": true
+    },
+    {
+      "source": "nyscr",
+      "slots": {
+        "city": null,
+        "source": "nyscr",
+        "category": null,
+        "new_only": true,
+        "quantity": 2,
+        "us_state": "NY",
+        "has_email": false,
+        "has_phone": false,
+        "record_kind": "opportunity",
+        "include_expired": false,
+        "fresh_within_days": null
+      },
+      "returned": 2,
+      "initialReturned": 0,
+      "completionReturned": 2,
+      "jobId": "5592be5b-cb36-4b8f-8654-eb621a169a14",
+      "queryId": "5249a767-157a-5713-afb6-10f4bdb3d73f",
+      "snapshotMatches": true
+    }
+  ],
+  "adminHeadingVerified": true,
+  "passed": true
+}

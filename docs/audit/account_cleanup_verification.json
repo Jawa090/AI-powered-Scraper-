@@ -1,0 +1,35 @@
+{
+  "checkpointThreads": 0,
+  "removedUsers": 334,
+  "sessions": 1,
+  "requests": 3,
+  "jobs": 2,
+  "datasets": 0,
+  "exclusiveLeads": 0,
+  "scrapeRuns": 0,
+  "contacts": 0,
+  "organizations": 0,
+  "retainedUsers": [
+    "User",
+    "Admin",
+    "user1"
+  ],
+  "applied": true,
+  "remaining": [
+    {
+      "username": "User",
+      "name": "User",
+      "email": "User@bitwords.com"
+    },
+    {
+      "username": "Admin",
+      "name": "Admin",
+      "email": null
+    },
+    {
+      "username": "user1",
+      "name": "User1",
+      "email": "user1@rushcorp.com"
+    }
+  ]
+}

@@ -78,11 +78,11 @@ class Settings:
         # Database
         self.DATABASE_URL: str = (raw.get("DATABASE_URL") or "").strip()
         if not self.DATABASE_URL.startswith("postgresql+psycopg://"):
-            errors.append(f"DATABASE_URL: must start with 'postgresql+psycopg://' (got '{self.DATABASE_URL[:25]}...')")
+            errors.append("DATABASE_URL: must start with 'postgresql+psycopg://'")
 
         self.CHECKPOINT_DB_URL: str = (raw.get("CHECKPOINT_DB_URL") or "").strip()
         if not self.CHECKPOINT_DB_URL.startswith("postgresql://"):
-            errors.append(f"CHECKPOINT_DB_URL: must start with 'postgresql://' (got '{self.CHECKPOINT_DB_URL[:20]}...')")
+            errors.append("CHECKPOINT_DB_URL: must start with 'postgresql://'")
 
         self.ENVIRONMENT: str = (raw.get("ENVIRONMENT") or "").strip()
         if self.ENVIRONMENT not in ("development", "test", "production"):
@@ -132,7 +132,8 @@ class Settings:
         if len(self.JWT_SECRET) < 32:
             errors.append(f"JWT_SECRET: must be >= 32 characters long (got {len(self.JWT_SECRET)})")
 
-        self.JWT_EXPIRE_HOURS: int = _parse_int(raw.get("JWT_EXPIRE_HOURS"), "JWT_EXPIRE_HOURS", errors, min_val=1)
+        self.JWT_EXPIRE_HOURS: int = 8
+        self.AUTH_USER_EMAIL = (raw.get("AUTH_USER_EMAIL") or "").strip() or None
 
         # LLM
         self.LLM_PROVIDER: str = (raw.get("LLM_PROVIDER") or "").strip()
@@ -141,6 +142,12 @@ class Settings:
 
         self.LLM_MODEL: str = (raw.get("LLM_MODEL") or "").strip()
         self.LLM_API_KEY: str = raw.get("LLM_API_KEY", "")
+        self.OPENROUTER_API_KEY: str = raw.get("OPENROUTER_API_KEY", "")
+        self.OPENROUTER_MODEL: str = raw.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+        self.DEEPSEEK_API_KEY: str = raw.get("DEEPSEEK_API_KEY", "")
+        self.DEEPSEEK_MODEL: str = raw.get("DEEPSEEK_MODEL", "deepseek-chat")
+        self.GEMINI_API_KEY: str = raw.get("GEMINI_API_KEY", "")
+        self.GEMINI_MODEL: str = raw.get("GEMINI_MODEL", "gemini-2.5-flash")
         self.LLM_BASE_URL: str = (raw.get("LLM_BASE_URL") or "").strip()
         if self.LLM_PROVIDER == "openai_compatible" and not self.LLM_BASE_URL:
             errors.append("LLM_BASE_URL: required when LLM_PROVIDER is 'openai_compatible'")
@@ -153,12 +160,10 @@ class Settings:
         self.LLM_MAX_RETRIES: int = _parse_int(raw.get("LLM_MAX_RETRIES"), "LLM_MAX_RETRIES", errors, min_val=0)
 
         # Agent
-        self.AUTO_SCRAPE: bool = _parse_bool(raw.get("AUTO_SCRAPE"), "AUTO_SCRAPE", errors)
         self.MAX_TOOL_STEPS: int = _parse_int(raw.get("MAX_TOOL_STEPS"), "MAX_TOOL_STEPS", errors, min_val=1)
         self.RECURSION_LIMIT: int = _parse_int(raw.get("RECURSION_LIMIT"), "RECURSION_LIMIT", errors, min_val=1)
         self.HISTORY_TOKEN_BUDGET: int = _parse_int(raw.get("HISTORY_TOKEN_BUDGET"), "HISTORY_TOKEN_BUDGET", errors, min_val=1)
         self.SUMMARY_TRIGGER_MESSAGES: int = _parse_int(raw.get("SUMMARY_TRIGGER_MESSAGES"), "SUMMARY_TRIGGER_MESSAGES", errors, min_val=1)
-        self.SCRAPES_PER_HOUR: int = _parse_int(raw.get("SCRAPES_PER_HOUR"), "SCRAPES_PER_HOUR", errors, min_val=1)
         self.FRESHNESS_DAYS: int = _parse_int(raw.get("FRESHNESS_DAYS"), "FRESHNESS_DAYS", errors, min_val=1)
         self.LANGGRAPH_STRICT_MSGPACK: bool = _parse_bool(raw.get("LANGGRAPH_STRICT_MSGPACK"), "LANGGRAPH_STRICT_MSGPACK", errors)
 
@@ -175,8 +180,15 @@ class Settings:
         self.RAG_TOP_K: int = _parse_int(raw.get("RAG_TOP_K"), "RAG_TOP_K", errors, min_val=1, max_val=20)
 
         # Scrapers / Worker
-        self.NYSCR_USERNAME: str = (raw.get("NYSCR_USERNAME") or "").strip()
-        self.NYSCR_PASSWORD: str = raw.get("NYSCR_PASSWORD", "")
+        self.NYSCR_USERNAME: str = (raw.get("NYSCR_USERNAME") or raw.get("ny_USERNAME") or raw.get("ny_USERNAME_2") or "").strip()
+        self.NYSCR_PASSWORD: str = raw.get("NYSCR_PASSWORD") or raw.get("ny_PASSWORD") or raw.get("ny_PASSWORD_2") or ""
+        self.NYSCR_HEADLESS: bool = _parse_bool(raw.get("NYSCR_HEADLESS", "false"), "NYSCR_HEADLESS", errors)
+        self.NYSCR_MAX_PAGES: int = _parse_int(raw.get("NYSCR_MAX_PAGES", "20"), "NYSCR_MAX_PAGES", errors, min_val=1)
+        self.NYSCR_VIEWER_URL: str = (raw.get("NYSCR_VIEWER_URL") or "").strip()
+        self.NYSCR_DEBUGGER_ADDRESS: str = (raw.get("NYSCR_DEBUGGER_ADDRESS") or "").strip()
+        self.DASNY_MAX_PAGES: int = _parse_int(raw.get("DASNY_MAX_PAGES", "10"), "DASNY_MAX_PAGES", errors, min_val=1)
+        self.SCRAPER_HEADLESS: bool = _parse_bool(raw.get("SCRAPER_HEADLESS", "true"), "SCRAPER_HEADLESS", errors)
+        self.JWIZ_ENRICH_PROFILES: bool = _parse_bool(raw.get("JWIZ_ENRICH_PROFILES", "true"), "JWIZ_ENRICH_PROFILES", errors)
         self.SELENIUM_MODE: str = (raw.get("SELENIUM_MODE") or "").strip()
         if self.SELENIUM_MODE not in ("local", "remote"):
             errors.append(f"SELENIUM_MODE: must be 'local' or 'remote' (got '{self.SELENIUM_MODE}')")
@@ -208,33 +220,29 @@ def _read_env_file(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found: {path}")
 
-    raw = {}
-    content = path.read_text(encoding="utf-8", errors="ignore")
-    for line in content.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" in line:
-            key, val = line.split("=", 1)
-            raw[key.strip()] = val.strip()
-    return raw
+    from dotenv import dotenv_values
+    return {key: value for key, value in dotenv_values(path).items() if value is not None}
 
 
 def load_settings() -> Settings:
     env_file_override = os.environ.get("DATAOPS_ENV_FILE")
     if env_file_override:
         path = Path(env_file_override)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
     else:
         path = BACKEND_DIR / ".env"
+        if not path.exists():
+            path = PROJECT_ROOT / ".env"
 
-    raw = _read_env_file(path)
+    raw = _read_env_file(BACKEND_DIR / ".env.example")
+    if path.exists():
+        raw.update(_read_env_file(path))
+    elif env_file_override:
+        raise ConfigError("The configured DATAOPS_ENV_FILE does not exist")
+    raw.update(os.environ)
     return Settings(raw)
 
 
-# Module-level singleton
-try:
-    settings = load_settings()
-except Exception as _e:
-    # Allow test modules to import Settings class even if default env fails at import time
-    settings = None
-    _init_error = _e
+# Invalid configuration must stop startup rather than fail elsewhere.
+settings = load_settings()

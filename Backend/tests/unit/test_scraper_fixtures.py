@@ -58,7 +58,7 @@ def test_controller_fixture_mode_execution(scraper_id, monkeypatch):
     monkeypatch.setattr(settings, "SCRAPER_MODE", "fixture")
     monkeypatch.setattr(settings, "ENVIRONMENT", "test")
 
-    records = list(run(scraper_id, {"limit": 1}))
+    records = list(run(scraper_id, {"limit": 1, **({"us_state": "NY"} if scraper_id == "jwiz" else {})}))
     assert len(records) == 1
     rec = records[0]
     assert isinstance(rec, StandardRecord)

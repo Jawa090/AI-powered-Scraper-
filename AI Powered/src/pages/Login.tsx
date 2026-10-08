@@ -44,12 +44,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         <InteractiveBackground variant="dark" showControls={false} className="!absolute" />
 
         <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-white/5 blur-2xl pointer-events-none" />
-        <div className="absolute -bottom-24 -right-24 w-96 h-96 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-96 h-96 rounded-full bg-green-500/15 blur-3xl pointer-events-none" />
 
         <div className="relative z-10">
           <div className="flex items-center gap-2.5 mb-8">
             <div className="w-9 h-9 rounded-lg bg-white text-[#2D4351] flex items-center justify-center font-bold shadow-md">
-              <Sparkles className="w-5 h-5 text-emerald-600" />
+              <Sparkles className="w-5 h-5 text-green-600" />
             </div>
             <div>
               <span className="text-base font-bold tracking-tight block leading-none">
@@ -62,7 +62,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           </div>
 
           <div className="space-y-4 max-w-lg">
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-white/10 text-emerald-300 border border-white/10 inline-block">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-white/10 text-green-300 border border-white/10 inline-block">
               Internal Enterprise Operations
             </span>
             <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight text-white leading-tight">
@@ -83,7 +83,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             'Knowledge base RAG integration for contextual discovery',
           ].map((item, i) => (
             <div key={i} className="flex items-center gap-2.5 text-xs text-gray-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
               <span>{item}</span>
             </div>
           ))}
@@ -105,7 +105,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           </div>
 
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-center gap-2.5 text-xs text-rose-700">
+            <div className="p-3 bg-white text-red-600 border border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 rounded-lg flex items-center gap-2.5 text-xs">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               <span>{error}</span>
             </div>

@@ -75,7 +75,7 @@ export const EmailComposerModal: React.FC<EmailComposerModalProps> = ({
         </div>
 
         <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-          <span className="text-[11px] text-emerald-600 flex items-center gap-1 font-medium">
+          <span className="text-[11px] text-green-600 flex items-center gap-1 font-medium">
             <Sparkles className="w-3.5 h-3.5" />
             Live MX Handshake Verified (Deliverability &gt; 99%)
           </span>

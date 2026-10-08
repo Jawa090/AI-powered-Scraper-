@@ -46,10 +46,10 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-gray-900">{job.name}</h2>
               <span
-                className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
+                className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
                   isCompleted
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : 'bg-sky-50 text-sky-700 border border-sky-200 animate-pulse'
+                    ? 'bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800'
+                    : 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 animate-pulse'
                 }`}
               >
                 {isCompleted ? 'COMPLETED' : 'RUNNING'}
@@ -74,7 +74,7 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
         <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden mb-6">
           <div
             className={`h-full transition-all duration-500 rounded-full ${
-              isCompleted ? 'bg-emerald-500' : 'bg-[#2D4351]'
+              isCompleted ? 'bg-[#26619C]' : 'bg-[#2D4351]'
             }`}
             style={{ width: `${Math.min(100, job.progress)}%` }}
           />
@@ -94,7 +94,7 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">
               Verified Records
             </span>
-            <p className="text-base font-bold text-emerald-600 font-mono mt-0.5">
+            <p className="text-base font-bold text-green-600 font-mono mt-0.5">
               {job.verifiedCount.toLocaleString()}
             </p>
           </div>
@@ -102,7 +102,7 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">
               Deduplicated
             </span>
-            <p className="text-base font-bold text-amber-600 font-mono mt-0.5">
+            <p className="text-base font-bold text-blue-600 font-mono mt-0.5">
               {job.duplicatesCount}
             </p>
           </div>
@@ -141,18 +141,18 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
                 key={step}
                 className={`p-3 rounded-lg border transition-all flex items-center justify-between ${
                   isStepCompleted
-                    ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900'
+                    ? 'bg-[#E6F0FA]/50 border-[#B3D4F5] text-[#1E4E7C] dark:bg-[#1E4E7C]/10 dark:border-[#26619C]/30 dark:text-[#60A5FA]'
                     : isStepActive
-                    ? 'bg-[#EAEFF2] border-[#2D4351] text-[#2D4351] ring-1 ring-[#2D4351]'
-                    : 'bg-[#F8F9FA]/40 border-gray-200 text-gray-400'
+                    ? 'bg-[#EAEFF2] border-[#2D4351] text-[#2D4351] ring-1 ring-[#2D4351] dark:bg-[#2D4351] dark:text-golden-500 dark:border-golden-500 dark:ring-golden-500'
+                    : 'bg-[#F8F9FA]/40 border-gray-200 text-gray-400 dark:bg-gray-900/40 dark:border-gray-800'
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <div className="flex items-center justify-center">
                     {isStepCompleted ? (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      <CheckCircle2 className="w-5 h-5 text-[#26619C] dark:text-[#60A5FA]" />
                     ) : isStepActive ? (
-                      <Loader2 className="w-5 h-5 text-[#2D4351] animate-spin" />
+                      <Loader2 className="w-5 h-5 text-[#2D4351] dark:text-golden-500 animate-spin" />
                     ) : (
                       <span className="w-5 h-5 rounded-full border border-gray-300 flex items-center justify-center text-[10px] font-mono">
                         {index + 1}
@@ -178,14 +178,14 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
 
       {/* Completion Banner with Action Buttons */}
       {isCompleted && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-in fade-in">
+        <div className="bg-[#E6F0FA] border border-[#B3D4F5] dark:bg-[#1E4E7C]/20 dark:border-[#26619C]/30 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-in fade-in">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0">
+            <div className="w-12 h-12 rounded-full bg-[#D1E4F9] text-[#1E4E7C] dark:bg-[#26619C]/30 dark:text-[#60A5FA] flex items-center justify-center flex-shrink-0">
               <FileCheck2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-emerald-950">Dataset Ready</h3>
-              <p className="text-xs text-emerald-800">
+              <h3 className="text-base font-bold text-[#1E4E7C] dark:text-[#60A5FA]">Dataset Ready</h3>
+              <p className="text-xs text-[#26619C] dark:text-[#60A5FA]/80">
                 {job.verifiedCount.toLocaleString()} leads successfully generated and verified. Ready for sales calling and email outreach.
               </p>
             </div>
@@ -201,7 +201,7 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
             </button>
             <button
               onClick={onViewDataset}
-              className="flex-1 sm:flex-none px-4 py-2 text-xs font-semibold bg-white border border-emerald-300 text-emerald-900 hover:bg-emerald-100/50 rounded-lg transition-colors"
+              className="flex-1 sm:flex-none px-4 py-2 text-xs font-semibold bg-white dark:bg-black border border-[#93C5FD] dark:border-[#26619C] text-[#1E4E7C] dark:text-[#60A5FA] hover:bg-[#D1E4F9]/50 dark:hover:bg-[#1E4E7C]/20 rounded-lg transition-colors"
             >
               View Dataset
             </button>
@@ -215,8 +215,8 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
           <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">
             Live Worker Telemetry
           </span>
-          <span className="text-[10px] text-emerald-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[10px] text-green-400 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
             Socket Connected
           </span>
         </div>
@@ -228,9 +228,9 @@ export const DataGenerationStepper: React.FC<DataGenerationStepperProps> = ({
               <span
                 className={`text-[10px] px-1 rounded uppercase font-bold ${
                   log.level === 'warn'
-                    ? 'bg-amber-900/60 text-amber-300'
+                    ? 'bg-blue-900/60 text-blue-300'
                     : log.level === 'error'
-                    ? 'bg-rose-900/60 text-rose-300'
+                    ? 'bg-red-900/60 text-red-300'
                     : 'bg-gray-800 text-gray-400'
                 }`}
               >

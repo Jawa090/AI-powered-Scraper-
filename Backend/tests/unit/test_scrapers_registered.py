@@ -17,6 +17,8 @@ IGNORED_FILES = {
     "driver.py",
     "controller.py",
     "_template.py",
+    "utils.py",
+    "bonfire_parser.py",
 }
 
 

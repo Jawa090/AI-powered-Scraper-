@@ -101,7 +101,7 @@ export const AdminKnowledgeBase: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">Knowledge Base (RAG)</h1>
-            <span className="text-xs bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded-full border border-indigo-200">
+            <span className="text-xs bg-white text-blue-600 font-semibold px-2 py-0.5 rounded-full border border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800">
               Admin Only
             </span>
           </div>
@@ -139,7 +139,7 @@ export const AdminKnowledgeBase: React.FC = () => {
           <div className="mt-2 flex items-center gap-2">
             <span
               className={`w-2.5 h-2.5 rounded-full ${
-                isReady ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                isReady ? 'bg-green-600 dark:bg-green-500 animate-pulse' : 'bg-blue-600 dark:bg-blue-500'
               }`}
             />
             <span className="text-base font-bold text-gray-900 capitalize">
@@ -155,7 +155,7 @@ export const AdminKnowledgeBase: React.FC = () => {
         <div className="p-4 bg-white border border-[#E5E7EB] rounded-xl shadow-card">
           <div className="flex items-center justify-between text-[#848485] text-xs">
             <span className="font-semibold uppercase tracking-wider text-[10px]">Documents</span>
-            <FileText className="w-4 h-4 text-indigo-500" />
+            <FileText className="w-4 h-4 text-blue-500" />
           </div>
           <div className="mt-2 text-2xl font-extrabold text-gray-900">
             {status?.documents ?? documents.length}
@@ -167,7 +167,7 @@ export const AdminKnowledgeBase: React.FC = () => {
         <div className="p-4 bg-white border border-[#E5E7EB] rounded-xl shadow-card">
           <div className="flex items-center justify-between text-[#848485] text-xs">
             <span className="font-semibold uppercase tracking-wider text-[10px]">Vector Chunks</span>
-            <Layers className="w-4 h-4 text-purple-500" />
+            <Layers className="w-4 h-4 text-blue-500" />
           </div>
           <div className="mt-2 text-2xl font-extrabold text-gray-900">
             {status?.chunks ?? 0}
@@ -179,7 +179,7 @@ export const AdminKnowledgeBase: React.FC = () => {
         <div className="p-4 bg-white border border-[#E5E7EB] rounded-xl shadow-card">
           <div className="flex items-center justify-between text-[#848485] text-xs">
             <span className="font-semibold uppercase tracking-wider text-[10px]">Embedding Model</span>
-            <Cpu className="w-4 h-4 text-emerald-500" />
+            <Cpu className="w-4 h-4 text-green-500" />
           </div>
           <div className="mt-2 text-sm font-bold text-gray-900 truncate">
             {status?.embeddingModel || 'text-embedding-004'}
@@ -227,7 +227,7 @@ export const AdminKnowledgeBase: React.FC = () => {
                   <tr key={doc.id} className="hover:bg-[#F8F9FA]/80 transition-colors">
                     <td className="py-3 px-4 font-semibold text-gray-900">
                       <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                        <FileText className="w-4 h-4 text-blue-600 flex-shrink-0" />
                         <span className="truncate max-w-sm">{doc.title || 'Untitled Document'}</span>
                       </div>
                     </td>
@@ -244,7 +244,7 @@ export const AdminKnowledgeBase: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleDelete(doc.id)}
-                        className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-500 dark:hover:bg-red-900/30 transition-colors"
                         title="Delete Document"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -268,7 +268,7 @@ export const AdminKnowledgeBase: React.FC = () => {
       >
         <form onSubmit={handleUpload} className="space-y-4">
           {uploadError && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+            <div className="p-3 bg-white text-red-600 border border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 rounded-lg text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               <span>{uploadError}</span>
             </div>
@@ -289,7 +289,7 @@ export const AdminKnowledgeBase: React.FC = () => {
 
           <div>
             <label className="text-xs font-semibold text-gray-700 block mb-1">
-              Content (Text / Markdown) <span className="text-rose-500">*</span>
+              Content (Text / Markdown) <span className="text-red-500">*</span>
             </label>
             <textarea
               required

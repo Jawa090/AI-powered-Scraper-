@@ -90,11 +90,11 @@ export const Analytics: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 shadow-card">
           <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 mb-1">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <ShieldCheck className="w-4 h-4 text-green-600" />
             <span>Email Deliverability Score</span>
           </div>
           <p className="text-2xl font-bold text-gray-900 font-mono">99.2%</p>
-          <p className="text-xs text-emerald-700 mt-1">Live SMTP MX handshakes active</p>
+          <p className="text-xs text-green-700 mt-1">Live SMTP MX handshakes active</p>
         </div>
 
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 shadow-card">

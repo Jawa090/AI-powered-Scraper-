@@ -61,7 +61,8 @@ def test_valid_settings_succeeds():
     s = Settings(cfg)
     assert s.DATABASE_URL == "postgresql+psycopg://postgres:1234@localhost:5432/dataops"
     assert s.API_PORT == 8000
-    assert s.AUTO_SCRAPE is False
+    assert not hasattr(s, 'AUTO_SCRAPE')
+    assert s.JWT_EXPIRE_HOURS == 8
     assert s.LANGGRAPH_STRICT_MSGPACK is True
     assert len(s.CORS_ORIGINS) == 2
 

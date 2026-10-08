@@ -1,6 +1,6 @@
 """
 routes/serializers.py
-─────────────────────
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Production serializers for Leads, Jobs, Datasets, and Sessions.
 Complies with P12.2 & F22:
 - Lead serializer:
@@ -41,25 +41,25 @@ def serialize_lead(lead: Lead) -> Dict[str, Any]:
     email: Optional[str] = None
     if contact and getattr(contact, "emails", None):
         email = contact.emails[0].email
-    elif org and getattr(org, "emails", None):
+    elif lead.record_kind == 'company' and org and getattr(org, "emails", None):
         email = org.emails[0].email
 
     # Phone extraction
     phone: Optional[str] = None
     if contact and getattr(contact, "phones", None):
-        phone = contact.phones[0].phone_raw or contact.phones[0].phone_e164
-    elif org and getattr(org, "phones", None):
-        phone = org.phones[0].phone_raw or org.phones[0].phone_e164
+        phone = contact.phones[0].phone_raw or contact.phones[0].normalized_phone
+    elif lead.record_kind == 'company' and org and getattr(org, "phones", None):
+        phone = org.phones[0].phone_raw or org.phones[0].normalized_phone
 
     # Location, City, State extraction
-    city: Optional[str] = None
-    state: Optional[str] = None
+    city: Optional[str] = lead.city
+    state: Optional[str] = lead.us_state
     raw_loc: Optional[str] = None
 
-    if org and getattr(org, "locations", None):
+    if lead.record_kind == 'company' and org and getattr(org, "locations", None):
         loc = org.locations[0]
-        city = loc.city
-        state = loc.state
+        city = city or loc.city
+        state = state or loc.state
         raw_loc = loc.normalized_location or loc.raw_location
 
     # Metadata fallback for location if not in relations
@@ -71,6 +71,8 @@ def serialize_lead(lead: Lead) -> Dict[str, Any]:
     if not raw_loc and "location" in meta:
         raw_loc = meta.get("location")
 
+    email = meta.get('email') or email
+    phone = meta.get('phone') or phone
     if city and state:
         location = f"{city}, {state}"
     else:
@@ -102,8 +104,12 @@ def serialize_lead(lead: Lead) -> Dict[str, Any]:
 
     return {
         "id": lead.id,
+        "recordKind": lead.record_kind,
+        "recordVersion": lead.content_version,
+        "category": lead.category,
+        "sourceUrl": lead.source_url,
         "datasetId": lead.dataset_id or None,
-        "name": contact_name,
+        "name": meta.get('contact_name') or contact_name,
         "company": org_name,
         "title": lead.title or None,
         "email": email,
@@ -120,8 +126,8 @@ def serialize_lead(lead: Lead) -> Dict[str, Any]:
         "departmentName": dept_name,
         "lastActivity": lead.last_activity or None,
         "companySize": org.company_size if org and org.company_size else None,
-        "website": org.website if org and org.website else None,
-        "industry": org.industry if org and org.industry else None,
+        "website": meta.get("website") or (org.website if org and org.website else None),
+        "industry": lead.category or (org.industry if org and org.industry else None),
         "createdAt": created_str,
         "updatedAt": updated_str,
         "notes": lead.notes or None,
@@ -181,6 +187,8 @@ def serialize_job(job: Job) -> Dict[str, Any]:
         "dataset_id": job.dataset_id or None,
         "parameters": job.parameters or {},
         "errorMessage": job.error_message or None,
+        "waitingFor": job.waiting_for,
+        "captchaViewerUrl": getattr(__import__('settings').settings, 'NYSCR_VIEWER_URL', None),
         "logs": job.logs or [],
     }
 

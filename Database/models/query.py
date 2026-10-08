@@ -49,6 +49,7 @@ class Query(Base):
     # Phase 4 — client message ID and turn ID
     client_message_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     turn_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    response: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True, nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(

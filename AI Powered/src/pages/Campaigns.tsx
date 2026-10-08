@@ -69,7 +69,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({ onNavigate }) => {
                 <span className="font-semibold text-gray-900 font-mono">
                   {camp.totalLeads.toLocaleString()} Target Leads
                 </span>
-                <span className="text-emerald-700 font-semibold font-mono">
+                <span className="text-green-700 font-semibold font-mono">
                   {camp.interestedCount} Interested
                 </span>
                 <span className="text-gray-400">

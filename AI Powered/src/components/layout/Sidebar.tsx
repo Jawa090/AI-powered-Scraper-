@@ -45,10 +45,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // P13.6: Keep Agent, Leads, Datasets, Jobs, Settings, and Admin pages
   const primaryNav: NavItem[] = [
-    { label: 'AI Agent', path: '/agent', icon: Bot, badge: 'Active', badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    { label: 'AI Agent', path: '/agent', icon: Bot, badge: 'Active', badgeColor: 'bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800' },
     { label: 'Leads', path: '/leads', icon: Users2, badge: leads.length },
     { label: 'Datasets', path: '/datasets', icon: Database },
-    { label: 'Jobs', path: '/jobs', icon: ActivitySquare, badge: 'Live', badgeColor: 'bg-sky-50 text-sky-700 border-sky-200' },
+    { label: 'Jobs', path: '/jobs', icon: ActivitySquare, badge: 'Live', badgeColor: 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800' },
   ];
 
   const adminNav: NavItem[] = [
@@ -73,7 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return (
       <div className="mb-4">
         {sectionTitle && !isCollapsed && (
-          <p className="px-3 mb-1.5 text-[10px] font-semibold tracking-wider text-[#848485] uppercase">
+          <p className="px-3 mb-1.5 text-[10px] font-semibold tracking-wider text-[#848485] dark:text-golden-600 uppercase">
             {sectionTitle}
           </p>
         )}
@@ -89,8 +89,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title={isCollapsed ? item.label : undefined}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all group cursor-pointer ${
                   isActive
-                    ? 'bg-[#2D4351] text-white shadow-sm'
-                    : 'text-gray-700 hover:bg-gray-100/80 hover:text-gray-900'
+                    ? 'bg-[#2D4351] dark:bg-golden-500 text-white dark:text-black shadow-sm'
+                    : 'text-gray-700 dark:text-golden-300 hover:bg-gray-100/80 dark:hover:bg-gray-900 hover:text-gray-900 dark:hover:text-golden-100'
                 }`}
               >
                 <Icon
@@ -132,22 +132,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 bg-white/90 backdrop-blur-md border-r border-[#E5E7EB]/80 flex flex-col transition-all duration-200 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 bg-white/90 dark:bg-black/90 backdrop-blur-md border-r border-[#E5E7EB]/80 dark:border-gray-800 flex flex-col transition-all duration-200 ${
           isCollapsed ? 'w-16' : 'w-60'
         } ${isOpenMobile ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         {/* Brand Header */}
-        <div className="h-14 flex items-center justify-between px-4 border-b border-[#E5E7EB]">
+        <div className="h-14 flex items-center justify-between px-4 border-b border-[#E5E7EB] dark:border-gray-800">
           <div
             onClick={() => handleItemClick('/agent')}
             className="flex items-center gap-2.5 cursor-pointer select-none"
           >
             <div className="w-8 h-8 rounded-lg bg-[#2D4351] flex items-center justify-center text-white shadow-sm flex-shrink-0">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <Sparkles className="w-4 h-4 text-green-400" />
             </div>
             {!isCollapsed && (
               <div className="min-w-0">
-                <span className="text-sm font-bold tracking-tight text-[#111827] block leading-tight">
+                <span className="text-sm font-bold tracking-tight text-[#111827] dark:text-golden-500 block leading-tight">
                   DataOps AI
                 </span>
                 <span className="text-[10px] text-[#848485] tracking-wider uppercase block">
@@ -177,14 +177,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Bottom Navigation / Settings */}
-        <div className="p-3 border-t border-[#E5E7EB] space-y-1">
+        <div className="p-3 border-t border-[#E5E7EB] dark:border-gray-800 space-y-1">
           <button
             onClick={() => handleItemClick('/settings')}
             title={isCollapsed ? 'Settings' : undefined}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
               currentPath === '/settings'
-                ? 'bg-[#2D4351] text-white'
-                : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                ? 'bg-[#2D4351] dark:bg-golden-500 text-white dark:text-black'
+                : 'text-gray-700 dark:text-golden-300 hover:bg-gray-100 dark:hover:bg-gray-900 hover:text-gray-900 dark:hover:text-golden-100'
             }`}
           >
             <Settings className="w-4 h-4 flex-shrink-0 text-gray-500" />

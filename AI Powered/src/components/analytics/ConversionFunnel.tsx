@@ -41,7 +41,7 @@ export const ConversionFunnel: React.FC = () => {
           <h3 className="text-sm font-semibold text-gray-900">Live Scraped Conversion Funnel</h3>
           <p className="text-xs text-[#848485]">From autonomous scraper discovery to verified conversions</p>
         </div>
-        <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+        <span className="text-xs font-semibold bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 px-2 py-0.5 rounded border">
           {winRate}% Conversion Rate
         </span>
       </div>

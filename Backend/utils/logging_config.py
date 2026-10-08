@@ -55,7 +55,8 @@ class JSONFormatter(logging.Formatter):
         if record.exc_info:
             log_obj["exception"] = "".join(traceback.format_exception(*record.exc_info))
             
-        return json.dumps(log_obj)
+        from utils.pii import mask_payload
+        return json.dumps(mask_payload(log_obj), default=str)
 
 def setup_structured_logging():
     from settings import settings

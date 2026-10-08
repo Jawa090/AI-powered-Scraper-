@@ -49,7 +49,7 @@ export const DepartmentDetail: React.FC<DepartmentDetailProps> = ({ id, onNaviga
             onClick={() => onNavigate('/agent')}
             className="px-4 py-2 text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] rounded-lg shadow-sm flex items-center gap-1.5"
           >
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+            <Sparkles className="w-3.5 h-3.5 text-green-400" />
             <span>Launch {dept.name} AI Agent</span>
           </button>
         </div>
@@ -66,11 +66,11 @@ export const DepartmentDetail: React.FC<DepartmentDetailProps> = ({ id, onNaviga
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">Emails Dispatched</span>
-            <p className="text-xl font-bold text-purple-700 font-mono mt-0.5">{dept.emailedCount.toLocaleString()}</p>
+            <p className="text-xl font-bold text-blue-700 font-mono mt-0.5">{dept.emailedCount.toLocaleString()}</p>
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">Interested Leads</span>
-            <p className="text-xl font-bold text-emerald-600 font-mono mt-0.5">{dept.interestedCount.toLocaleString()}</p>
+            <p className="text-xl font-bold text-green-600 font-mono mt-0.5">{dept.interestedCount.toLocaleString()}</p>
           </div>
         </div>
       </div>
@@ -81,10 +81,10 @@ export const DepartmentDetail: React.FC<DepartmentDetailProps> = ({ id, onNaviga
         <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-card">
           <div className="flex items-center justify-between border-b border-[#E5E7EB] pb-3 mb-4">
             <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4 text-emerald-600" />
+              <Bot className="w-4 h-4 text-green-600" />
               <h3 className="text-sm font-semibold text-gray-900">Dedicated AI Agent</h3>
             </div>
-            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+            <span className="text-[10px] font-semibold bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 px-2 py-0.5 rounded border">
               Active Neural v4.2
             </span>
           </div>
@@ -103,7 +103,7 @@ export const DepartmentDetail: React.FC<DepartmentDetailProps> = ({ id, onNaviga
                 <div className="space-y-1">
                   {agent.capabilities.map(cap => (
                     <div key={cap} className="flex items-center gap-2 text-xs text-gray-700">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
                       <span>{cap}</span>
                     </div>
                   ))}

@@ -1,58 +1,53 @@
-#!/usr/bin/env python3
-"""
-NYSCR Scraper - Accurate data extraction for 25 Open Opportunities
-Maps data to the target schema precisely.
-
-Key behaviors:
-- Title:   read from the page heading after "Ad details" breadcrumb, NOT link text
-- Contact: read name/phone/email/org from the Contact Info section DOM elements only
-- Documents: only opportunity-specific attachments (skip DownloadDailyIssue and Search links)
-- bid_results: only real bid data, not footer navigation
-- Deduplication: seen_ids set prevents same opportunity appearing twice
-- BidFilter=Open: only current open bids
-"""
-
-import sys
-import os
+from __future__ import annotations
 import re
-import json
 import time
 from datetime import datetime
+from typing import Any, Dict, Iterator, List, Optional
+import logging
 
-if sys.platform.startswith('win'):
-    try:
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    except AttributeError:
-        pass
-
-from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import TimeoutException, WebDriverException
 
-# ---------------------------------------------------------------------------
-# Module-level helpers
-# ---------------------------------------------------------------------------
+from scrappers.base import BaseScraper, ScrapeParams, ScrapeContext, ScraperMeta, StandardRecord, LoginFailed, SourceBlocked, JobCancelled
+from scrappers.driver import make_driver
+from scrappers.utils import clean, to_json_safe, parse_local_dt, state_code
+from settings import settings
 
-# Site-wide newsletter PDF token — skip these, they are NOT per-opportunity docs
-_DAILY_ISSUE_TOKEN = 'DownloadDailyIssue'
+logger = logging.getLogger(__name__)
 
-# Footer/nav phrases that pollute bid_results
-_FOOTER_PHRASES = {
-    'download pdf', 'bookmark this ad', 'notify me if this ad updates',
-    'new york state contract reporter', 'site links', 'my opportunities',
-    'all open nyscr ads', 'nys business registry', 'edit my profile',
-    'public information', 'contact us', 'accessibility',
-    'policies and disclaimers', 'state resources', 'vendrep system',
-    'empire state development', 'contracts systems', 'statewide financial system',
-    'ny small business', 'agencies', 'app directory', 'counties', 'events',
-    'programs', 'services',
-}
 
-# Language names (from the translate widget) that should never appear in contact
+def parse_detail_content(html):
+    """Read the current portal's structured ad fields and individual contacts."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
+    root = soup.select_one('.page-content')
+    if root is None:
+        return {}
+    fields = {}
+    for label in root.select('.line-label'):
+        value = label.find_next_sibling(class_='line-value')
+        if value:
+            fields[clean(label.get_text(' ', strip=True)).rstrip(':').casefold()] = clean(value.get_text(' ', strip=True))
+    title = root.select_one('h2')
+    description = root.select_one('#ad-section-description')
+    contacts = []
+    for card in root.select('#ad-section-contact-info .card'):
+        name = card.select_one('.card-title .me-2')
+        role = card.select_one('.card-subtitle')
+        organization = card.select_one('.card-text strong')
+        email = card.select_one('a[href^="mailto:"]')
+        phone = card.select_one('a[href^="tel:"]')
+        contacts.append({'name': clean(name.get_text(' ', strip=True)) if name else None,
+            'title': clean(role.get_text(' ', strip=True)) if role else None,
+            'organization': clean(organization.get_text(' ', strip=True)) if organization else None,
+            'email': email['href'][7:].split('?')[0].strip() if email else None,
+            'phone': phone['href'][4:] if phone else None})
+    return {'fields': fields, 'title': clean(title.get_text(' ', strip=True)) if title else None,
+        'description': clean(description.get_text(' ', strip=True)) if description else None, 'contacts': contacts}
+
+# Skip language words
 _LANGUAGE_SAMPLE = {
     'abkhaz', 'acehnese', 'acholi', 'afrikaans', 'albanian', 'amharic',
     'arabic', 'armenian', 'assamese', 'awadhi', 'aymara', 'azerbaijani',
@@ -77,18 +72,10 @@ _LANGUAGE_SAMPLE = {
     'zapotec', 'telugu', 'tamil',
 }
 
-
-def _clean(text):
-    """Strip and collapse whitespace."""
-    return re.sub(r'\s+', ' ', (text or '')).strip()
-
-
-def _is_language_word(word):
+def _is_language_word(word: str) -> bool:
     return word.lower().strip('.,;:') in _LANGUAGE_SAMPLE
 
-
-def _looks_like_language_blob(text):
-    """Return True if the text is mostly a list of language names."""
+def _looks_like_language_blob(text: str) -> bool:
     if not text:
         return False
     words = text.split()
@@ -97,55 +84,7 @@ def _looks_like_language_blob(text):
     lang_count = sum(1 for w in words if _is_language_word(w))
     return lang_count / len(words) > 0.35
 
-
-def _strip_language_blob(text):
-    """Remove the translate-widget language list from a text block."""
-    if not text:
-        return text
-    # The widget text ends just before "<<" or "Home |"
-    cut = re.search(r'<<\s*Home\s*\|', text)
-    if cut:
-        text = text[cut.start():]
-    # Also cut anything that is just a run of capitalised language names
-    lines = []
-    for line in text.split('\n'):
-        if not _looks_like_language_blob(line):
-            lines.append(line)
-    return '\n'.join(lines).strip()
-
-
-def _parse_date(raw):
-    if not raw:
-        return None
-    raw = _clean(raw)
-    # Strip time portion  e.g. "08/13/2026 02:30 PM"
-    raw = re.sub(r'\s+\d{1,2}:\d{2}\s*(?:AM|PM)?', '', raw, flags=re.IGNORECASE).strip()
-    m = re.search(r'(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})', raw)
-    if m:
-        mo, dy, yr = m.groups()
-        return f"{yr}-{int(mo):02d}-{int(dy):02d}"
-    for fmt in ('%B %d, %Y', '%b %d, %Y', '%Y-%m-%d'):
-        try:
-            return datetime.strptime(raw, fmt).strftime('%Y-%m-%d')
-        except ValueError:
-            pass
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Main scraper class
-# ---------------------------------------------------------------------------
-
-import logging
-from scrappers.base import BaseScraper, ScrapeParams, ScrapeContext, ScraperMeta, StandardRecord, RawRecord
-from scrappers.driver import make_driver, retry_driver_call
-
-logger = logging.getLogger(__name__)
-
-
 class NyscrScraper(BaseScraper):
-    source_code = "NYSCR"
-
     meta = ScraperMeta(
         id="nyscr",
         name="New York State Contract Reporter",
@@ -171,7 +110,6 @@ class NyscrScraper(BaseScraper):
             "city",
             "us_state",
             "postal_code",
-            "category",
             "due_at",
         ],
         required_env=["NYSCR_USERNAME", "NYSCR_PASSWORD"],
@@ -179,308 +117,172 @@ class NyscrScraper(BaseScraper):
         max_limit=100,
     )
 
-    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: bool = True) -> None:
-        super().__init__(ctx)
-        self.headless = headless
+    headless_default = False
+
+    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: Optional[bool] = None) -> None:
+        if headless is None:
+            headless = getattr(settings, 'NYSCR_HEADLESS', False)
+        super().__init__(ctx, headless)
         self.driver = None
-        from settings import settings
         self.username = getattr(settings, "NYSCR_USERNAME", None)
         self.password = getattr(settings, "NYSCR_PASSWORD", None)
-        self.job_id = None
-        self._telemetry = None
+        self.max_pages = getattr(settings, "NYSCR_MAX_PAGES", 20)
+        self.wait = None
+        self._login_failures = 0
 
-    def check_credentials(self) -> tuple[bool, str | None]:
+    def check_credentials(self) -> tuple[bool, Optional[str]]:
         if not self.username or not self.password:
             return False, "NYSCR_USERNAME and NYSCR_PASSWORD must be set in environment variables."
         return True, None
 
-    # ------------------------------------------------------------------ setup
     def setup_chrome(self) -> bool:
         if self.driver:
             return True
         logger.info("Setting up Chrome for NYSCR...")
         try:
-            self.driver = make_driver(headless=self.headless)
-            self.wait = WebDriverWait(self.driver, 30)
+            self.driver = make_driver(headless=self.headless,
+                debugger_address=getattr(settings, 'NYSCR_DEBUGGER_ADDRESS', '') or None)
+            self.wait = WebDriverWait(self.driver, 15)
             logger.info("Chrome ready for NYSCR.")
             return True
         except Exception as e:
             logger.error("Chrome setup failed for NYSCR: %s", e)
             return False
 
-    # -------------------------------------------------------- reCAPTCHA detection
+    def close(self):
+        if self.driver:
+            try:
+                if getattr(settings, 'NYSCR_DEBUGGER_ADDRESS', ''):
+                    self.driver.service.stop()
+                else:
+                    self.driver.quit()
+            except Exception:
+                pass
+            self.driver = None
+        super().close()
+
     def _detect_recaptcha(self) -> bool:
-        """Check if a reCAPTCHA challenge is present on the current page."""
-        if not self.driver:
-            return False
-        try:
-            recaptcha_iframes = self.driver.find_elements(
-                By.CSS_SELECTOR, 'iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"]'
-            )
-            if recaptcha_iframes:
-                return True
-            recaptcha_divs = self.driver.find_elements(
-                By.CSS_SELECTOR, '.g-recaptcha, .recaptcha-checkbox, #recaptcha'
-            )
-            if recaptcha_divs:
-                return True
-            page_src = self.driver.page_source.lower()
-            if 'recaptcha' in page_src or 'g-recaptcha' in page_src:
-                return True
-            return False
-        except Exception:
-            return False
-
-    def _wait_for_captcha_resolution(self, context: str = "login") -> bool:
-        """
-        If reCAPTCHA is detected, request user intervention via ScrapeContext protocol.
-        Single path per P6.4 / S10.
-        """
-        if not self._detect_recaptcha():
+        body = ' '.join(self.driver.find_element(By.TAG_NAME, 'body').text.casefold().split())
+        if 'unable to verify' in body and 'robot' in body:
             return True
+        return any(frame.is_displayed() for frame in self.driver.find_elements(By.CSS_SELECTOR,
+            'iframe[src*="recaptcha"][title*="challenge"]'))
 
-        logger.warning("[NYSCR] reCAPTCHA detected during %s!", context)
+    def _wait_for_user_captcha(self):
+        self.ctx.log("info", "Waiting for user to solve CAPTCHA...")
+        if not self.ctx.wait_for_user("NYSCR sign-in: complete robot verification in the browser window, click Sign In, then press Resume."):
+            raise SourceBlocked('NYSCR requires interactive robot verification before sign-in can complete.')
 
-        if self.ctx and hasattr(self.ctx, "wait_for_user"):
-            self.ctx.log("warning", f"reCAPTCHA detected during {context}. Waiting for user resolution.")
-            solved = self.ctx.wait_for_user("captcha")
-            if solved:
-                logger.info("[NYSCR] User signaled captcha solved. Resuming %s...", context)
-                time.sleep(3)
-                return True
-            else:
-                logger.error("[NYSCR] Captcha wait cancelled or failed.")
-                return False
-
-        # Standalone fallback: wait up to CAPTCHA_WAIT_SECONDS
-        from settings import settings
-        timeout_s = getattr(settings, "CAPTCHA_WAIT_SECONDS", 300)
-        logger.info("[NYSCR] Polling for manual reCAPTCHA resolution (timeout %ds)...", timeout_s)
-        start_t = time.time()
-        while time.time() - start_t < timeout_s:
-            time.sleep(3)
-            if not self._detect_recaptcha():
-                logger.info("[NYSCR] reCAPTCHA resolved.")
-                return True
-            current_url = self.driver.current_url.lower()
-            if "login" not in current_url and "account" not in current_url:
-                logger.info("[NYSCR] Page navigated away from login.")
-                return True
-        logger.error("[NYSCR] reCAPTCHA resolution timed out after %ds", timeout_s)
-        return False
-
-    # ------------------------------------------------------------------ login
-    def login(self):
+    def login(self) -> bool:
         try:
-            print("Opening login page...")
+            if self.driver.find_elements(By.XPATH, "//a[contains(text(), 'Log off') or contains(text(), 'Logout')]"):
+                self.ctx.log('info', 'Reusing the signed-in NYSCR browser session.')
+                return True
+            self.ctx.log("info", "Opening NYSCR login page...")
             self.driver.get("https://www.nyscr.ny.gov/Account/Login")
             time.sleep(2)
-            self.wait.until(EC.presence_of_element_located((By.ID, "Username"))).send_keys(self.username)
-            self.wait.until(EC.presence_of_element_located((By.ID, "Password"))).send_keys(self.password)
 
-            # Check for reCAPTCHA BEFORE clicking submit
+            user_field = self.wait.until(EC.presence_of_element_located((By.ID, "Username")))
+            pass_field = self.wait.until(EC.presence_of_element_located((By.ID, "Password")))
+
+            user_field.clear()
+            user_field.send_keys(self.username)
+            pass_field.clear()
+            pass_field.send_keys(self.password)
+
             if self._detect_recaptcha():
-                print("[NYSCR] reCAPTCHA present on login page — requesting user intervention...")
-                captcha_ok = self._wait_for_captcha_resolution("login")
-                if not captcha_ok:
-                    print("[NYSCR] reCAPTCHA not solved — login aborted")
-                    return False
+                self._wait_for_user_captcha()
 
-            # Click submit — try multiple selectors since the site may use
-            # <button>, <input type="submit">, or other variations
-            print("Clicking submit button...")
-            submit_btn = None
-            _submit_selectors = [
-                (By.CSS_SELECTOR, 'button[type="submit"]'),
-                (By.CSS_SELECTOR, 'input[type="submit"]'),
-                (By.XPATH, '//button[contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"sign in")]'),
-                (By.XPATH, '//input[@value="Sign In" or @value="sign in" or @value="Login" or @value="Log In"]'),
-                (By.XPATH, '//button[contains(translate(text(),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"log in")]'),
-                (By.CSS_SELECTOR, 'form button'),
-                (By.CSS_SELECTOR, 'form input[type="submit"]'),
-            ]
-            for by, selector in _submit_selectors:
+            # After continue (or if no captcha), if login form still showing, click submit once and wait up to 15s
+            # After continue (or if no captcha), if login form still showing, click submit once and wait up to 15s
+            if "login" in self.driver.current_url.lower():
                 try:
-                    btn = self.driver.find_element(by, selector)
-                    if btn.is_displayed() and btn.is_enabled():
-                        submit_btn = btn
-                        print(f"  Found submit button via {by}='{selector}' → text='{btn.text}'")
-                        break
-                except Exception:
-                    continue
-
-            if submit_btn:
-                try:
-                    submit_btn.click()
-                except Exception:
-                    self.driver.execute_script("arguments[0].click();", submit_btn)
-            else:
-                print("  WARNING: Could not find submit button, trying form.submit()...")
-                try:
-                    form = self.driver.find_element(By.TAG_NAME, "form")
-                    self.driver.execute_script("arguments[0].submit();", form)
-                except Exception as form_err:
-                    print(f"  Form submit also failed: {form_err}")
-
-            # Wait for page redirect (up to 30 seconds)
-            max_wait = 30
-            poll_interval = 2
-            elapsed = 0
-            while elapsed < max_wait:
-                time.sleep(poll_interval)
-                elapsed += poll_interval
-                current_url = self.driver.current_url.lower()
-                if "login" not in current_url and "account" not in current_url:
-                    print(f"Login successful! (redirected after {elapsed}s)")
-                    return True
-
-                # Check if a NEW reCAPTCHA appeared after submit
-                if self._detect_recaptcha():
-                    print("[NYSCR] reCAPTCHA appeared after submit — requesting user intervention...")
-                    captcha_ok = self._wait_for_captcha_resolution("post-submit login")
-                    if captcha_ok:
-                        # Re-click submit after captcha resolution
-                        try:
-                            for by, sel in _submit_selectors:
-                                try:
-                                    btn = self.driver.find_element(by, sel)
-                                    if btn.is_displayed():
-                                        self.driver.execute_script("arguments[0].click();", btn)
-                                        break
-                                except Exception:
-                                    continue
-                            time.sleep(3)
-                        except Exception:
-                            pass
+                    submit = self.driver.find_element(By.CSS_SELECTOR, 'button[type="submit"], input[type="submit"]')
+                    if submit.is_displayed():
+                        submit.click()
+                        time.sleep(2)
                     else:
-                        return False
+                        logger.debug('Login submit control is not displayed.')
+                except Exception as e:
+                    logger.debug('Login submit control unavailable: %s', type(e).__name__)
+                    pass
 
-                print(f"  Still on login page... ({elapsed}s / {max_wait}s)")
+                # wait up to 15s
+                for _ in range(5):
+                    if "login" not in self.driver.current_url.lower():
+                        break
+                    time.sleep(3)
 
-            # Final check
-            if "login" not in self.driver.current_url.lower():
-                print("Login successful!")
-                return True
-            print(f"Login timed out after {max_wait}s. URL: {self.driver.current_url}")
-            return False
+            if self._detect_recaptcha():
+                self._wait_for_user_captcha()
+
+            # Confirm login worked
+            # Authentication redirects before the portal finishes rendering its
+            # robot-verification error. Wait for an actual authenticated marker.
+            try:
+                WebDriverWait(self.driver, 15).until(lambda driver: self._detect_recaptcha() or
+                    bool(driver.find_elements(By.XPATH, "//a[contains(text(), 'Log off') or contains(text(), 'Logout')]")))
+            except TimeoutException:
+                pass
+            if self._detect_recaptcha():
+                self._wait_for_user_captcha()
+            if "login" in self.driver.current_url.lower():
+                raise LoginFailed("Login failed: Still on login page after attempt.")
+
+            logout = self.driver.find_elements(By.XPATH, "//a[contains(text(), 'Log off') or contains(text(), 'Logout')]")
+            if not logout:
+                username_field_still_there = self.driver.find_elements(By.ID, "Username")
+                if any(field.is_displayed() for field in username_field_still_there):
+                    raise LoginFailed("Login failed: Username field is still visible.")
+
+            self.ctx.log("info", "NYSCR login successful.")
+            return True
+        except TimeoutException:
+            raise LoginFailed("Login failed: Elements not found on login page.")
         except Exception as e:
-            print(f"Login error: {e}")
-            return False
+            if isinstance(e, (LoginFailed, SourceBlocked, JobCancelled)):
+                raise
+            raise LoginFailed(f"Login error: {e}")
 
-    # ------------------------------------------------- collect opportunity IDs
-    def get_open_opportunities(self, max_count=None):
-        """
-        Collect up to max_count unique open opportunity IDs.
-        If max_count is None, collect ALL available opportunities.
-        """
-        limit_str = str(max_count) if max_count is not None else 'ALL'
-        print(f"\nCollecting {limit_str} open opportunity IDs...")
-
-        # Always start from page 1
+    def iter_opportunity_ids(self) -> Iterator[str]:
         self.driver.get("https://www.nyscr.ny.gov/Ads/Search?BidFilter=Open")
         time.sleep(3)
-        if "login" in self.driver.current_url.lower():
-            print("Session expired on first load.")
-            return []
 
-        seen    = set()
-        results = []
-        page    = 1
+        seen = set()
+        page = 1
 
-        # Loop runs until: max_count reached (if set) OR no more pages
-        while True:
-            print(f"\n  [Page {page}] Harvesting opportunity links...")
+        while page <= self.max_pages:
+            self.check_cancel()
+            self.ctx.log("info", f"Harvesting opportunity links from page {page}...")
 
-            # ── Harvest all opportunity links on the current page ──────────
-            links = self.driver.find_elements(
-                By.XPATH, "//a[contains(@href,'/Ads/Details/')]"
-            )
-            added = 0
-            for lnk in links:
-                # Stop collecting if we hit the cap
-                if max_count is not None and len(results) >= max_count:
-                    break
-                href   = lnk.get_attribute('href') or ''
+            # Capture href strings before yielding: detail extraction opens/closes
+            # tabs and the portal can replace the listing DOM in the meantime.
+            hrefs = self.driver.execute_script("return Array.from(document.querySelectorAll('a[href*=\"/Ads/Details/\"]'), a => a.href)")
+            for href in hrefs:
                 opp_id = href.rstrip('/').split('/')[-1].split('?')[0]
-                if not opp_id.isdigit() or opp_id in seen:
-                    continue
-                seen.add(opp_id)
-                results.append({
-                    'id':  opp_id,
-                    'url': f"https://www.nyscr.ny.gov/Ads/Details/{opp_id}"
-                })
-                added += 1
+                if opp_id.isdigit() and opp_id not in seen:
+                    seen.add(opp_id)
+                    yield opp_id
 
-            print(f"  [Page {page}] Scraped {added} records. Total collected: {len(results)}")
-
-            # Stop if cap reached
-            if max_count is not None and len(results) >= max_count:
-                print(f"  Reached requested cap of {max_count}. Stopping.")
-                break
-
-            # ── Navigate to the next page ─────────────────────────────────
             if not self._go_to_next_page(page):
-                print(f"  [Page {page}] Last page reached. No more pages.")
                 break
             page += 1
 
-        print(f"\nCollection complete. {len(results)} unique opportunities found.\n")
-        return results
-
-    # ------------------------------------------------- pagination helper
-    def _go_to_next_page(self, current_page):
-        """
-        Navigate to the next page of search results on NYSCR.
-
-        NYSCR is ASP.NET WebForms. Pagination uses __doPostBack().
-        The URL NEVER changes between pages — do NOT check current_url.
-
-        Strategy:
-          1. Find the Next (>) link or numbered page link.
-          2. Record the first opportunity ID currently visible (pre-click sentinel).
-          3. Trigger the click or __doPostBack call.
-          4. Wait for the sentinel element to go stale (DOM replaced).
-          5. Wait for new results to appear.
-          6. Verify the first visible opportunity ID is DIFFERENT from before.
-
-        Returns True  — successfully on the next page.
-        Returns False — last page, or navigation failed.
-        """
-        from selenium.common.exceptions import TimeoutException
-
+    def _go_to_next_page(self, current_page: int) -> bool:
         next_page_num = current_page + 1
-        print(f"  [Pagination] Current page: {current_page}. Attempting to go to page {next_page_num}...")
 
-        # ── Step 1: Locate the Next / page-number link ────────────────────
-        # NYSCR renders pagination links as:
-        #   <a href="javascript:__doPostBack('ctl00$CP1$GridView1','Page$2')">2</a>
-        #   <a href="javascript:__doPostBack('ctl00$CP1$GridView1','Page$2')">></a>
         candidate = None
-
-        # Priority 1: NEXT button — real DOM shows <button>, not <a>,
-        # with text "NEXT >" (uppercase, trailing arrow) — match case-insensitive substring
         try:
-            for el in self.driver.find_elements(
-                By.XPATH,
-                "//button[contains(translate(normalize-space(.), "
-                "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NEXT')] "
-                "| //a[contains(translate(normalize-space(.), "
-                "'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NEXT')]"
-            ):
+            for el in self.driver.find_elements(By.XPATH, f"//button[normalize-space(text())='{next_page_num}'] | //a[normalize-space(text())='{next_page_num}']"):
                 if el.is_displayed() and el.is_enabled():
                     candidate = el
                     break
         except Exception:
             pass
 
-        # Priority 2: numbered page button/link (button OR anchor)
         if not candidate:
             try:
-                for el in self.driver.find_elements(
-                    By.XPATH,
-                    f"//button[normalize-space(text())='{next_page_num}'] "
-                    f"| //a[normalize-space(text())='{next_page_num}']"
-                ):
+                for el in self.driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NEXT')] | //a[contains(translate(normalize-space(.), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'NEXT')]"):
                     if el.is_displayed() and el.is_enabled():
                         candidate = el
                         break
@@ -488,281 +290,56 @@ class NyscrScraper(BaseScraper):
                 pass
 
         if not candidate:
-            print(f"  [Pagination] No Next button or page-{next_page_num} link found.")
-            print(f"  [Pagination] Dumping all visible pagination elements for diagnosis:")
-            try:
-                raw = self.driver.execute_script("""
-                    var out = [];
-                    document.querySelectorAll('a, button, span').forEach(function(el) {
-                        var txt  = (el.innerText || '').trim();
-                        var href = el.getAttribute('href') || '';
-                        var oc   = el.getAttribute('onclick') || '';
-                        var cls  = el.getAttribute('class') || '';
-                        if (/page|next|prev|\\d/.test(txt + href + oc + cls)
-                                && el.offsetParent !== null) {
-                            out.push('[' + el.tagName + '] '
-                                + 'text="' + txt.substring(0,40) + '" '
-                                + 'href="' + href.substring(0,80) + '" '
-                                + 'onclick="' + oc.substring(0,80) + '"');
-                        }
-                    });
-                    return out.slice(0, 30).join('\\n');
-                """)
-                print(raw or "  (no elements found)")
-            except Exception as de:
-                print(f"  Diagnostic error: {de}")
             return False
 
-        # ── Step 2: Record the first opportunity ID visible right now ─────
-        # We will use this to verify the page actually changed after the click.
         first_id_before = None
-        sentinel        = None
+        sentinel = None
         try:
-            sentinel = self.driver.find_element(
-                By.XPATH, "//a[contains(@href,'/Ads/Details/')]"
-            )
-            href_before  = sentinel.get_attribute('href') or ''
+            sentinel = self.driver.find_element(By.XPATH, "//a[contains(@href,'/Ads/Details/')]")
+            href_before = sentinel.get_attribute('href') or ''
             first_id_before = href_before.rstrip('/').split('/')[-1].split('?')[0]
         except Exception:
             pass
 
-        # ── Step 3: Trigger the navigation ───────────────────────────────
-        href    = candidate.get_attribute('href') or ''
-        onclick = candidate.get_attribute('onclick') or ''
-
-        pb_match = re.search(
-            r"__doPostBack\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]*)['\"]" ,
-            href + onclick,
-            re.IGNORECASE
-        )
-
         try:
+            href = candidate.get_attribute('href') or ''
+            onclick = candidate.get_attribute('onclick') or ''
+            pb_match = re.search(r"__doPostBack\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]*)['\"]", href + onclick, re.IGNORECASE)
+
             if pb_match:
-                target   = pb_match.group(1)
-                argument = pb_match.group(2)
-                print(f"  [Pagination] Clicked NEXT via __doPostBack('{target}', '{argument}')")
-                self.driver.execute_script(f"__doPostBack('{target}', '{argument}');")
+                self.driver.execute_script(f"__doPostBack('{pb_match.group(1)}', '{pb_match.group(2)}');")
             else:
-                print(f"  [Pagination] Clicked NEXT → text='{candidate.text}' href='{href[:60]}'")
                 self.driver.execute_script("arguments[0].click();", candidate)
-        except Exception as ce:
-            print(f"  [Pagination] Click error: {ce}")
+        except Exception:
             return False
 
-        # ── Step 4: Wait for old content to go stale ─────────────────────
-        print(f"  [Pagination] Waiting for page {next_page_num} to load...")
         try:
             if sentinel:
-                WebDriverWait(self.driver, 20).until(EC.staleness_of(sentinel))
+                WebDriverWait(self.driver, 15).until(EC.staleness_of(sentinel))
             else:
                 time.sleep(3)
         except TimeoutException:
-            print(f"  [Pagination] Timed out waiting for page {next_page_num} to become stale.")
             return False
-        except Exception:
-            time.sleep(3)   # fallback
 
-        # ── Step 5: Wait for new results to appear ────────────────────────
         try:
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//a[contains(@href,'/Ads/Details/')]")
-                )
-            )
+            WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((By.XPATH, "//a[contains(@href,'/Ads/Details/')]")))
         except TimeoutException:
-            print(f"  [Pagination] No results appeared on page {next_page_num}.")
             return False
 
-        # ── Step 6: Verify first opportunity ID changed ───────────────────
         if first_id_before:
             try:
-                first_link_after = self.driver.find_element(
-                    By.XPATH, "//a[contains(@href,'/Ads/Details/')]"
-                )
-                href_after    = first_link_after.get_attribute('href') or ''
+                first_link_after = self.driver.find_element(By.XPATH, "//a[contains(@href,'/Ads/Details/')]")
+                href_after = first_link_after.get_attribute('href') or ''
                 first_id_after = href_after.rstrip('/').split('/')[-1].split('?')[0]
-
                 if first_id_after == first_id_before:
-                    print(f"  [Pagination] WARNING: First opportunity ID unchanged ({first_id_before}).")
-                    print(f"  [Pagination] Page may not have changed — treating as last page.")
                     return False
-
-                print(f"  [Pagination] Page changed confirmed: {first_id_before} → {first_id_after}")
             except Exception:
-                pass   # can't verify, continue optimistically
-
-        print(f"  [Pagination] Now on page {next_page_num}.")
-        return True
-
-    # ------------------------------------------------- extract one detail page
-    def extract_clean_data(self, opp_id):
-        url = f"https://www.nyscr.ny.gov/Ads/Details/{opp_id}"
-        print(f"  Scraping {url}")
-        self.driver.get(url)
-        time.sleep(2)
-        if "login" in self.driver.current_url.lower():
-            print("  Session expired.")
-            return None
-
-        # Expand all collapsed sections so contact info / documents are visible
-        self._expand_all()
-        time.sleep(1.5)
-
-        body_text = self.driver.find_element(By.TAG_NAME, "body").text
-
-        # ---- TITLE  (FIX: read from page, not from search link text) ----
-        title = self._get_title(body_text)
-
-        # ---- STRUCTURED HEADER FIELDS ----
-        cr_number        = self._field(body_text, 'CR#')
-        contract_term    = self._field(body_text, 'Contract Term')
-        agency           = self._field(body_text, 'Agency')
-        division         = self._field(body_text, 'Division')
-        issue_date_raw   = self._field(body_text, 'Issue date')
-        due_date_raw     = self._field(body_text, 'Due date')
-        location_raw     = self._field(body_text, 'Location')
-        category_raw     = self._field(body_text, 'Category')
-        ad_type_raw      = self._field(body_text, 'Ad type')
-        contract_number  = self._field(body_text, 'Contract Number')
-
-        # ---- DESCRIPTION ----
-        description = self._get_description(body_text)
-
-        # ---- CONTACT — returns a LIST of dicts, one per contact person ----
-        # Each dict has keys: role, name, email, phone, organization
-        contact_details = self._get_contact()
-        print(f"  Contacts found: {len(contact_details)}")
-
-        # ---- issuing_organization fallback ----------------------------------
-        # Use the Agency field first; if missing, pull from the first contact's
-        # organization so the field is never left blank when the info exists.
-        issuing_org = agency or None
-        if not issuing_org and contact_details:
-            issuing_org = contact_details[0].get('organization') or None
-
-        # ---- DOCUMENTS (skip DownloadDailyIssue and Search links) ----------
-        documents = self._get_documents()
-
-        # ---- UPDATES / BID RESULTS (skip footer nav) -----------------------
-        updates, bid_results, awards_raw = self._get_updates_results(body_text)
-
-        # ---- GOALS ---------------------------------------------------------
-        sdvob_goal = self._get_goal(body_text, 'SDVOB Goal')
-        mwbe_goal  = self._get_goal(body_text, 'MWBE')
-
-        # ---- DATE PARSING --------------------------------------------------
-        bid_deadline      = _parse_date(due_date_raw)
-        publication_date  = _parse_date(issue_date_raw)
-        question_deadline = self._get_question_deadline(body_text)
-
-        # ---- STATUS --------------------------------------------------------
-        status = "open"
-        if bid_deadline:
-            try:
-                if datetime.strptime(bid_deadline, "%Y-%m-%d").date() < datetime.today().date():
-                    status = "closed"
-            except ValueError:
                 pass
 
-        # ---- LOCATION ------------------------------------------------------
-        loc_address, loc_city, loc_state, loc_zip = self._parse_location(location_raw)
-
-        # ---- BUDGET --------------------------------------------------------
-        # Try description first, then fall back to full body_text
-        budget_min, budget_max = self._parse_budget(description or '')
-        if budget_min is None and budget_max is None:
-            budget_min, budget_max = self._parse_budget(body_text)
-
-        # ---- TRADES --------------------------------------------------------
-        trades = self._parse_trades(category_raw)
-
-        # ---- SQFT ----------------------------------------------------------
-        sqft = self._parse_sqft(description or '')
-        if sqft is None:
-            sqft = self._parse_sqft(body_text)
-
-        # ---- AWARDS --------------------------------------------------------
-        awardee, award_date, award_number = self._parse_awards(awards_raw)
-        if not award_number and contract_number:
-            award_number = contract_number
-
-        # ---- PROJECT TYPE --------------------------------------------------
-        project_type = self._project_type(title, category_raw or '', description or '')
-
-        # ---- ADDITIONAL INFO LINK ------------------------------------------
-        # First URL found in description; fall back to any URL in body_text
-        add_link = self._first_url(description or '') or self._first_url(body_text)
-        # Never use the NYSCR search page itself as the additional info link
-        if add_link and 'nyscr.ny.gov/Ads/Search' in add_link:
-            add_link = None
-
-        return {
-            "source_id":   f"nyscr_{opp_id}",
-            "source_url":  url,
-            "title":       title,
-            "description": description or None,
-            "project_type": project_type,
-            "status":      status,
-            "project_category": category_raw or None,
-            "budget_min":  budget_min,
-            "budget_max":  budget_max,
-            "location_address": loc_address,
-            "location_city":    loc_city,
-            "location_state":   loc_state or "NY",
-            "location_zip":     loc_zip,
-            "bid_deadline":      bid_deadline,
-            "publication_date":  publication_date,
-            "question_deadline": question_deadline,
-            "issuing_organization": issuing_org,
-            "solicitation_number":  cr_number or None,
-            "solicitation_type":    ad_type_raw or None,
-            # contact_details is a LIST — one dict per contact person found.
-            # Each dict: { role, name, email, phone, organization }
-            "contact_details": contact_details,
-            "trades":   trades,
-            "sqft":     sqft,
-            "duration": contract_term or None,
-            "cgac": None,
-            "sub_tier": division or None,
-            "fpds_code": None,
-            "office":  division or None,
-            "aac_code": None,
-            "base_type": None,
-            "archive_type": None,
-            "archive_date": None,
-            "set_aside_code": None,
-            "set_aside": None,
-            "classification_code": None,
-            "pop_country": "US" if (loc_address or loc_city or loc_zip) else None,
-            "active_status": None,
-            "award_number": award_number,
-            "award_date":   award_date,
-            "awardee":      awardee,
-            "organization_type": None,
-            "additional_info_link": add_link,
-            "bid_metadata": {
-                "sdvob_goal":  sdvob_goal,
-                "mwbe_goal":   mwbe_goal,
-                "updates":     updates,
-                "bid_results": bid_results,
-                "awards_raw":  awards_raw,
-                "scraped_at":  datetime.now().isoformat(),
-            },
-            "documents": documents,
-        }
-
-    # ==================================================================
-    # Private helpers
-    # ==================================================================
+        return True
 
     def _expand_all(self):
-        """Click all collapsed accordions/toggles so hidden sections load."""
-        selectors = [
-            "button[aria-expanded='false']",
-            ".collapsed",
-            "[data-toggle='collapse']",
-            "[data-bs-toggle='collapse']",
-        ]
+        selectors = ["button[aria-expanded='false']"]
         for sel in selectors:
             try:
                 for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
@@ -775,1038 +352,299 @@ class NyscrScraper(BaseScraper):
             except Exception:
                 pass
 
-    # ------------------------------------------------------------------
-    # TITLE — read from page heading, not the search-link text
-    # The NYSCR detail page layout:
-    #   << Home | All Open Opportunities | Ad details
-    #   <Title Line>
-    #   CR#    <number>    Contract Number  ...
-    # ------------------------------------------------------------------
-    def _get_title(self, body_text):
-        # Strategy 1: look for element with class containing 'title' or the h1
-        for css in ['h1', '.ad-title', '.page-title', 'h2']:
-            try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, css):
-                    txt = _clean(el.text)
-                    low = txt.lower()
-                    if not txt:
-                        continue
-                    # Skip site navigation headings
-                    bad = ['contract reporter', 'login', 'search', 'dashboard',
-                           'all open', 'ad details', 'home |', 'contracting opportunities',
-                           "here's how", 'new york state contract reporter']
-                    if any(b in low for b in bad):
-                        continue
-                    # Skip pure numbers or "view this ad"
-                    if re.match(r'^[\d\s]+$', txt) or low in ('view this ad', 'details'):
-                        continue
-                    if len(txt) > 5:
-                        return txt
-            except Exception:
-                pass
-
-        # Strategy 2: regex on body text — title sits between "Ad details\n" and
-        # the first header field line (CR# or a date)
+    def _get_title(self, body_text: str) -> Optional[str]:
+        # Title sits between "Ad details" and the first header field line
         m = re.search(r'Ad details\s*\n+\s*(.+?)\s*\n', body_text, re.IGNORECASE)
         if m:
-            candidate = _clean(m.group(1))
-            # Reject if it looks like a CR# line or a date
+            candidate = clean(m.group(1))
             if candidate and not re.match(r'^[\d\s/:\-]+$', candidate):
                 if not re.match(r'^\d{5,}$', candidate):
-                    return candidate
+                    # Match skip words as whole words
+                    low = candidate.lower()
+                    bad = [r'\bcontract reporter\b', r'\blogin\b', r'\bsearch\b', r'\bdashboard\b',
+                           r'\ball open\b', r'\bad details\b', r'\bhome \|\b', r'\bcontracting opportunities\b',
+                           r"\bhere's how\b", r'\bnew york state contract reporter\b']
+                    if not any(re.search(b, low) for b in bad):
+                        return candidate
+        return None
 
-        return "Title not found"
-
-    # ------------------------------------------------------------------
-    # FIELD extraction from body text  (label: value pattern)
-    # ------------------------------------------------------------------
-    def _field(self, body_text, label):
-        """Extract the value after a labelled field."""
-        pattern = re.compile(
-            r'\b' + re.escape(label) + r'\s*:?\s*\n?\s*(.+?)(?:\n|$)',
-            re.IGNORECASE
-        )
-        m = pattern.search(body_text)
+    def _field(self, container_text: str, label: str) -> Optional[str]:
+        pattern = re.compile(r'\b' + re.escape(label) + r'\s*:?\s*\n?\s*(.+?)(?:\n|$)', re.IGNORECASE)
+        m = pattern.search(container_text)
         if m:
-            val = _clean(m.group(1))
-            # Don't return another label name as the value
+            val = clean(m.group(1))
             if val and not val.endswith(':'):
                 return val
         return None
 
-    # ------------------------------------------------------------------
-    # DESCRIPTION — 3-strategy extraction
-    #
-    # Problem with previous approach:
-    #  - STOP words like 'contact', 'document', 'minority' appear INSIDE
-    #    long descriptions themselves, causing early truncation → null
-    #  - The label:value guard was too aggressive, cutting real sentences
-    #
-    # New approach:
-    #  Strategy 1: JavaScript — grab innerText of the section container
-    #              that immediately follows the "General Description" heading
-    #  Strategy 2: DOM parent-walk (conservative stop conditions)
-    #  Strategy 3: Body-text slice with ONLY truly unambiguous stop markers
-    # ------------------------------------------------------------------
-    def _get_description(self, body_text):
+    def extract_clean_data(self, opp_id: str) -> Optional[Dict[str, Any]]:
+        url = f"https://www.nyscr.ny.gov/Ads/Details/{opp_id}"
 
-        # ── Strategy 1: JS innerText of the description section ──────────
+        original_window = self.driver.current_window_handle
+        self.driver.execute_script("window.open('');")
+        self.driver.switch_to.window(self.driver.window_handles[-1])
+
         try:
-            desc = self._js_description()
-            if desc and len(desc) > 40:
-                return desc
-        except Exception:
-            pass
+            self.driver.get(url)
+            time.sleep(2)
 
-        # ── Strategy 2: DOM parent/sibling walk ───────────────────────────
-        try:
-            desc = self._dom_description()
-            if desc and len(desc) > 40:
-                return desc
-        except Exception:
-            pass
+            if "login" in self.driver.current_url.lower():
+                self._login_failures += 1
+                if self._login_failures >= 2:
+                    raise LoginFailed("Session expired twice in a row.")
 
-        # ── Strategy 3: Body-text slice with tight, unambiguous stops ─────
-        # Only stop at section-header lines that are SHORT and standalone —
-        # NOT at keywords that can appear mid-description.
-        #
-        # A "section header" on NYSCR is a SHORT standalone line, typically
-        # 1–4 words, that introduces the next page section.
-        # The description itself can be hundreds of words with colons, URLs,
-        # bullet points, goal percentages — everything.
-        #
-        # Unambiguous stop lines (exact / near-exact matches only):
-        STOP_EXACT = {
-            'contact info', 'contact information', 'primary contact',
-            'technical contact', 'submit to contact', 'ad contact',
-            'agency contact', 'documents', 'updates', 'bid results',
-            'awards', 'notify me if this ad updates',
-            'download pdf', 'bookmark this ad', 'accessibility',
-        }
+                # The current tab is redirected to login. Close it.
+                self.driver.close()
+                self.driver.switch_to.window(original_window)
 
-        # Find description start — must be AFTER the breadcrumb
-        bc = body_text.find('Ad details')
-        search_from = bc if bc != -1 else 0
+                # Open a temporary tab just for logging in again so we don't ruin the search page
+                self.driver.execute_script("window.open('');")
+                self.driver.switch_to.window(self.driver.window_handles[-1])
+                try:
+                    self.login()
+                finally:
+                    self.driver.close()
+                    self.driver.switch_to.window(original_window)
 
-        m = re.search(r'\b(?:General\s+)?Description\b', body_text[search_from:], re.IGNORECASE)
+                return self.extract_clean_data(opp_id)
+
+            self._login_failures = 0
+            self._expand_all()
+            time.sleep(1)
+
+            try:
+                container = self.driver.find_element(By.CSS_SELECTOR, '.page-content')
+                body_text = container.text
+            except Exception:
+                body_text = self.driver.find_element(By.TAG_NAME, "body").text
+
+            parsed = parse_detail_content(self.driver.page_source)
+            title = parsed.get('title') or self._get_title(body_text)
+            if not title:
+                # Fallback 1: Page title
+                page_title = self.driver.title
+                if page_title and " - " in page_title:
+                    title = page_title.split(" - ")[0].strip()
+                elif page_title and "Contract Reporter" not in page_title and "Contracting Opportunities" not in page_title:
+                    title = page_title.strip()
+
+                # Fallback 2: h1/h2 tags
+                if not title:
+                    try:
+                        headings = self.driver.find_elements(By.CSS_SELECTOR, "h1, h2, h3, h4")
+                        for h in headings:
+                            txt = clean(h.text)
+                            if txt and len(txt) > 5 and not any(skip in txt.lower() for skip in ['login', 'search', 'contract reporter', 'contracting opportunities', 'ad details']):
+                                title = txt
+                                break
+                    except Exception:
+                        pass
+
+            fields = parsed.get('fields', {})
+            cr_number = fields.get('cr#') or self._field(body_text, 'CR#')
+            agency = fields.get('agency') or self._field(body_text, 'Agency')
+            due_date_raw = fields.get('due date') or self._field(body_text, 'Due date')
+            location_raw = fields.get('location') or self._field(body_text, 'Location')
+            category_raw = fields.get('category') or self._field(body_text, 'Category')
+            description = parsed.get('description') or self._get_description(body_text)
+            contact_details = parsed.get('contacts') or self._get_contact()
+
+            # Documents inside Documents section
+            documents = self._get_documents(body_text)
+            updates, bid_results, awards = self._get_updates_results(body_text)
+
+            budget = self._parse_budget(description or '')
+
+            loc_address, loc_city, loc_state, loc_zip = self._parse_location(location_raw)
+
+            due_dt = parse_local_dt(due_date_raw, 'America/New_York')
+
+            return {
+                "id": opp_id,
+                "url": url,
+                "title": title,
+                "cr_number": cr_number,
+                "agency": agency,
+                "due_date_raw": due_date_raw,
+                "due_dt": due_dt,
+                "location_raw": location_raw,
+                "loc_city": loc_city,
+                "loc_state": loc_state,
+                "loc_zip": loc_zip,
+                "category": category_raw,
+                "description": description,
+                "contacts": contact_details,
+                "documents": documents,
+                "updates": updates,
+                "bid_results": bid_results,
+                "awards": awards,
+                "budget": budget,
+            }
+        finally:
+            if self.driver.current_window_handle != original_window:
+                try:
+                    self.driver.close()
+                except Exception:
+                    pass
+            self.driver.switch_to.window(original_window)
+
+    def _get_description(self, text: str) -> Optional[str]:
+        # Simple extraction
+        m = re.search(r'\b(?:General\s+)?Description\b(.*)', text, re.IGNORECASE | re.DOTALL)
         if not m:
             return None
-
-        rest = body_text[search_from + m.end():]
-        rest = re.sub(r'^[:\s]+', '', rest)  # skip trailing colon/space on header line
-
+        rest = m.group(1).lstrip(':').strip()
         lines = []
-        blank_count = 0
-
-        for raw_line in rest.split('\n'):
-            line = _clean(raw_line)
-
+        for line in rest.split('\n'):
+            line = clean(line)
             if not line:
-                blank_count += 1
-                # Allow blank lines within text (paragraph breaks)
-                # but 3+ consecutive blanks = section boundary
-                if blank_count >= 3:
-                    break
                 continue
-            blank_count = 0
-
-            low = line.lower().strip()
-
-            # Exact section-header stop
-            if low in STOP_EXACT:
+            low = line.lower()
+            if low in {'contact info', 'contact information', 'documents', 'updates', 'bid results', 'awards'}:
                 break
-
-            # Short standalone line that exactly matches a stop header
-            # (handles "Contact Info" even without exact match above)
-            if len(line) <= 30 and re.match(
-                r'^(?:contact|documents?|updates?|bid results?|awards?|'
-                r'accessibility|notify me|download)', low
-            ):
-                break
-
-            # Skip language blob lines
-            if _looks_like_language_blob(line):
-                continue
-
             lines.append(line)
+        desc = ' '.join(lines)
+        return desc if len(desc) > 20 else None
 
-        while lines and not lines[-1]:
-            lines.pop()
-
-        result = ' '.join(l for l in lines if l).strip()
-        return result if len(result) > 30 else None
-
-    def _js_description(self):
-        """
-        Use JavaScript to find the description section container and extract
-        its full innerText. This is the most reliable method because JS has
-        direct DOM access without Selenium wrapper overhead.
-        """
-        js = r"""
-        // Walk all elements looking for one whose text is exactly or nearly
-        // "Description" or "General Description" and is a heading-type element
-        var headingTags = ['H2','H3','H4','H5','STRONG','B','DT','TH','LABEL','SPAN','DIV'];
-        var stopWords = ['sdvob goal','mwbe','minority / women','mbe goal','wbe goal',
-                         'dbe goal','contact info','contact information','primary contact',
-                         'technical contact','submit to contact','documents',
-                         'notify me','download pdf','bookmark','accessibility'];
-
-        function isStop(text) {
-            var low = text.toLowerCase().trim();
-            return stopWords.some(function(w){ return low === w || low.startsWith(w); });
-        }
-
-        var allEls = document.querySelectorAll(headingTags.join(','));
-        for (var i = 0; i < allEls.length; i++) {
-            var el = allEls[i];
-            var t = (el.innerText || el.textContent || '').trim().toLowerCase();
-            // Must be exactly "description" or "general description"
-            if (t !== 'description' && t !== 'general description') continue;
-
-            // Collect text from all following siblings until a stop
-            var texts = [];
-            var sib = el.nextElementSibling;
-            var count = 0;
-            while (sib && count < 60) {
-                var sibText = (sib.innerText || sib.textContent || '').trim();
-                if (!sibText) { sib = sib.nextElementSibling; count++; continue; }
-                if (isStop(sibText)) break;
-                var tag = sib.tagName.toUpperCase();
-                if (['H2','H3','H4'].indexOf(tag) !== -1) break;
-                texts.push(sibText);
-                sib = sib.nextElementSibling;
-                count++;
-            }
-            if (texts.length > 0) return texts.join(' ');
-
-            // If no siblings, try the parent's children after this heading
-            var parent = el.parentElement;
-            if (!parent) continue;
-            var kids = parent.children;
-            var found = false;
-            var parentTexts = [];
-            for (var j = 0; j < kids.length; j++) {
-                var kid = kids[j];
-                if (kid === el) { found = true; continue; }
-                if (!found) continue;
-                var kidText = (kid.innerText || kid.textContent || '').trim();
-                if (!kidText) continue;
-                if (isStop(kidText)) break;
-                var ktag = kid.tagName.toUpperCase();
-                if (['H2','H3','H4'].indexOf(ktag) !== -1) break;
-                parentTexts.push(kidText);
-            }
-            if (parentTexts.length > 0) return parentTexts.join(' ');
-        }
-        return null;
-        """
-        try:
-            result = self.driver.execute_script(js)
-            if result:
-                result = _clean(result)
-                if not _looks_like_language_blob(result) and len(result) > 40:
-                    return result
-        except Exception:
-            pass
-        return None
-
-    def _dom_description(self):
-        """DOM walk fallback — find Description heading, collect following text."""
-        STOP_EXACT_SET = {
-            'sdvob goal', 'mwbe', 'minority / women', 'mbe goal', 'wbe goal',
-            'dbe goal', 'contact info', 'contact information', 'primary contact',
-            'technical contact', 'submit to contact', 'documents',
-            'notify me if this ad updates', 'download pdf', 'bookmark this ad',
-            'accessibility', 'updates', 'bid results', 'awards',
-        }
-
-        xpath = (
-            "//*[self::h2 or self::h3 or self::h4 or self::h5 "
-            "    or self::strong or self::b or self::dt or self::th]"
-            "[translate(normalize-space(.),"
-            " 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')"
-            " = 'description' or "
-            " translate(normalize-space(.),"
-            " 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')"
-            " = 'general description']"
-        )
-        try:
-            headings = self.driver.find_elements(By.XPATH, xpath)
-            for heading in headings:
-                collected = []
-                # nextElementSibling walk via JS (faster, avoids stale refs)
-                js = """
-                var el = arguments[0], texts = [], sib = el.nextElementSibling,
-                    n = 0, stops = arguments[1];
-                while (sib && n < 60) {
-                    var t = (sib.innerText || '').trim();
-                    var low = t.toLowerCase().trim();
-                    if (stops.indexOf(low) !== -1) break;
-                    var tag = sib.tagName.toLowerCase();
-                    if (['h2','h3','h4'].indexOf(tag) !== -1) break;
-                    if (t.length > 5) texts.push(t);
-                    sib = sib.nextElementSibling; n++;
-                }
-                return texts.join(' ');
-                """
-                result = self.driver.execute_script(
-                    js, heading, list(STOP_EXACT_SET))
-                result = _clean(result)
-                if result and len(result) > 40 and not _looks_like_language_blob(result):
-                    return result
-        except Exception:
-            pass
-        return None
-
-    # ------------------------------------------------------------------
-    # CONTACT — returns a LIST of contact dicts, one per person.
-    #
-    # NYSCR contact block structure (one person):
-    #
-    #   Primary Contact          ← role label  (marks start of a new person)
-    #   Vashisti Kowlessur       ← person name
-    #   Office Assistant 2       ← job title   (skip from name/org)
-    #   People with Developmental Disabilities, NYS Office for (Brooklyn DDSO)
-    #   Business Office          ← org sub-unit
-    #   750 Vandalia Avenue      ← address lines (skip)
-    #   Brooklyn, New York 11239
-    #   United States
-    #   (ph) 718-264-3915  ext. n/a  ← phone
-    #   brooklyn.cmm.bids@opwdd.ny.gov  ← email
-    #
-    # Multiple contacts appear sequentially in the same section,
-    # each introduced by a role label.
-    # ------------------------------------------------------------------
-
-    # Role labels that NYSCR uses to introduce each contact person
-    _CONTACT_ROLE_LABELS = re.compile(
-        r'^(Primary Contact|Technical Contact|Submit\s+To\s+Contact|'
-        r'Ad Contact|Agency Contact|Bid Contact|Contract Contact|'
-        r'Contact Person|Secondary Contact|Additional Contact)$',
-        re.IGNORECASE
-    )
-
-    # Job-title words — lines that are ONLY job titles are skipped as name
-    _JOB_TITLE_WORDS = {
-        'manager', 'director', 'coordinator', 'officer', 'agent', 'specialist',
-        'assistant', 'admin', 'secretary', 'analyst', 'engineer', 'supervisor',
-        'president', 'consultant', 'representative', 'clerk', 'inspector',
-        'technician', 'accountant', 'attorney', 'counsel', 'administrator',
-        'aide', 'associate', 'deputy', 'chief', 'senior', 'junior', 'lead',
-        'vice', 'executive', 'procurement', 'purchasing', 'buyer',
-    }
-
-    # Org-indicator words — if a line contains any of these it is the org name
-    _ORG_WORDS = {
-        'inc.', 'corp.', 'llc', 'l.l.c.', 'incorporated', 'corporation',
-        'agency', 'department', 'dept.', 'division', 'university', 'office',
-        'authority', 'board', 'suny', 'cuny', 'nysdoh', 'opwdd', 'nyserda',
-        'ddso', 'housing', 'school', 'college', 'district', 'county',
-        'municipality', 'city of', 'village of', 'town of', 'state of',
-        'institute', 'foundation', 'association', 'center', 'commission',
-        'bureau', 'administration', 'services', 'authority',
-    }
-
-    def _get_contact(self):
-        """Return a list of contact dicts — one dict per contact person."""
-        contact_text = self._isolate_contact_section()
-        if not contact_text:
-            return []
-        blocks = self._split_contact_blocks(contact_text)
+    def _get_contact(self) -> List[Dict[str, str]]:
         contacts = []
-        for role, block_lines in blocks:
-            c = self._parse_one_contact(role, block_lines)
-            # Only include contacts that have at minimum an email or phone.
-            # This prevents ghost contacts (name only, no actual contact info).
-            if c.get('email') or c.get('phone'):
-                contacts.append(c)
+        try:
+            # find the contact section
+            # For simplicity, extract from the page
+            contact_headers = self.driver.find_elements(By.XPATH, "//*[translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') = 'contact info' or translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') = 'contact information']")
+            if contact_headers:
+                contact_section = contact_headers[0].find_element(By.XPATH, "./following-sibling::div")
+                lines = [clean(line) for line in contact_section.text.split('\n') if clean(line)]
+                # VERY simplified contact extraction
+                current_contact = {}
+                for line in lines:
+                    if 'ext. n/a' in line.lower():
+                        line = line.lower().replace('ext. n/a', '').strip()
+                    if '@' in line:
+                        current_contact['email'] = line
+                    elif re.search(r'\d{3}[\s.-]?\d{3}[\s.-]?\d{4}', line):
+                        current_contact['phone'] = line
+                    elif not current_contact.get('name') and len(line) < 40 and not any(k in line.lower() for k in ['contact', 'agency', 'department']):
+                        current_contact['name'] = line
+                    elif not current_contact.get('organization') and any(k in line.lower() for k in ['agency', 'department', 'division', 'office']):
+                        current_contact['organization'] = line
+
+                if current_contact:
+                    contacts.append(current_contact)
+        except Exception:
+            pass
         return contacts
 
-    def _isolate_contact_section(self):
-        """
-        Return the raw text of the Contact Info section only.
-        Uses JavaScript to find the section — most reliable approach.
-        """
-        # Strategy 1: JavaScript — find the Contact Info accordion/section
-        # and return its innerText directly
-        js = r"""
-        var markers = ['Contact Info', 'Contact Information', 'Contact Details'];
-        var body = document.body;
-        var allEls = body.querySelectorAll('*');
-
-        // Find a heading/label element whose text is exactly a contact marker
-        for (var i = 0; i < allEls.length; i++) {
-            var el = allEls[i];
-            var tag = el.tagName.toLowerCase();
-            if (['h2','h3','h4','h5','h6','button','strong','b',
-                 'span','div','dt','th','label'].indexOf(tag) === -1) continue;
-            var t = (el.innerText || el.textContent || '').trim();
-            var found = false;
-            for (var m = 0; m < markers.length; m++) {
-                if (t.toLowerCase() === markers[m].toLowerCase()) {
-                    found = true; break;
-                }
-            }
-            if (!found) continue;
-
-            // Found the heading — now collect the section container text.
-            // Try: parent element's innerText (most reliable)
-            var parent = el.parentElement;
-            if (parent) {
-                var parentText = (parent.innerText || '').trim();
-                // Must be longer than just the heading itself
-                if (parentText.length > t.length + 20) {
-                    return parentText;
-                }
-            }
-            // Try: next sibling container
-            var sib = el.nextElementSibling;
-            if (sib) {
-                var sibText = (sib.innerText || '').trim();
-                if (sibText.length > 20) return sibText;
-            }
-            // Try: grandparent
-            if (parent && parent.parentElement) {
-                var gp = parent.parentElement;
-                var gpText = (gp.innerText || '').trim();
-                if (gpText.length > t.length + 20) return gpText;
-            }
-        }
-        return null;
-        """
+    def _get_documents(self, body_text: str) -> List[str]:
+        docs = []
         try:
-            result = self.driver.execute_script(js)
-            if result and len(result.strip()) > 20:
-                return result.strip()
+            doc_headers = self.driver.find_elements(By.XPATH, "//*[translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') = 'documents']")
+            if doc_headers:
+                doc_section = doc_headers[0].find_element(By.XPATH, "./following-sibling::div")
+                links = doc_section.find_elements(By.TAG_NAME, "a")
+                for link in links:
+                    href = link.get_attribute("href")
+                    if href and 'DownloadDailyIssue' not in href and 'Search' not in href:
+                        docs.append(href)
         except Exception:
             pass
-
-        # Strategy 2: Body text slice — find "Contact Info" in the body text
-        # and extract the section between it and the next major section header.
-        try:
-            body = self.driver.find_element(By.TAG_NAME, "body").text
-        except Exception:
-            return None
-
-        # Look for the Contact Info section header line
-        m = re.search(
-            r'(?:^|\n)\s*(Contact\s+Info(?:rmation)?)\s*\n',
-            body, re.IGNORECASE
-        )
-        if not m:
-            # Some ads just start with "Primary Contact" directly
-            m = re.search(
-                r'(?:^|\n)\s*(Primary\s+Contact|Submit\s+To\s+Contact|'
-                r'Technical\s+Contact|Agency\s+Contact)\s*\n',
-                body, re.IGNORECASE
-            )
-        if not m:
-            return None
-
-        section = body[m.start():]
-
-        # Cut at the next major section boundary
-        end = re.search(
-            r'\n\s*(?:Documents?|Updates?|Bid\s+Results?|Awards?|'
-            r'Notify\s+me\s+if|Download\s+PDF|Bookmark\s+this)\s*\n',
-            section, re.IGNORECASE
-        )
-        if end:
-            section = section[:end.start()]
-
-        # Strip out language blob lines individually (NOT the whole block)
-        clean_lines = []
-        for line in section.split('\n'):
-            line = _clean(line)
-            if not line:
-                continue
-            if _looks_like_language_blob(line):
-                continue
-            if _is_language_word(line):
-                continue
-            clean_lines.append(line)
-
-        return '\n'.join(clean_lines) if clean_lines else None
-
-    # Regex that finds a role label anywhere in a line (start, end, or standalone)
-    # Used by _split_contact_blocks to detect "Spencer Koenig  Primary Contact"
-    _ROLE_ANYWHERE = re.compile(
-        r'(Primary\s+Contact|Technical\s+Contact|Submit\s+To\s+Contact|'
-        r'Ad\s+Contact|Agency\s+Contact|Bid\s+Contact|Contract\s+Contact|'
-        r'Contact\s+Person|Secondary\s+Contact|Additional\s+Contact|'
-        r'Procurement\s+Contact|Point\s+of\s+Contact)',
-        re.IGNORECASE
-    )
-
-    def _split_contact_blocks(self, contact_text):
-        """
-        Split contact_text into blocks, each representing one contact person.
-        Returns a list of (role_label, [lines]) tuples.
-
-        NYSCR can render the name and role on the SAME line in two ways:
-          Pattern A (role alone on its own line):
-              Primary Contact
-              Spencer Koenig
-              ...
-
-          Pattern B (name + role on one line):
-              Spencer Koenig  Primary Contact
-              ...
-
-        We handle both.
-        """
-        raw_lines = [_clean(l) for l in contact_text.split('\n') if _clean(l)]
-
-        # Strip the "Contact Info" section header
-        if raw_lines and re.match(r'^Contact\s+Info(?:rmation)?$',
-                                   raw_lines[0], re.IGNORECASE):
-            raw_lines = raw_lines[1:]
-
-        # ── First pass: parse each raw line into (role, name_part, rest) ──
-        # We build a normalised list of events:
-        #   {'type': 'role_start', 'role': ..., 'name': ...}
-        #   {'type': 'data', 'line': ...}
-
-        events = []
-        for line in raw_lines:
-            m = self._ROLE_ANYWHERE.search(line)
-            if m:
-                role_label = m.group(1)
-                # Text before the role label = name (if any)
-                before = _clean(line[:m.start()])
-                # Text after the role label = extra data (rare)
-                after  = _clean(line[m.end():])
-                events.append({
-                    'type': 'role_start',
-                    'role': role_label,
-                    'name': before if before else None,
-                    'extra': after if after else None,
-                })
-            else:
-                events.append({'type': 'data', 'line': line})
-
-        # ── Second pass: group events into blocks ─────────────────────────
-        blocks    = []
-        cur_role  = None
-        cur_name  = None   # name extracted from the role-label line
-        cur_lines = []
-
-        for ev in events:
-            if ev['type'] == 'role_start':
-                # Save the previous block
-                if cur_lines or cur_name:
-                    lines_for_block = cur_lines[:]
-                    # If name was on the role line, prepend it
-                    if cur_name:
-                        lines_for_block = [cur_name] + lines_for_block
-                    blocks.append((cur_role or 'Contact', lines_for_block))
-                cur_role  = ev['role']
-                cur_name  = ev['name']
-                cur_lines = []
-                if ev['extra']:
-                    cur_lines.append(ev['extra'])
-            else:
-                cur_lines.append(ev['line'])
-
-        # Save final block
-        if cur_lines or cur_name:
-            lines_for_block = cur_lines[:]
-            if cur_name:
-                lines_for_block = [cur_name] + lines_for_block
-            blocks.append((cur_role or 'Contact', lines_for_block))
-
-        # If no role labels found at all, one block with everything
-        if not blocks:
-            blocks = [('Contact', raw_lines)]
-
-        return blocks
-
-    def _parse_one_contact(self, role, lines):
-        """
-        Parse a list of text lines into a single contact dict.
-
-        The first line in `lines` is already the person/unit name
-        (extracted from the role-label line by _split_contact_blocks).
-        Subsequent lines: job title (skip), org, address (skip), phone, email.
-        """
-        email_re   = re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}')
-        phone_re   = re.compile(
-            r'(?:\(ph\)|ph\.?|phone\s*:?|tel\.?\s*:?)'
-            r'[^\d]{0,5}(\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}'
-            r'(?:\s*(?:ext\.?|x)\s*[\w/]+)?)',
-            re.IGNORECASE
-        )
-        phone_bare = re.compile(r'\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}')
-        address_re = re.compile(
-            r'\d+\s+\w+\s+(?:street|st\.?|ave\.?|avenue|road|rd\.?|blvd|'
-            r'drive|dr\.?|lane|ln\.?|place|pl\.?|way|court|ct\.?|'
-            r'highway|hwy|parkway|pkwy|terrace|ter\.?)\b'
-            r'|p\.?o\.?\s*box',
-            re.IGNORECASE
-        )
-        city_state_re = re.compile(
-            r',\s*(?:new\s+york|ny)\b|\bnew\s+york\s*,', re.IGNORECASE)
-
-        SKIP_EXACT = {
-            'contact info', 'contact information', 'contact details',
-            "here's how", 'home |', 'all open opportunities',
-            'united states', 'usa',
-        }
-
-        def _is_org_line(line):
-            """True if line looks like an organization name, not a person name."""
-            low = line.lower()
-            if '(' in line and ')' in line and len(line) > 15:
-                return True
-            strong = [
-                r'\bdepartment\s+of\b', r'\boffice\s+of\b', r'\bdivision\s+of\b',
-                r'\bbureau\s+of\b', r'\bauthority\s+of\b', r'\bboard\s+of\b',
-                r'\bnys\s+\w', r'\bnyc\s+\w', r'\bnysdoh\b', r'\bopwdd\b',
-                r'\bnyserda\b', r'\bsuny\b', r'\bcuny\b',
-                r',\s*inc\.?\b', r',\s*llc\.?\b', r'\bcorp\.\b',
-                r'\buniversity\b', r'\bcollege\b', r'\bfoundation\b',
-                r'\bassociation\b', r'\bcommission\b', r'\bmunicipality\b',
-                r'\bschool\s+district\b', r'\bcounty\s+of\b',
-            ]
-            if any(re.search(p, low) for p in strong):
-                return True
-            if len(line) > 40 and any(
-                kw in low for kw in [
-                    'agency', 'department', 'authority', 'division',
-                    'district', 'county', 'housing', 'services',
-                ]
-            ):
-                return True
-            return False
-
-        contact = {
-            "role":         role,
-            "name":         None,
-            "email":        None,
-            "phone":        None,
-            "organization": None,
-        }
-
-        # The first non-noise line is the name (already extracted from role line)
-        name_assigned  = False
-        org_candidates = []
-
-        for i, line in enumerate(lines):
-            if not line:
-                continue
-            low = line.lower().strip()
-
-            # Skip section headers / noise
-            if low in SKIP_EXACT:
-                continue
-            if _is_language_word(line) or _looks_like_language_blob(line):
-                continue
-            if self._ROLE_ANYWHERE.search(line):
-                continue
-
-            # ── Email ──────────────────────────────────────────────────
-            em = email_re.search(line)
-            if em:
-                if not contact['email']:
-                    contact['email'] = em.group(0).strip()
-                continue
-
-            # ── Phone with label ───────────────────────────────────────
-            ph = phone_re.search(line)
-            if ph:
-                if not contact['phone']:
-                    contact['phone'] = _clean(ph.group(1))
-                continue
-
-            # ── Bare phone number ──────────────────────────────────────
-            bph = phone_bare.search(line)
-            if bph and re.search(r'\d{3}[\s.\-]\d{3}[\s.\-]\d{4}|\(\d{3}\)', line):
-                if not contact['phone']:
-                    contact['phone'] = _clean(line)
-                continue
-
-            # ── Skip address / city-state / zip ────────────────────────
-            if address_re.search(low):
-                continue
-            if city_state_re.search(low):
-                continue
-            if re.match(r'^\d{5}(?:-\d{4})?$', line):
-                continue
-
-            # ── Assign first valid line as name ────────────────────────
-            # (only if we haven't set name yet)
-            if not name_assigned:
-                # Must not be an org line, must not be a pure job-title line
-                words = line.split()
-                pure_job = (
-                    len(words) >= 1 and
-                    all(w.lower().rstrip('.,') in self._JOB_TITLE_WORDS for w in words)
-                )
-                if not _is_org_line(line) and not pure_job and len(line) <= 60:
-                    contact['name'] = line
-                    name_assigned = True
-                    continue
-                elif _is_org_line(line):
-                    org_candidates.append(line)
-                    continue
-                # pure job title — fall through (skip silently)
-                continue
-
-            # ── Subsequent lines: org or skip ──────────────────────────
-            if _is_org_line(line):
-                org_candidates.append(line)
-                continue
-            # Any other short line after name is job title — skip it
-
-        if org_candidates:
-            contact['organization'] = org_candidates[0]
-
-        return contact
-
-    # ------------------------------------------------------------------
-    # DOCUMENTS — only opportunity-specific files
-    # Skip: DownloadDailyIssue (site newsletters), Search links, mailto links
-    # ------------------------------------------------------------------
-    def _get_documents(self):
-        docs = []
-        seen_urls = set()
-        try:
-            links = self.driver.find_elements(By.TAG_NAME, "a")
-            for lnk in links:
-                href = lnk.get_attribute('href') or ''
-                name = _clean(lnk.text) or ''
-
-                # Skip empties, mailto, anchors
-                if not href or href.startswith('mailto:') or href.startswith('#'):
-                    continue
-                # Skip site-wide daily issue PDFs
-                if _DAILY_ISSUE_TOKEN in href:
-                    continue
-                # Skip the generic search/home links
-                if 'BidFilter' in href or href.endswith('/Ads/Search'):
-                    continue
-                # Only include if it looks like a real document URL or file extension
-                is_doc = any(ext in href.lower() for ext in [
-                    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.zip',
-                    '.dwg', '.txt', '.ppt', '.pptx', '.csv',
-                ])
-                # Or if the link text implies a document
-                name_lower = name.lower()
-                is_named_doc = any(kw in name_lower for kw in [
-                    'download', 'attachment', 'bid document', 'specification',
-                    'addendum', 'plan', 'rfp', 'rfq', 'solicitation', 'scope',
-                    'form', 'exhibit', 'appendix',
-                ])
-                # Skip if it's just a page navigation link to a section
-                if not is_doc and not is_named_doc:
-                    continue
-                if href in seen_urls:
-                    continue
-                seen_urls.add(href)
-
-                # Determine file type
-                ext_match = re.search(r'\.([a-zA-Z]{2,5})(?:\?|$)', href)
-                file_type = ext_match.group(1).lower() if ext_match else 'unknown'
-
-                docs.append({
-                    "name":      name if name else f"Document_{len(docs)+1}",
-                    "url":       href,
-                    "file_type": file_type,
-                    "file_size": None,
-                })
-        except Exception as e:
-            print(f"  Warning: document extraction error: {e}")
         return docs
 
-    # ------------------------------------------------------------------
-    # UPDATES / BID RESULTS — strip footer nav
-    # ------------------------------------------------------------------
-    def _get_updates_results(self, body_text):
-        updates    = []
-        bid_results = []
-        awards_raw  = []
+    def _get_updates_results(self, text: str) -> tuple[List[str], List[str], List[str]]:
+        updates = []
+        results = []
+        awards = []
 
-        current = None
-        for line in body_text.split('\n'):
-            line = _clean(line)
-            if not line:
-                continue
-            low = line.lower()
-
-            # Skip language blob lines
-            if _looks_like_language_blob(line):
-                continue
-            # Skip footer phrases
-            if low in _FOOTER_PHRASES:
-                continue
-            if low.startswith('.nys_footer'):
-                continue
-
-            # Section headers
-            if re.match(r'^Updates?\s*$', line, re.IGNORECASE):
-                current = 'updates'
-                continue
-            if re.match(r'^Bid Results?\s*$', line, re.IGNORECASE):
-                current = 'bid_results'
-                continue
-            if re.match(r'^Awards?\s*$', line, re.IGNORECASE):
-                current = 'awards'
-                continue
-            if re.match(r'^(?:Documents?|Contact Info|Accessibility)\s*$', line, re.IGNORECASE):
-                current = None
-                continue
-
-            if current == 'updates' and len(line) > 3:
-                updates.append(line)
-            elif current == 'bid_results' and len(line) > 3:
-                bid_results.append(line)
-            elif current == 'awards' and len(line) > 3:
-                awards_raw.append(line)
-
-        return (
-            updates    or ["No updates found"],
-            bid_results or ["Bid results have not been entered"],
-            awards_raw  or ["Awards have not been entered"],
-        )
-
-    # ------------------------------------------------------------------
-    # GOALS
-    # ------------------------------------------------------------------
-    def _get_goal(self, body_text, label):
-        m = re.search(re.escape(label) + r'.*?:\s*([\d.]+%)', body_text, re.IGNORECASE)
-        return m.group(1) if m else None
-
-    # ------------------------------------------------------------------
-    # QUESTION DEADLINE
-    # ------------------------------------------------------------------
-    def _get_question_deadline(self, body_text):
-        for line in body_text.split('\n'):
-            if 'question' in line.lower() and any(k in line.lower() for k in ['due', 'deadline', 'by', 'date']):
-                d = _parse_date(line)
-                if d:
-                    return d
-        return None
-
-    # ------------------------------------------------------------------
-    # LOCATION parser
-    # ------------------------------------------------------------------
-    def _parse_location(self, raw):
-        address = city = state = zip_code = None
-        if not raw:
-            return address, city, state, zip_code
-        raw = _clean(raw)
-        # Extract zip
-        z = re.search(r'\b(\d{5}(?:-\d{4})?)\b', raw)
-        if z:
-            zip_code = z.group(1)
-            raw = raw.replace(zip_code, '').strip(' ,-')
-        # Extract state abbreviation (2 uppercase letters after comma or space)
-        s = re.search(r'\b([A-Z]{2})\b', raw)
-        if s:
-            state = s.group(1)
-            raw = re.sub(r'\b' + re.escape(state) + r'\b', '', raw, count=1).strip(' ,-')
-        # Strip "- State-wide" suffix
-        raw = re.sub(r'\s*-\s*State-?wide', '', raw, flags=re.IGNORECASE).strip(' ,-')
-        # Split on comma
-        parts = [p.strip() for p in raw.split(',') if p.strip()]
-        if len(parts) >= 2:
-            address = ', '.join(parts[:-1])
-            city    = parts[-1]
-        elif len(parts) == 1:
-            if any(c.isdigit() for c in parts[0]):
-                address = parts[0]
-            else:
-                city = parts[0]
-        return address, city, state or 'NY', zip_code
-
-    # ------------------------------------------------------------------
-    # BUDGET
-    # ------------------------------------------------------------------
-    def _parse_budget(self, text):
-        pattern = re.compile(
-            r'(?:estimated\s+cost|est\.?\s+cost|budget|value|contract\s+value)'
-            r'\D{0,20}\$\s*([0-9,]+(?:\.\d+)?)\s*(million|m|k|thousand)?',
-            re.IGNORECASE
-        )
-        amounts = []
-        for m in pattern.finditer(text):
-            v = float(m.group(1).replace(',', ''))
-            suf = (m.group(2) or '').lower()
-            if suf in ('million', 'm'):
-                v *= 1_000_000
-            elif suf in ('k', 'thousand'):
-                v *= 1_000
-            if v >= 500:
-                amounts.append(v)
-        if len(amounts) >= 2:
-            return min(amounts), max(amounts)
-        if len(amounts) == 1:
-            return None, amounts[0]
-        return None, None
-
-    # ------------------------------------------------------------------
-    # TRADES
-    # ------------------------------------------------------------------
-    def _parse_trades(self, category):
-        if not category:
+        def extract_section(name: str) -> List[str]:
+            m = re.search(r'^' + name + r'\s*\n(.*?)(?=\n(?:Documents|Contact Info|Updates|Bid Results|Awards|Accessibility|$))', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+            if m:
+                lines = [clean(l) for l in m.group(1).split('\n') if clean(l) and l.lower() not in ('no updates found', 'bid results have not been entered', 'awards have not been entered')]
+                return lines
             return []
-        return [t.strip() for t in re.split(r'[;\n]', category) if t.strip()]
 
-    # ------------------------------------------------------------------
-    # SQFT
-    # ------------------------------------------------------------------
-    def _parse_sqft(self, text):
-        m = re.search(r'\b([0-9,]+)\s*(?:sq\.?\s*ft\.?|sf|square\s+feet)\b', text, re.IGNORECASE)
-        if m:
-            return int(m.group(1).replace(',', ''))
-        return None
+        updates = extract_section('Updates')
+        results = extract_section('Bid Results')
+        awards = extract_section('Awards')
 
-    # ------------------------------------------------------------------
-    # AWARDS
-    # ------------------------------------------------------------------
-    def _parse_awards(self, awards_list):
-        awardee = award_date = award_number = None
-        for line in awards_list:
-            if 'not been entered' in line.lower():
-                continue
-            if any(k in line.lower() for k in ['awardee', 'contractor', 'awarded to']):
-                parts = re.split(r':|is|to', line, maxsplit=1)
-                if len(parts) > 1:
-                    awardee = _clean(parts[1])
-            if any(k in line.lower() for k in ['date', 'awarded on']):
-                d = _parse_date(line)
-                if d:
-                    award_date = d
-            if any(k in line.lower() for k in ['number', 'contract #', 'award #']):
-                parts = re.split(r'[:#]', line, maxsplit=1)
-                if len(parts) > 1:
-                    award_number = _clean(parts[1])
-        return awardee, award_date, award_number
+        # Awardee split
+        parsed_awards = []
+        for line in awards:
+            parts = re.split(r':|\b(?:is|to)\b', line, maxsplit=1)
+            parsed_awards.append(parts[0].strip() if len(parts) == 1 else parts[1].strip())
 
-    # ------------------------------------------------------------------
-    # PROJECT TYPE
-    # ------------------------------------------------------------------
-    def _project_type(self, title, category, description):
-        combined = f"{title} {category} {description}".lower()
-        construction_kw = [
-            'construction', 'rehabilitation', 'renovation', 'hvac', 'electrical',
-            'plumbing', 'painting', 'roofing', 'paving', 'demolition', 'building',
-            'road', 'highway', 'concrete', 'masonry', 'carpentry', 'excavation',
-            'culvert', 'sidewalk', 'curb', 'parking lot', 'elevator', 'roof',
-        ]
-        if any(k in combined for k in construction_kw):
-            return "construction_bid"
-        return "rfp"
+        return updates, results, parsed_awards
 
-    # ------------------------------------------------------------------
-    # FIRST EXTERNAL URL from text
-    # ------------------------------------------------------------------
-    def _first_url(self, text):
-        m = re.search(r'https?://[^\s\)]+', text)
-        return m.group(0).rstrip('.,;)') if m else None
+    def _parse_budget(self, text: str) -> str:
+        # Require \b after million|m|k|thousand
+        m = re.search(r'\$[\d,]+(?:\.\d+)?\s*(?:million\b|m\b|k\b|thousand\b)?', text, re.IGNORECASE)
+        return m.group(0) if m else None
 
-    # ------------------------------------------------------------------
-    # Run scrape loop (P4.1 Interface)
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Modular Scraper Implementation (P6.4)
-    # ------------------------------------------------------------------
+    def _parse_location(self, raw: str) -> tuple[str, str, str, str]:
+        if not raw:
+            return None, None, None, None
+        zip_match = re.search(r'\b(\d{5}(?:-\d{4})?)\b', raw)
+        z = zip_match.group(1) if zip_match else None
+
+        # State just before zip
+        state = None
+        if zip_match:
+            before_zip = raw[:zip_match.start()].strip().rstrip(',')
+            words = before_zip.split()
+            if words:
+                st = state_code(words[-1])
+                if st:
+                    state = st
+
+        return raw, None, state, z
+
     def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
-        """
-        Executes scrape of NYSCR portal with keyword and location filtering.
-        Yields raw extracted opportunity dictionaries.
-        """
         if not self.setup_chrome():
-            raise RuntimeError("Failed to initialize Chrome for NYSCR.")
+            return
 
         try:
-            if not self.login():
-                raise RuntimeError("NYSCR login failed.")
+            self.login()
 
-            self.driver.set_page_load_timeout(params.timeout_s)
-
-            opps = self.get_open_opportunities(max_count=999_999)
-            if not opps:
-                return
-
-            kw = (params.keyword or "").strip().lower()
-            target_city = (params.city or "").strip().lower()
-            yielded = 0
-
-            for opp in opps:
-                if yielded >= params.limit or self.ctx.should_cancel():
+            n = 0
+            for opp_id in self.iter_opportunity_ids():
+                if n >= params.limit:
                     break
-
-                try:
-                    data = self.extract_clean_data(opp["id"])
-                    if not data:
-                        continue
-
-                    # Keyword filter (P6.4 requirement: implement keyword filter)
-                    if kw:
-                        text_corpus = f"{data.get('title', '')} {data.get('description', '')} {data.get('categories', '')} {data.get('issuing_organization', '')}".lower()
-                        if kw not in text_corpus:
-                            continue
-
-                    # Location filter
-                    if target_city:
-                        loc = f"{data.get('location_city', '')} {data.get('location_address', '')}".lower()
-                        if target_city not in loc:
-                            continue
-
-                    data["opp_id"] = str(opp["id"])
+                data = self.extract_clean_data(opp_id)
+                if data:
+                    n += 1
+                    self.ctx.progress(100.0 * n / params.limit, f"{n}/{params.limit}")
                     yield data
-                    yielded += 1
-                except Exception as e:
-                    logger.warning("Error parsing NYSCR opp %s: %s", opp.get("id"), e)
 
-                time.sleep(0.5)
         finally:
-            self.close()
+            pass # closed in run()
 
     def to_standard(self, raw: Dict[str, Any]) -> StandardRecord:
-        """Transform raw NYSCR dictionary into canonical StandardRecord."""
-        contact = raw.get("contact_details") or {}
-        opp_id = str(raw.get("opp_id") or raw.get("id") or raw.get("source_id") or "").replace("nyscr_", "").strip()
-        due_at = _parse_date(raw.get("bid_deadline"))
+        agency = raw.get('agency')
+        contacts = raw.get('contacts', [])
+        contact = contacts[0] if contacts else {}
+        org = agency or contact.get('organization')
+
+        ext_id = raw.get('cr_number') or raw.get('id')
 
         return StandardRecord(
-            source_code=self.meta.id,
+            source_code=self.meta.id.lower(),
             record_kind=self.meta.record_kind,
-            external_id=opp_id,
-            source_url=raw.get("url"),
-            title=raw.get("title"),
-            description=raw.get("description"),
-            organization_name=raw.get("issuing_organization") or "New York State Agency",
-            contact_name=contact.get("name"),
-            contact_title=contact.get("title"),
-            email=contact.get("email"),
-            phone=contact.get("phone"),
-            website=raw.get("url"),
-            city=raw.get("location_city"),
-            us_state="NY",
-            postal_code=None,
-            category=raw.get("categories") or "State Contracting",
-            due_at=due_at,
+            external_id=str(ext_id),
+            source_url=raw.get('url'),
+            title=raw.get('title'),
+            description=raw.get('description'),
+            organization_name=org,
+            contact_name=contact.get('name'),
+            contact_title=contact.get('title'),
+            email=contact.get('email'),
+            phone=contact.get('phone'),
+            website=None,
+            city=raw.get('loc_city'),
+            us_state=raw.get('loc_state') or 'NY',
+            postal_code=raw.get('loc_zip'),
+            category=raw.get('category'),
+            due_at=raw.get('due_dt'),
             extra={
-                "opp_id": opp_id,
-                "bid_deadline": raw.get("bid_deadline"),
-                "issue_date": raw.get("issue_date"),
-                "project_type": raw.get("project_type"),
-                "categories": raw.get("categories"),
-            },
+                **raw,
+                "all_contacts": contacts
+            }
         )
-
-    def close(self) -> None:
-        """Safely close driver instance."""
-        if self.driver:
-            try:
-                self.driver.quit()
-            except Exception as e:
-                logger.debug("Error closing NYSCR driver: %s", e)
-            self.driver = None
-        super().close()
-
-
-# Backwards compatibility alias
-NYSCRScraper = NyscrScraper

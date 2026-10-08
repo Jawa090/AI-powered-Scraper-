@@ -62,7 +62,21 @@ export interface AgentTaskStep {
   executionOrder?: number;
 }
 
-export interface AgentMessage {
+export interface ScrapeOutcome {
+  timedOut?: boolean;
+  timeoutOptions?: { retrySource: string; recommendedSource?: string | null;
+    scrapers: { id: string; name: string; description: string; compatible: boolean }[] };
+  collectionCancelled?: boolean;
+  requestFulfilled?: boolean;
+  deliveryKind?: 'matched' | 'recovered';
+  matchingRecordsDelivered?: number;
+  requestedRecords?: number;
+  recoveredRecords?: number;
+  understoodRequest?: Record<string, any>;
+}
+
+export interface AgentMessage extends ScrapeOutcome {
+  showAllDetails?: boolean;
   id: string;
   sessionId: string;
   sender: 'user' | 'agent' | 'system';
@@ -150,7 +164,11 @@ export type LeadStatus =
   | 'Converted';
 
 export interface Lead {
+  scrapedData?: Record<string, any>;
   id: string;
+  category?: string | null;
+  recordKind?: string | null;
+  sourceUrl?: string | null;
   datasetId?: string | null;
   datasetName?: string | null;
   name?: string | null;
@@ -336,7 +354,8 @@ export interface SystemStatus {
   error?: string | null;
 }
 
-export interface BotChatResponse {
+export interface BotChatResponse extends ScrapeOutcome {
+  showAllDetails?: boolean;
   reply: string;
   suggestions?: string[];
   updatedRequirement?: Requirement;
@@ -393,6 +412,7 @@ export interface AdminUser {
   id: string;
   name: string;
   username: string;
+  email?: string | null;
   role: string;
   status: string;
   auth_source: string;

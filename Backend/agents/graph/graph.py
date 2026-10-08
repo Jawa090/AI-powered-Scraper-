@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
+from langchain_core.runnables import RunnableConfig
 
 from agents.graph.checkpointer import checkpointer
 from agents.graph.nodes import (
@@ -44,6 +45,8 @@ def route_after_agent(state: AgentState) -> str:
     - any propose_scrape call -> validate_proposal
     - otherwise -> tools
     """
+    if state.get('request_intent') == 'records' and state.get('missing_requirements'):
+        return 'finalize'
     messages = state.get("messages", [])
     if not messages:
         return "finalize"
@@ -69,15 +72,14 @@ def route_after_validate(state: AgentState) -> str:
     """
     Route after 'validate_proposal':
     - refusal written (pending_proposal is None) -> agent
-    - valid and (AUTO_SCRAPE or confirmed) -> enqueue_job
+    - valid and confirmed -> enqueue_job
     - valid -> ask_confirmation
     """
     pending = state.get("pending_proposal")
     if not pending:
         return "agent"
 
-    auto_scrape = getattr(settings, "AUTO_SCRAPE", False)
-    if auto_scrape or state.get("confirmed", False):
+    if state.get("confirmed", False):
         return "enqueue_job"
 
     return "ask_confirmation"
@@ -109,21 +111,30 @@ def route_after_confirmation(state: AgentState) -> str:
 def build_agent_graph(checkpointer_instance: Optional[Any] = None) -> Any:
     """Construct and compile the LangGraph StateGraph."""
     g = StateGraph(AgentState)
+    def guarded(node):
+        def invoke(state: AgentState, config: RunnableConfig):
+            from services.sessions import require_active
+            require_active(state.get('session_id'))
+            return node.invoke(state, config) if hasattr(node, 'invoke') else node(state)
+        return invoke
 
     # Register Nodes
-    g.add_node("load_context", load_context)
-    g.add_node("rag_retrieve", rag_retrieve)
-    g.add_node("agent", call_model)
-    g.add_node("tools", ToolNode(READ_TOOLS, handle_tool_errors=True))
-    g.add_node("validate_proposal", validate_proposal)
-    g.add_node("ask_confirmation", ask_confirmation)
-    g.add_node("await_confirmation", await_confirmation)
-    g.add_node("enqueue_job", enqueue_job)
-    g.add_node("finalize", finalize)
+    g.add_node("load_context", guarded(load_context))
+    from agents.graph.nodes.gather_requirements import interpret_request
+    g.add_node("gather_requirements", guarded(interpret_request))
+    g.add_node("rag_retrieve", guarded(rag_retrieve))
+    g.add_node("agent", guarded(call_model))
+    g.add_node("tools", guarded(ToolNode(READ_TOOLS, handle_tool_errors=False)))
+    g.add_node("validate_proposal", guarded(validate_proposal))
+    g.add_node("ask_confirmation", guarded(ask_confirmation))
+    g.add_node("await_confirmation", guarded(await_confirmation))
+    g.add_node("enqueue_job", guarded(enqueue_job))
+    g.add_node("finalize", guarded(finalize))
 
     # Register Edges
     g.add_edge(START, "load_context")
-    g.add_edge("load_context", "rag_retrieve")
+    g.add_edge("load_context", "gather_requirements")
+    g.add_edge("gather_requirements", "rag_retrieve")
     g.add_edge("rag_retrieve", "agent")
 
     g.add_conditional_edges(

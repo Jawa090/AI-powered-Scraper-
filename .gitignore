@@ -13,6 +13,9 @@ venv/
 !.env.example
 !.env.test.example
 !*.example
+Backend/.env
+Backend/.env.test
+RAG/.env
 
 # Node
 node_modules/
@@ -38,3 +41,18 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Scraper output files
+master_leads.csv
+merge_log.csv
+audit_output.txt
+
+# Temporary files
+docs/baseline/*.tmp
+
+# Local audit tools and disposable DB connection state
+.audit-tools/
+docs/audit/integration_database.json
+docs/audit/nyscr_resume.flag
+
+.nyscr-browser-profile/

@@ -220,14 +220,15 @@ class ApiService {
   }
 
   async getJobs(): Promise<Job[]> {
-    try {
-      const res = await this.fetchWithAuth(`${API_BASE}/jobs`);
+    const rows: Job[] = [];
+    let page = 1;
+    while (true) {
+      const res = await this.fetchWithAuth(`${API_BASE}/jobs?page=${page}&pageSize=100`);
       if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch jobs`);
       const data = await res.json();
-      return data.jobs || [];
-    } catch (e) {
-      console.warn('API getJobs error:', e);
-      return [];
+      rows.push(...(data.jobs || []));
+      if (!data.jobs?.length || rows.length >= (data.total ?? rows.length)) return rows;
+      page += 1;
     }
   }
 
@@ -255,35 +256,57 @@ class ApiService {
     }
   }
 
+  async resumeJob(jobId: string): Promise<void> {
+    const response = await this.fetchWithAuth(`${API_BASE}/jobs/${jobId}/resume`, { method: 'POST' });
+    if (!response.ok) throw new Error('Could not resume this job.');
+  }
+
+  async downloadAuthenticated(url: string, filename: string): Promise<void> {
+    const response = await this.fetchWithAuth(url);
+    if (!response.ok) throw new Error(`Download failed (${response.status})`);
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a'); link.href = objectUrl; link.download = filename;
+    link.click(); URL.revokeObjectURL(objectUrl);
+  }
+
   // ---------------------------------------------------------------------------
   // Leads & Datasets
   // ---------------------------------------------------------------------------
 
   async getDatasets(): Promise<Dataset[]> {
-    try {
-      const res = await this.fetchWithAuth(`${API_BASE}/datasets`);
+    const rows: Dataset[] = [];
+    let page = 1;
+    while (true) {
+      const res = await this.fetchWithAuth(`${API_BASE}/datasets?page=${page}&pageSize=100`);
       if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch datasets`);
       const data = await res.json();
-      return data.datasets || [];
-    } catch (e) {
-      console.warn('API getDatasets error:', e);
-      return [];
+      rows.push(...(data.datasets || []));
+      if (!data.datasets?.length || rows.length >= (data.total ?? rows.length)) return rows;
+      page += 1;
     }
   }
 
-  async getLeads(datasetId?: string, query?: string, page: number = 1, pageSize: number = 50): Promise<Lead[]> {
+  async getLeads(datasetId?: string, query?: string, page?: number, pageSize: number = 100): Promise<Lead[]> {
     try {
       const params = new URLSearchParams();
       if (datasetId) params.append('datasetId', datasetId);
       if (query) params.append('query', query);
-      params.append('page', String(page));
+      params.append('page', String(page || 1));
       params.append('page_size', String(pageSize));
 
       const url = `${API_BASE}/leads?${params.toString()}`;
       const res = await this.fetchWithAuth(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch leads`);
       const data = await res.json();
-      return data.leads || [];
+      const rows = data.leads || [];
+      if (page === undefined) {
+        for (let next = 2; rows.length < data.total; next++) {
+          const batch = await this.getLeads(datasetId, query, next, pageSize);
+          if (!batch.length) break;
+          rows.push(...batch);
+        }
+      }
+      return rows;
     } catch (e) {
       console.warn('API getLeads error:', e);
       return [];
@@ -293,6 +316,40 @@ class ApiService {
   // ---------------------------------------------------------------------------
   // AI Agent Bot Endpoints
   // ---------------------------------------------------------------------------
+
+  async createNewChat(previousSessionId?: string): Promise<{ sessionId: string; clearedSessionIds?: string[] }> {
+    const res = await this.fetchWithAuth(`${API_BASE}/bot/chat/new`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ previousSessionId }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to create chat session`);
+    return res.json();
+  }
+
+  async getBotState(sessionId: string): Promise<any> {
+    const res = await this.fetchWithAuth(`${API_BASE}/bot/state?sessionId=${sessionId}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch bot state`);
+    return res.json();
+  }
+
+  async updateJob(sessionId: string, jobId: string): Promise<BotChatResult> {
+    try {
+      const res = await this.fetchWithAuth(`${API_BASE}/bot/job-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, jobId }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { error: errData.detail || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data };
+    } catch (e: any) {
+      return { error: e?.message || 'Network error updating job' };
+    }
+  }
 
   /**
    * Sends user message to AI Agent Bot.
@@ -304,10 +361,14 @@ class ApiService {
     sessionId: string,
     message: string,
     clientMessageId: string,
-    currentRequirement?: Requirement
+    currentRequirement?: Requirement,
+    newOnly = false,
+    expectedProposalId?: string,
+    signal?: AbortSignal
   ): Promise<BotChatResult> {
     try {
       const res = await this.fetchWithAuth(`${API_BASE}/bot/chat`, {
+        signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -315,6 +376,8 @@ class ApiService {
           message,
           clientMessageId,
           currentRequirement,
+          newOnly,
+          expectedProposalId,
         }),
       });
 
@@ -330,8 +393,14 @@ class ApiService {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        const detail = errData.detail;
+        // detail can be a string or an object like {error: {code, message}}
+        const errorMsg =
+          typeof detail === 'string'
+            ? detail
+            : detail?.error?.message || detail?.message || errData.error?.message || `HTTP ${res.status}`;
         return {
-          error: errData.detail || errData.error?.message || `HTTP ${res.status}`,
+          error: errorMsg,
         };
       }
 
@@ -437,7 +506,7 @@ class ApiService {
     return res.json();
   }
 
-  async createAdminUser(payload: { name?: string; username: string; password: string; role?: string }): Promise<{ id: string; message: string }> {
+  async createAdminUser(payload: { name?: string; email?: string; username: string; password: string; role?: string }): Promise<{ id: string; message: string }> {
     const res = await this.fetchWithAuth(`${API_BASE}/admin/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -450,7 +519,7 @@ class ApiService {
     return res.json();
   }
 
-  async updateAdminUser(userId: string, payload: { name?: string; password?: string; status?: string }): Promise<{ message: string }> {
+  async updateAdminUser(userId: string, payload: { email?: string; name?: string; password?: string; status?: string }): Promise<{ message: string }> {
     const res = await this.fetchWithAuth(`${API_BASE}/admin/users/${userId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

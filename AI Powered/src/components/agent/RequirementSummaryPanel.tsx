@@ -42,7 +42,7 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
       ? 'DASNY RFP & Bid Opportunities Scraper'
       : 'Auto-detected Scraper Engine');
 
-  let volumeText = requirement.quantity ? `${requirement.quantity.toLocaleString()} target records` : '20 target records';
+  let volumeText = requirement.quantity ? `${requirement.quantity.toLocaleString()} target records` : 'Target records not specified';
   if (isCompleted) {
     const verified = (requirement as any).verifiedRecords || requirement.quantity || 0;
     volumeText = `${verified.toLocaleString()} verified records`;
@@ -57,7 +57,7 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
   } else if (isReady) {
     volumeText = requirement.quantity
       ? `${requirement.quantity.toLocaleString()} target records (Ready to confirm)`
-      : '20 target records (Ready to confirm)';
+      : 'Target records not specified (Ready to confirm)';
   }
 
   const fields = [
@@ -83,16 +83,16 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
   let badgeClass = 'bg-gray-50 text-gray-600 border border-gray-200';
   let badgeLabel = 'SPECIFICATION IN PROGRESS';
   if (isRunning) {
-    badgeClass = 'bg-indigo-50 text-indigo-700 border border-indigo-200 animate-pulse';
+    badgeClass = 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 border animate-pulse';
     badgeLabel = 'RUNNING / IN PROGRESS';
   } else if (isCompleted) {
-    badgeClass = 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+    badgeClass = 'bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 border';
     badgeLabel = 'COMPLETED';
   } else if (isFailed) {
-    badgeClass = 'bg-rose-50 text-rose-700 border border-rose-200';
+    badgeClass = 'bg-white text-red-600 border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 border';
     badgeLabel = 'FAILED';
   } else if (isReady) {
-    badgeClass = 'bg-amber-50 text-amber-700 border border-amber-200';
+    badgeClass = 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 border';
     badgeLabel = 'READY FOR CONFIRMATION';
   }
 
@@ -104,19 +104,19 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
   if (isRunning) {
     progressPercentage = Math.max(25, Math.min(95, requirement.completionPercentage || 35));
     progressText = `In Progress (${progressPercentage}%)`;
-    progressBarColor = 'bg-indigo-600';
+    progressBarColor = 'bg-blue-600';
   } else if (isCompleted) {
     progressPercentage = 100;
     progressText = '100% complete';
-    progressBarColor = 'bg-emerald-500';
+    progressBarColor = 'bg-[#26619C]';
   } else if (isFailed) {
     progressPercentage = 0;
     progressText = 'Failed (0%)';
-    progressBarColor = 'bg-rose-500';
+    progressBarColor = 'bg-red-600 dark:bg-red-500';
   } else if (isReady) {
     progressPercentage = 100;
     progressText = '100% complete';
-    progressBarColor = 'bg-emerald-500';
+    progressBarColor = 'bg-[#26619C]';
   }
 
   // Bottom action CTA
@@ -127,9 +127,9 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
     ctaButton = (
       <button
         onClick={() => (onViewJob ? onViewJob((requirement as any).jobId) : onConfirm())}
-        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer"
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
       >
-        <Eye className="w-4 h-4 text-indigo-200" />
+        <Eye className="w-4 h-4 text-blue-200" />
         <span>View Job</span>
         <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -139,9 +139,9 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
     ctaButton = (
       <button
         onClick={() => (onViewResults ? onViewResults() : onConfirm())}
-        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer"
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-[#26619C] text-white hover:bg-[#1E4E7C] cursor-pointer"
       >
-        <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+        <CheckCircle2 className="w-4 h-4 text-[#B3D4F5]" />
         <span>View Results</span>
         <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -151,9 +151,9 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
     ctaButton = (
       <button
         onClick={() => (onViewJob ? onViewJob((requirement as any).jobId) : onConfirm())}
-        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-red-600 text-white hover:bg-red-700 cursor-pointer"
       >
-        <AlertCircle className="w-4 h-4 text-rose-200" />
+        <AlertCircle className="w-4 h-4 text-red-200" />
         <span>Retry / View Details</span>
         <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -163,9 +163,9 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
     ctaButton = (
       <button
         onClick={onConfirm}
-        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-[#2D4351] text-white hover:bg-[#20313C] cursor-pointer"
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-[#2D4351] dark:bg-golden-500 text-white dark:text-black hover:bg-[#20313C] dark:hover:bg-golden-600 cursor-pointer"
       >
-        <Sparkles className="w-4 h-4 text-emerald-400" />
+        <Sparkles className="w-4 h-4 text-green-400 dark:text-black" />
         <span>Confirm & Generate Data</span>
         <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -175,9 +175,9 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
     ctaButton = (
       <button
         disabled
-        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-gray-100 text-gray-400 cursor-not-allowed"
+        className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed"
       >
-        <Sparkles className="w-4 h-4 text-gray-400" />
+        <Sparkles className="w-4 h-4 text-gray-400 dark:text-gray-500" />
         <span>Confirm & Generate Data</span>
         <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -186,9 +186,9 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
   }
 
   return (
-    <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 flex flex-col h-full shadow-card">
+    <div className="bg-white dark:bg-black border border-[#E5E7EB] dark:border-gray-800 rounded-xl p-5 flex flex-col h-full shadow-card transition-colors">
       {/* Header */}
-      <div className="border-b border-[#E5E7EB] pb-3 mb-4">
+      <div className="border-b border-[#E5E7EB] dark:border-gray-800 pb-3 mb-4">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">
             DATA REQUIREMENT
@@ -197,7 +197,7 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
             {badgeLabel}
           </span>
         </div>
-        <h3 className="text-sm font-semibold text-gray-900 mt-1">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-golden-500 mt-1">
           Structured Intelligence Spec
         </h3>
       </div>
@@ -207,17 +207,17 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
         {fields.map(f => {
           const isSet = f.value && f.value !== 'Not specified';
           return (
-            <div key={f.label} className="border-b border-gray-50 pb-2">
-              <span className="text-[11px] text-[#848485] block font-medium">
+            <div key={f.label} className="border-b border-gray-50 dark:border-gray-800 pb-2">
+              <span className="text-[11px] text-[#848485] dark:text-golden-600 block font-medium">
                 {f.label}
               </span>
               <span
                 className={`text-xs font-semibold mt-0.5 block ${
                   (f as any).isHighlight
-                    ? 'text-indigo-600 font-bold'
+                    ? 'text-blue-600 dark:text-blue-400 font-bold'
                     : isSet
-                    ? 'text-gray-900'
-                    : 'text-gray-400 italic'
+                    ? 'text-gray-900 dark:text-golden-300'
+                    : 'text-gray-400 dark:text-gray-500 italic'
                 }`}
               >
                 {f.value || 'Not specified'}
@@ -228,13 +228,13 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
 
         {/* Required Data Checklist */}
         <div className="pt-2">
-          <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider block mb-2">
+          <span className="text-[11px] font-semibold text-gray-700 dark:text-golden-400 uppercase tracking-wider block mb-2">
             Target Schema & Attributes:
           </span>
           <div className="grid grid-cols-2 gap-1.5">
             {checklist.map(item => (
-              <div key={item.key} className="flex items-center gap-1.5 text-xs text-gray-700">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+              <div key={item.key} className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-golden-100">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-500 flex-shrink-0" />
                 <span className="truncate">{item.label}</span>
               </div>
             ))}
@@ -243,14 +243,14 @@ export const RequirementSummaryPanel: React.FC<RequirementSummaryPanelProps> = (
       </div>
 
       {/* Progress & CTA */}
-      <div className="border-t border-[#E5E7EB] pt-4 mt-4">
-        <div className="flex items-center justify-between text-xs font-medium text-gray-700 mb-1.5">
+      <div className="border-t border-[#E5E7EB] dark:border-gray-800 pt-4 mt-4">
+        <div className="flex items-center justify-between text-xs font-medium text-gray-700 dark:text-golden-400 mb-1.5">
           <span>Requirement Progress</span>
-          <span className="font-semibold text-gray-900">
+          <span className="font-semibold text-gray-900 dark:text-golden-500">
             {progressText}
           </span>
         </div>
-        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden mb-4">
+        <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2 overflow-hidden mb-4">
           <div
             className={`h-full transition-all duration-500 rounded-full ${progressBarColor}`}
             style={{ width: `${Math.min(100, Math.max(0, progressPercentage))}%` }}

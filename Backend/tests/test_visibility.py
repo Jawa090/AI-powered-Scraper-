@@ -22,6 +22,7 @@ def test_user_cannot_read_others_job_and_session():
     client.post("/api/admin/users", json={
         "username": test_user,
         "name": "Test User",
+        "email": test_user + "@example.test",
         "password": "testpassword"
     }, headers={"Authorization": f"Bearer {token_admin}"})
 
@@ -36,7 +37,7 @@ def test_user_cannot_read_others_job_and_session():
     test_sess_id = f"sess-{uuid.uuid4().hex[:8]}"
     with session_scope() as session:
         j = Job(id=test_job_id, name="Test Job", status="Completed", created_by=user1_id, department_id="dept-default")
-        sess = AgentSession(id=test_sess_id, user_id=user1_id, department_id="dept-default", agent_id="agent-master")
+        sess = AgentSession(id=test_sess_id, user_id=user1_id, department_id="dept-default", agent_id="agent-master", status="archived")
         session.add(j)
         session.add(sess)
         session.commit()
@@ -49,10 +50,11 @@ def test_user_cannot_read_others_job_and_session():
     res = client.get(f"/api/jobs/{test_job_id}", headers=headers2)
     assert res.status_code == 404
 
-    # User123 can chat with their session
+    # The owner can read archived history, while new writes are rejected
     res = client.post("/api/bot/chat", json={"sessionId": test_sess_id, "message": "hello"}, headers=headers1)
-    # 503, 500 or 200 is fine, we just care it doesn't give 403
-    assert res.status_code in [200, 500, 503] 
+    # Archived conversations preserve history without accepting new writes.
+    assert res.status_code == 409
+    assert client.get(f"/api/bot/sessions/{test_sess_id}/messages", headers=headers1).status_code == 200
 
     # Alice cannot chat with User123's session
     res = client.post("/api/bot/chat", json={"sessionId": test_sess_id, "message": "hello"}, headers=headers2)

@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union
+import importlib
 
 from scrappers.base import (
     BaseScraper,
@@ -18,22 +19,51 @@ from scrappers.base import (
     StandardRecord,
     UnknownScraper,
 )
-from scrappers.bonfire import BonfireScraper
-from scrappers.dasny import DasnyScraper
-from scrappers.jwiz import JWizScraper
-from scrappers.nyscr import NyscrScraper
 from settings import settings
+from scrappers.utils import state_code
 
 logger = logging.getLogger(__name__)
 
-# To add a scraper: copy _template.py to scrappers/<name>.py, implement it,
-# import it above and add its class below. Nothing else changes.
-REGISTERED_SCRAPERS: Tuple[Type[BaseScraper], ...] = (
-    BonfireScraper,
-    DasnyScraper,
-    JWizScraper,
-    NyscrScraper,
-)
+SCRAPER_PATHS = [
+    "scrappers.bonfire:BonfireScraper",
+    "scrappers.dasny:DasnyScraper",
+    "scrappers.jwiz:JWizScraper",
+    "scrappers.nyscr:NyscrScraper",
+]
+
+REGISTERED_SCRAPERS: List[Type[BaseScraper]] = []
+_IMPORT_ERRORS = {}
+
+for path in SCRAPER_PATHS:
+    mod_path, cls_name = path.split(":")
+    scraper_id = mod_path.split(".")[-1]
+    try:
+        mod = importlib.import_module(mod_path)
+        cls = getattr(mod, cls_name)
+        REGISTERED_SCRAPERS.append(cls)
+    except Exception as e:
+        logger.error(f"Failed to load scraper {scraper_id}: {e}")
+        _IMPORT_ERRORS[scraper_id] = f"Import error: {e}"
+        # Create a placeholder to ensure it shows up in API with ready=False
+        meta = ScraperMeta(
+            id=scraper_id,
+            name=cls_name.replace("Scraper", ""),
+            description="Failed to load module.",
+            record_kind="opportunity",
+            category="Unknown",
+            version="0.0.0",
+            coverage={},
+            supports=[],
+            fields=[],
+            required_env=[]
+        )
+        class BrokenScraper(BaseScraper):
+            def scrape(self, params):
+                pass
+            def to_standard(self, raw):
+                pass
+        BrokenScraper.meta = meta
+        REGISTERED_SCRAPERS.append(BrokenScraper)
 
 # ---------------------------------------------------------------------------
 # Import-time validation of registered scrapers
@@ -85,9 +115,12 @@ def check_ready(scraper_id: str) -> Tuple[bool, Optional[str]]:
     Check if required environment variables and credentials are configured for scraper.
     Returns (True, None) if ready, or (False, reason) if blocked.
     """
+    if scraper_id in _IMPORT_ERRORS:
+        return False, _IMPORT_ERRORS[scraper_id]
+
     meta = get_meta(scraper_id)
     for env_var in meta.required_env:
-        val = getattr(settings, env_var, None) or os.getenv(env_var)
+        val = getattr(settings, env_var, None)
         if not val:
             return False, f"Missing required environment variable: {env_var}"
     return True, None
@@ -95,8 +128,7 @@ def check_ready(scraper_id: str) -> Tuple[bool, Optional[str]]:
 
 def validate_params(scraper_id: str, raw: Union[Dict[str, Any], ScrapeParams]) -> ScrapeParams:
     """
-    Strict validation of scrape parameters against scraper metadata.
-    Raises InvalidScrapeParams with explicit reason; no silent clamping or dropping.
+    Adjust scrape parameters to match scraper capabilities, or raise if unsupported.
     """
     meta = get_meta(scraper_id)
     if isinstance(raw, ScrapeParams):
@@ -112,10 +144,14 @@ def validate_params(scraper_id: str, raw: Union[Dict[str, Any], ScrapeParams]) -
             limit = int(limit_val)
         except (ValueError, TypeError):
             raise InvalidScrapeParams(f"Invalid limit '{limit_val}': must be an integer")
-        if limit < 1 or limit > meta.max_limit:
-            raise InvalidScrapeParams(
-                f"Limit {limit} is outside allowed range [1, {meta.max_limit}] for scraper '{scraper_id}'"
-            )
+
+        if limit < 1:
+            raise InvalidScrapeParams(f"Limit {limit} must be >= 1")
+        # if limit > meta.max_limit:
+        #     logger.warning(f"Limit {limit} > max {meta.max_limit}. Capping to max.")
+        #     limit = meta.max_limit
+        if limit<100:
+            limit=100
 
     kw = raw_dict.get("keyword")
     if kw is not None and str(kw).strip():
@@ -123,10 +159,47 @@ def validate_params(scraper_id: str, raw: Union[Dict[str, Any], ScrapeParams]) -
             raise InvalidScrapeParams(f"Scraper '{scraper_id}' does not support keyword filtering")
 
     city = raw_dict.get("city")
+    city = str(city).strip() if city else None
+
     us_state = raw_dict.get("us_state")
+    if us_state:
+        us_state = state_code(us_state)
+
     loc = raw_dict.get("location")
-    if (city or us_state or loc) and "location" not in meta.supports:
-        raise InvalidScrapeParams(f"Scraper '{scraper_id}' does not support location filtering")
+    if loc:
+        loc = str(loc).strip()
+        if not city and not us_state:
+            from Database.normalize import parse_location, normalize_state
+            city, us_state = parse_location(loc)
+            if not us_state:
+                us_state = normalize_state(loc)
+            if not city and not us_state:
+                city = loc
+
+    # Drop location when city or us_state is present
+    if city or us_state:
+        loc = None
+
+    # Check if a location filter is entirely inside the scraper's coverage
+    has_location_filter = city or us_state or loc
+
+    if meta.requires_location and not has_location_filter:
+        raise InvalidScrapeParams(f"{meta.name} requires a city or state before it can run. "
+            "Ask the user for a search location; an unrestricted database search is still allowed.")
+
+    if has_location_filter:
+        cov_city = meta.coverage.get("city")
+        cov_state = meta.coverage.get("state")
+
+        if cov_city and city and city.casefold() != cov_city.casefold():
+            raise InvalidScrapeParams(f"Source covers {cov_city}, not {city}")
+        if cov_state and us_state and us_state != cov_state:
+            raise InvalidScrapeParams(f"Source covers {cov_state}, not {us_state}")
+        covered = bool(cov_city or cov_state) and (not city or (cov_city and city.casefold() == cov_city.casefold())) and (not us_state or us_state == cov_state)
+        if covered:
+            city = us_state = loc = None
+        elif 'location' not in meta.supports:
+            raise InvalidScrapeParams(f"Scraper '{scraper_id}' does not support the requested location")
 
     timeout_s = raw_dict.get("timeout_s", 60)
     try:
@@ -137,9 +210,9 @@ def validate_params(scraper_id: str, raw: Union[Dict[str, Any], ScrapeParams]) -
     return ScrapeParams(
         limit=limit,
         keyword=str(kw).strip() if kw else None,
-        city=str(city).strip() if city else None,
-        us_state=str(us_state).strip() if us_state else None,
-        location=str(loc).strip() if loc else None,
+        city=city,
+        us_state=us_state,
+        location=loc,
         timeout_s=timeout_s,
     )
 
@@ -157,6 +230,7 @@ def describe_for_llm() -> List[Dict[str, Any]]:
             "record_kind": meta.record_kind,
             "coverage": meta.coverage,
             "supports": meta.supports,
+            "requires_location": meta.requires_location,
             "fields": meta.fields,
             "ready": ready,
             "unready_reason": reason if not ready else None,
@@ -175,6 +249,7 @@ def to_api_dict(meta: ScraperMeta) -> Dict[str, Any]:
         "recordKind": meta.record_kind,
         "coverage": meta.coverage,
         "supports": meta.supports,
+        "requiresLocation": meta.requires_location,
         "fields": meta.fields,
         "defaultLimit": meta.default_limit,
         "maxLimit": meta.max_limit,
@@ -239,11 +314,14 @@ def run(
     if not ready:
         raise ScraperNotReady(f"Scraper '{clean_id}' is not ready: {reason}")
 
-    scraper = scraper_cls(ctx=ctx)
+    # Set headless default from settings. NYSCR overrides this in its own class if needed.
+    # We pass it to the constructor if it accepts it.
+    headless = settings.SCRAPER_HEADLESS
+    # Actually BaseScraper now accepts headless
+    scraper = scraper_cls(ctx=ctx, headless=headless)
+
     try:
         for record in scraper.run(validated_params):
-            if ctx and ctx.should_cancel():
-                raise JobCancelled(f"Scraper '{clean_id}' cancelled by context")
             yield record
     finally:
         scraper.close()

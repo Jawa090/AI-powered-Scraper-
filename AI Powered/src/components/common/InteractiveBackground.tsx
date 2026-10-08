@@ -477,7 +477,7 @@ export const InteractiveBackground: React.FC<InteractiveBackgroundProps> = ({
               <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-gray-100">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-lg bg-[#2D4351] text-white flex items-center justify-center">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    <Sparkles className="w-3.5 h-3.5 text-green-400" />
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-gray-900 leading-tight">
@@ -495,8 +495,8 @@ export const InteractiveBackground: React.FC<InteractiveBackgroundProps> = ({
                     title={enabled ? 'Disable Particles' : 'Enable Particles'}
                     className={`p-1.5 rounded-lg text-xs transition-colors ${
                       enabled
-                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        ? 'bg-white text-green-600 border border-green-200 hover:bg-green-50 dark:bg-black dark:text-green-500 dark:border-green-800 dark:hover:bg-green-900/30'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
                     }`}
                   >
                     {enabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
@@ -558,7 +558,7 @@ export const InteractiveBackground: React.FC<InteractiveBackgroundProps> = ({
                             onClick={() => setIntensity(level)}
                             className={`py-1 px-2 rounded-md text-[10px] font-medium capitalize transition-all ${
                               isSelected
-                                ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                                ? 'bg-green-600 text-white font-semibold shadow-xs'
                                 : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-100'
                             }`}
                           >
@@ -571,7 +571,7 @@ export const InteractiveBackground: React.FC<InteractiveBackgroundProps> = ({
 
                   <div className="pt-1 text-[10px] text-gray-400 flex items-center justify-between">
                     <span>💡 Move mouse or click to pulse</span>
-                    <span className="text-emerald-600 font-medium">Live GPU</span>
+                    <span className="text-green-600 font-medium">Live GPU</span>
                   </div>
                 </div>
               )}
@@ -583,10 +583,10 @@ export const InteractiveBackground: React.FC<InteractiveBackgroundProps> = ({
               title="Customize Dynamic Background"
             >
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-600 dark:bg-green-500"></span>
               </span>
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600 group-hover:rotate-12 transition-transform" />
+              <Sparkles className="w-3.5 h-3.5 text-green-600 dark:text-green-500 group-hover:rotate-12 transition-transform" />
               <span className="text-[11px] font-semibold text-gray-800 hidden sm:inline">
                 Interactive FX
               </span>

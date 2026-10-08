@@ -69,6 +69,7 @@ def test_admin_creates_user():
     res = client.post("/api/admin/users", json={
         "username": "alice",
         "name": "Alice",
+        "email": "alice@example.test",
         "password": "alicepassword"
     }, headers=headers)
     assert res.status_code == 200
@@ -85,6 +86,7 @@ def test_second_admin_api_fails():
     
     res = client.post("/api/admin/users", json={
         "username": "admin2",
+        "email": "admin2@example.test",
         "password": "admin2password",
         "role": "admin"
     }, headers=headers)
