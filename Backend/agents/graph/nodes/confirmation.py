@@ -30,7 +30,7 @@ def ask_confirmation(state: AgentState) -> Dict[str, Any]:
         return {}
 
     args = proposal.get("args") or {}
-    #source = proposal.get("source", "")
+    source = proposal.get("source", "")
     qty = args.get("quantity")
     category = args.get("category") or "relevant"
     location = args.get("city") or args.get("us_state") or ""
