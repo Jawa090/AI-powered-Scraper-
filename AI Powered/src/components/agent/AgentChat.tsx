@@ -299,7 +299,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                     <p className="text-blue-800 dark:text-blue-600 text-[11px]">
                       {typeof msg.pendingAction === 'string'
                         ? msg.pendingAction
-                        : msg.pendingAction?.question || msg.pendingAction?.label || 'The agent proposed running a targeted scrape. Would you like to proceed?'}
+                        : msg.pendingAction?.label || 'The agent proposed running a targeted scrape. Would you like to proceed?'}
                     </p>
                     <div className="flex items-center gap-2 pt-1">
                       <button

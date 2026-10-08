@@ -38,7 +38,7 @@ def test_all_four_scrapers_persist_fixture_fields(database, monkeypatch):
     monkeypatch.setattr(settings, "SCRAPER_MODE", "fixture")
     monkeypatch.setattr(settings, "ENVIRONMENT", "test")
     for source in ["bonfire", "dasny", "nyscr", "jwiz"]:
-        records = list(run(source, {"limit": 2, **({"us_state": "NY"} if source == "jwiz" else {})}))
+        records = list(run(source, {"limit": 100, **({"us_state": "NY"} if source == "jwiz" else {})}))[:2]
         result = upsert_leads(database, records, department_id="dept-default")
         assert result.failed == result.skipped == 0, result.errors
         assert len(set(result.lead_ids)) == 2

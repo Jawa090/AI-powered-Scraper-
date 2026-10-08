@@ -28,7 +28,7 @@ def ask_confirmation(state: AgentState) -> Dict[str, Any]:
     proposal = state.get("pending_proposal")
     if not proposal:
         return {}
-
+#do not edit the source here it is the actual model decision of what scrapper to call, not the prompt text.
     args = proposal.get("args") or {}
     source = proposal.get("source", "")
     qty = args.get("quantity")
@@ -37,6 +37,7 @@ def ask_confirmation(state: AgentState) -> Dict[str, Any]:
     loc_str = f" in {location}" if location else ""
 
     model = get_chat_model()
+    # here initilly it was state the source...
     prompt = ('Ask for explicit permission to START this proposed scrape. It has not run yet. '
         'State the quantity and filters accurately; ask whether to proceed. '
         'Do not report results, invent an outcome, or ask whether a past scrape succeeded. '

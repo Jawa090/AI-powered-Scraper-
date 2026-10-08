@@ -52,7 +52,7 @@ def _persist(state, paused=False):
             'missingRequirements': state.get('missing_requirements') or [],
             'totalAvailable': search.get('total', len(records)), 'queryId': q.id,
             'jobId': q.job_id, 'decision': q.decision, 'sessionId': q.session_id,
-            'pendingAction': {'type': 'scrape_confirmation', 'proposal': state.get('pending_proposal'), 'question': reply} if paused else None,
+            'pendingAction': {'type': 'scrape_confirmation', 'proposal': state.get('pending_proposal'), 'question': None} if paused else None,
             'kb': {'state': (state.get('rag_status') or {}).get('state'), 'available': bool((state.get('rag_status') or {}).get('available')), 'hits': state.get('rag_hits') or []}}
         slots = state.get('slots') or {}
         proposal = state.get('pending_proposal') or {}

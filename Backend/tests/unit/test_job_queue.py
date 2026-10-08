@@ -85,14 +85,14 @@ def test_enqueue_scrape_validates_params(db_session, make_user):
             params={"limit": 0},
         )
 
-    # Limit out of bounds (> max_limit=100) -> capped
+    # Limit out of bounds is now uncapped
     job, created = enqueue_scrape(
         db_session,
         user=user,
         script_id="bonfire",
         params={"limit": 500},
     )
-    assert job.parameters["limit"] == 100
+    assert job.parameters["limit"] == 500
 
 
 def test_enqueue_has_no_hourly_limit(db_session, make_user):
