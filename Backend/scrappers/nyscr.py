@@ -110,6 +110,7 @@ class NyscrScraper(BaseScraper):
             "city",
             "us_state",
             "postal_code",
+            "category",
             "due_at",
         ],
         required_env=["NYSCR_USERNAME", "NYSCR_PASSWORD"],
@@ -745,33 +746,55 @@ class NyscrScraper(BaseScraper):
             pass # closed in run()
 
     def to_standard(self, raw: Dict[str, Any]) -> StandardRecord:
-        agency = raw.get('agency')
-        contacts = raw.get('contacts', [])
+        agency = (
+            raw.get('agency')
+            or raw.get('issuing_organization')
+            or raw.get('organization_name')
+        )
+        contacts = raw.get('contacts')
+        if not contacts and raw.get('contact_details'):
+            cd = raw.get('contact_details')
+            contacts = [cd] if isinstance(cd, dict) else cd
+        contacts = contacts or []
         contact = contacts[0] if contacts else {}
-        org = agency or contact.get('organization')
+        org = agency or contact.get('organization') or "State of New York"
 
-        ext_id = raw.get('cr_number') or raw.get('id')
+        url = raw.get('url') or raw.get('source_url')
+        ext_id = raw.get('cr_number') or raw.get('opp_id') or raw.get('id') or raw.get('source_id')
+        if not ext_id and url:
+            m = re.search(r'/Details/(\d+)', url)
+            if m:
+                ext_id = m.group(1)
+
+        city = raw.get('loc_city') or raw.get('location_city') or raw.get('city')
+        category = raw.get('category') or raw.get('categories')
+
+        due_at = raw.get('due_dt') or raw.get('due_at')
+        if not due_at:
+            due_raw = raw.get('due_date_raw') or raw.get('due_date') or raw.get('bid_deadline')
+            if due_raw:
+                due_at = parse_local_dt(due_raw, 'America/New_York')
 
         return StandardRecord(
             source_code=self.meta.id.lower(),
             record_kind=self.meta.record_kind,
-            external_id=str(ext_id),
-            source_url=raw.get('url'),
+            external_id=str(ext_id) if ext_id is not None else None,
+            source_url=url,
             title=raw.get('title'),
             description=raw.get('description'),
             organization_name=org,
-            contact_name=contact.get('name'),
-            contact_title=contact.get('title'),
-            email=contact.get('email'),
-            phone=contact.get('phone'),
-            website=None,
-            city=raw.get('loc_city'),
-            us_state=raw.get('loc_state') or 'NY',
-            postal_code=raw.get('loc_zip'),
-            category=raw.get('category'),
-            due_at=raw.get('due_dt'),
-            extra={
+            contact_name=contact.get('name') or raw.get('contact_name'),
+            contact_title=contact.get('title') or raw.get('contact_title'),
+            email=contact.get('email') or raw.get('email'),
+            phone=contact.get('phone') or raw.get('phone'),
+            website=raw.get('website'),
+            city=city,
+            us_state=raw.get('loc_state') or raw.get('us_state') or 'NY',
+            postal_code=raw.get('loc_zip') or raw.get('location_zip') or raw.get('postal_code'),
+            category=category,
+            due_at=due_at,
+            extra=to_json_safe({
                 **raw,
                 "all_contacts": contacts
-            }
+            })
         )

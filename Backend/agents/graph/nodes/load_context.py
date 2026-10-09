@@ -84,7 +84,7 @@ def build_system_prompt(state: AgentState) -> str:
         logger.warning("Failed to render scraper catalog for prompt: %s", e)
 
     sections.append('Source execution requirements are separate from the user search preferences. '
-        'If a source requires a location but the user allowed any location, ask for a city/state '
+        'If a source requires a location but the user allowed any location, ask for a state '
         'before proposing collection. Never invent a location or queue an invalid request.')
     sections.append('Current job statuses below are authoritative and replace statuses in old messages. '
         'A Failed, Partial, Completed or Cancelled job is no longer queued or running. '

@@ -32,13 +32,13 @@ def validate_proposal(state):
             raise ValueError('Source is not ready: ' + str(reason))
         if criteria.record_kind and meta.record_kind != criteria.record_kind:
             raise ValueError('Source supplies the wrong record type')
-        for field in ['category', 'city', 'us_state']:
+        for field in ['category', 'us_state']:
             if args.get(field) and SearchCriteria.from_slots({**criteria.model_dump(), field: args[field]}).model_dump()[field] != criteria.model_dump()[field]:
                 raise ValueError('Proposal criteria differ from the searched request')
         missing = max(1, criteria.quantity - evidence.get('total', 0))
         quantity = min(args.get('quantity') or missing, missing)
         params = validate_params(source, {'limit': quantity, 'keyword': criteria.category,
-            'city': criteria.city, 'us_state': criteria.us_state})
+            'us_state': criteria.us_state})
         normalized = {**criteria.model_dump(), 'source': source, 'quantity': params.limit}
         seed = str(state.get('query_id')) + json.dumps(normalized, sort_keys=True)
         proposal = {'id': hashlib.sha256(seed.encode()).hexdigest(), 'query_id': state.get('query_id'), 'source': source,

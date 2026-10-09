@@ -58,7 +58,7 @@ def _required_scrape_proposal(state):
             continue
         try:
             validate_params(meta.id, {'limit': quantity, 'keyword': criteria.category,
-                                      'city': criteria.city, 'us_state': criteria.us_state})
+                                      'us_state': criteria.us_state})
         except InvalidScrapeParams:
             continue
         eligible.append(meta)
@@ -127,9 +127,11 @@ def call_model(state: AgentState) -> Dict[str, Any]:
         interpretation = interpret_request(state)
     working_state = {**state, **interpretation}
     from agents.graph.nodes.gather_requirements import missing_requirements
-    missing = missing_requirements(working_state.get('slots')) if working_state.get('request_intent') == 'records' else []
-    working_state['missing_requirements'] = missing
-    if working_state.get('request_intent') == 'records' and not missing:
+    is_records = working_state.get('request_intent') == 'records'
+    record_missing = missing_requirements(working_state.get('slots')) if is_records else []
+    current_missing = record_missing if is_records else (working_state.get('missing_requirements') or (missing_requirements(working_state.get('slots')) if working_state.get('slots') else []))
+    working_state['missing_requirements'] = current_missing
+    if is_records and not record_missing:
         targets = (working_state.get('slots') or {}).get('detail_record_ids') or []
         if targets and not working_state.get('served_lead_ids'):
             import uuid
@@ -149,26 +151,46 @@ def call_model(state: AgentState) -> Dict[str, Any]:
     safe_messages = bounded_history(history, budget)
 
     greeting = working_state.get('request_intent') == 'greeting'
-    if greeting or missing:
-        # Plain clarification calls must not replay prior tool protocol messages.
+    is_clarifying = is_records and bool(record_missing)
+    if greeting:
+        # Plain greeting calls must not replay prior tool protocol messages.
         safe_messages = [message for message in safe_messages
                          if not isinstance(message, ToolMessage) and not getattr(message, 'tool_calls', None)]
-    if missing:
-        # The interpreted slots contain follow-up context; old completed searches
-        # must not steer a clarification into answering or inventing tool calls.
-        safe_messages = [message for message in safe_messages if isinstance(message, HumanMessage)][-1:]
+    if is_clarifying:
+        # Plain clarification calls retain recent conversational user and assistant messages.
+        # Exclude prior tool executions so old completed searches do not steer a clarification into inventing tool calls.
+        last_tool_idx = max(
+            (i for i, m in enumerate(history) if isinstance(m, ToolMessage) or getattr(m, 'tool_calls', None)),
+            default=-1,
+        )
+        if last_tool_idx >= 0:
+            conversational = history[last_tool_idx + 1:]
+        else:
+            conversational = history
+        safe_messages = [
+            m for m in conversational
+            if isinstance(m, (HumanMessage, AIMessage)) and not getattr(m, 'tool_calls', None)
+        ]
+        while safe_messages and isinstance(safe_messages[0], AIMessage):
+            safe_messages.pop(0)
+        if not safe_messages:
+            last_human = next((m for m in reversed(history) if isinstance(m, HumanMessage)), None)
+            if last_human:
+                safe_messages = [last_human]
+        safe_messages = bounded_history(safe_messages, budget)
     from agents.graph.tools.search import get_lead
     tools = [get_lead] if (working_state.get('slots') or {}).get('detail_record_ids') else ALL_TOOLS
-    model = get_chat_model() if greeting or missing else get_chat_model(tools=tools)
+    model = get_chat_model() if (greeting or is_clarifying) else get_chat_model(tools=tools)
     response = invoke_llm(model, [system_msg, *safe_messages])
 
     tool_steps = state.get("tool_steps", 0) + 1
 
     return {
         **interpretation,
-        'missing_requirements': missing,
-        'requirements_met': working_state.get('request_intent') == 'records' and not missing,
-        **({'decision': 'CLARIFY'} if missing else {}),
+        **({'slots': dict(working_state['slots'])} if working_state.get('slots') else {}),
+        'missing_requirements': current_missing,
+        'requirements_met': is_records and not record_missing,
+        **({'decision': 'CLARIFY'} if is_clarifying else {}),
         **({'decision': 'NONE'} if greeting else {}),
         "messages": [response],
         "tool_steps": tool_steps,

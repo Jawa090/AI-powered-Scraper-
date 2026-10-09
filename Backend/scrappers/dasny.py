@@ -52,12 +52,17 @@ def _parse_date(raw: Optional[str]) -> Optional[datetime]:
     if not raw:
         return None
     cleaned = _clean(raw)
+    from scrappers.utils import parse_local_dt
+    parsed = parse_local_dt(cleaned, "America/New_York")
+    if parsed:
+        return parsed
     from zoneinfo import ZoneInfo
     tz = ZoneInfo("America/New_York")
     dt = None
     try:
         from dateutil import parser
-        dt = parser.parse(cleaned)
+        tzinfos = {"CST": -21600, "CDT": -18000, "EST": -18000, "EDT": -14400}
+        dt = parser.parse(cleaned, tzinfos=tzinfos)
     except Exception:
         m = re.search(r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", cleaned)
         if m:
@@ -416,36 +421,51 @@ class DasnyScraper(BaseScraper):
         """Map raw DASNY dict to StandardRecord."""
         solicitation_number = raw.get("solicitation_number")
         contacts = raw.get("contacts") or []
+        if not contacts and raw.get("contact_details"):
+            cd = raw.get("contact_details")
+            contacts = [cd] if isinstance(cd, dict) else cd
         first_contact = contacts[0] if contacts else {}
         headers = raw.get("header_fields") or {}
 
-        category = headers.get("Type") or headers.get("Category") or None
+        category = headers.get("Type") or headers.get("Category") or raw.get("category") or None
+
+        due_at = raw.get("due_at")
+        if not due_at:
+            due_raw = raw.get("due_date_raw") or raw.get("due_date")
+            if due_raw:
+                due_at = _parse_date(due_raw)
+
+        org_name = raw.get("issuing_organization") or raw.get("organization_name") or "Dormitory Authority of the State of New York (DASNY)"
+        source_url = raw.get("source_url") or raw.get("url")
+        external_id = solicitation_number or raw.get('external_id') or source_url
+
+        from scrappers.utils import to_json_safe
 
         return StandardRecord(
             source_code=self.meta.id,
             record_kind=self.meta.record_kind,
-            external_id=solicitation_number or raw.get('external_id') or raw.get('source_url'),
-            source_url=raw.get("source_url"),
+            external_id=external_id,
+            source_url=source_url,
             title=raw.get("title"),
             description=raw.get("description"),
-            organization_name="Dormitory Authority of the State of New York (DASNY)",
-            contact_name=first_contact.get("name"),
-            contact_title=first_contact.get("title") or first_contact.get("role"),
-            email=first_contact.get("email"),
-            phone=first_contact.get("phone"),
-            website=None,
-            city=raw.get("location_city"),
-            us_state=raw.get("location_state") or "NY",
-            postal_code=raw.get("location_zip"),
+            organization_name=org_name,
+            contact_name=first_contact.get("name") or raw.get("contact_name"),
+            contact_title=first_contact.get("title") or first_contact.get("role") or raw.get("contact_title"),
+            email=first_contact.get("email") or raw.get("email"),
+            phone=first_contact.get("phone") or raw.get("phone"),
+            website=raw.get("website"),
+            city=raw.get("location_city") or raw.get("city"),
+            us_state=raw.get("location_state") or raw.get("us_state") or "NY",
+            postal_code=raw.get("location_zip") or raw.get("postal_code"),
             category=category,
-            due_at=raw.get("due_at"),
-            extra={
+            due_at=due_at,
+            extra=to_json_safe({
                 "solicitation_number": solicitation_number,
                 "location_raw": raw.get("location_raw"),
                 "due_date_raw": raw.get("due_date_raw"),
                 "all_contacts": contacts,
                 "header_fields": headers,
-            },
+            }),
         )
 
     def close(self) -> None:

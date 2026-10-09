@@ -29,7 +29,7 @@ class AgentState(TypedDict, total=False):
     event_job_id: str | None           # set only for event turns (P11.10)
     rag_status: dict
     rag_hits: list
-    slots: dict                        # category, city, us_state, quantity, required_fields, source, fresh_within_days
+    slots: dict                        # category, us_state, quantity, required_fields, source, fresh_within_days
     request_intent: str
     intent_interpreted: bool
     missing_requirements: list[str]

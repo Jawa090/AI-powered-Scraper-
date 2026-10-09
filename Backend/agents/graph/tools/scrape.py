@@ -32,7 +32,7 @@ def propose_scrape(
         source: Scraper source ID (e.g. "bonfire", "dasny", "jwiz", "nyscr").
         quantity: Missing number of matching records to collect (1-1000).
 
-    Category, city, state, record type, and required fields come from the exact
+    Category, state, record type, and required fields come from the exact
     validated search in this turn. Do not change filters in a proposal. To change
     or remove a filter, call search_leads again with the correct criteria first.
 

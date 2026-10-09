@@ -12,6 +12,7 @@ NO_DATA_TIMEOUT_SECONDS = 300
 def _collect(output, stop, source, parameters, job_id, worker_id, configuration):
     if os.name != 'nt':
         os.setsid()
+    import _paths
     from settings import settings
     settings.__dict__.update(configuration)
     from worker import JobContext
@@ -47,11 +48,20 @@ def _stop(process, stop):
 def run_isolated(source, parameters, ctx, *, no_data_timeout=NO_DATA_TIMEOUT_SECONDS, target=_collect):
     from settings import settings
     from services.jobs import JobCancelled, ScraperNoDataTimeout, UserWaitTimeout
-    from scrappers.base import StandardRecord
+    from scrappers.base import (
+        StandardRecord,
+        SourceBlocked,
+        LoginFailed,
+        InvalidScrapeParams,
+        ScraperNotReady,
+        ScraperException,
+    )
     mp = multiprocessing.get_context('spawn')
     output, stop = mp.Queue(), mp.Event()
+    job_id = getattr(ctx, "job_id", f"job-{source}")
+    worker_id = getattr(ctx, "worker_id", "worker-isolated")
     process = mp.Process(target=target, args=(output, stop, source, parameters,
-                         ctx.job_id, ctx.worker_id, dict(settings.__dict__)), daemon=False)
+                         job_id, worker_id, dict(settings.__dict__)), daemon=False)
     process.start()
     last_record = time.monotonic()
     reason = None
@@ -77,7 +87,16 @@ def run_isolated(source, parameters, ctx, *, no_data_timeout=NO_DATA_TIMEOUT_SEC
                 return
             elif kind == 'error':
                 name, message = payload
-                error_type = {'JobCancelled': JobCancelled, 'UserWaitTimeout': UserWaitTimeout}.get(name, RuntimeError)
+                known_errors = {
+                    'JobCancelled': JobCancelled,
+                    'UserWaitTimeout': UserWaitTimeout,
+                    'SourceBlocked': SourceBlocked,
+                    'LoginFailed': LoginFailed,
+                    'InvalidScrapeParams': InvalidScrapeParams,
+                    'ScraperNotReady': ScraperNotReady,
+                    'ScraperException': ScraperException,
+                }
+                error_type = known_errors.get(name, RuntimeError)
                 raise error_type(message)
         stop.set()
         # Drain before terminating, so an interrupted pipe write cannot leave a

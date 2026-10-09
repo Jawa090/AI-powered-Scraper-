@@ -6,15 +6,6 @@ from pydantic import BaseModel, Field, field_validator
 from Database.normalize import normalize_state
 
 
-def normalize_city(value):
-    if not value:
-        return None
-    clean = re.sub(r"\s+", " ", str(value).strip())
-    if re.sub(r"[^a-z]", "", clean.lower()) in {"newyork", "newyorkcity", "nyc", "ny"}:
-        return "New York"
-    return clean
-
-
 def category_terms(value):
     text = (value or "").lower()
     text = re.sub(r"\broofers?\b", "roofing", text)
@@ -23,9 +14,14 @@ def category_terms(value):
     return [word for word in words if word not in generic] or words
 
 
+def normalize_city(value: str | None) -> str | None:
+    if not value: return None
+    value = re.sub(r"[^\w\s-]", "", str(value))
+    return " ".join(value.split()).title()
+
+
 class SearchCriteria(BaseModel):
     category: str | None = None
-    city: str | None = None
     us_state: str | None = None
     record_kind: str | None = None
     quantity: int = Field(default=20, ge=1)
@@ -54,11 +50,6 @@ class SearchCriteria(BaseModel):
     @classmethod
     def clean_source(cls, value):
         return 'nyscr' if str(value).casefold() == 'ny' else str(value).strip().casefold() if value else None
-
-    @field_validator("city", mode="before")
-    @classmethod
-    def clean_city(cls, value):
-        return normalize_city(value)
 
     @field_validator("us_state", mode="before")
     @classmethod

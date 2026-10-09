@@ -78,16 +78,18 @@ def _create_test_user(session, name="Test Worker User") -> User:
     return u
 
 
-def test_worker_executes_job_and_ingests():
+@pytest.mark.parametrize("scraper_id", ["bonfire", "dasny", "jwiz", "nyscr"])
+def test_worker_executes_job_and_ingests(scraper_id):
     """
     P7.6 Test:
     enqueue -> python -m worker --once -> job Completed, dataset Completed,
     query_results rows written, event message created.
+    Verified end-to-end for all 4 scrapers: bonfire, dasny, jwiz, nyscr.
     """
     session_id = f"sess-{uuid.uuid4().hex[:8]}"
 
     with session_scope() as session:
-        user = _create_test_user(session, "Worker User 1")
+        user = _create_test_user(session, f"Worker User {scraper_id}")
         agent_sess = AgentSession(
             id=session_id,
             agent_id="agent-master",
@@ -99,12 +101,19 @@ def test_worker_executes_job_and_ingests():
         session.flush()
 
         query_id = f"qry-{uuid.uuid4().hex[:8]}"
+        record_kind = "company" if scraper_id == "jwiz" else "opportunity"
+        slots = {"record_kind": record_kind, "quantity": 2, "source": scraper_id}
+        scrape_params = {"limit": 2}
+        if scraper_id == "jwiz":
+            slots["us_state"] = "NY"
+            scrape_params["us_state"] = "NY"
+
         q = Query(
             id=query_id,
             session_id=session_id,
             user_id=user.id,
-            query_text="Find bids in Dallas",
-            parameters={"slots": {"record_kind": "opportunity", "quantity": 2, "source": "bonfire"}},
+            query_text=f"Find records for {scraper_id}",
+            parameters={"slots": slots},
         )
         session.add(q)
         session.flush()
@@ -112,8 +121,8 @@ def test_worker_executes_job_and_ingests():
         job, created = enqueue_scrape(
             session,
             user=user,
-            script_id="bonfire",
-            params={"limit": 2},
+            script_id=scraper_id,
+            params=scrape_params,
             query_id=query_id,
         )
         assert created is True

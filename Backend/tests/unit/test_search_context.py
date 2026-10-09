@@ -10,15 +10,14 @@ def test_new_request_can_clear_old_filters_while_followups_keep_them(monkeypatch
     repo.leads.search_leads.return_value = ([], 0)
     monkeypatch.setattr(database, 'session_scope', lambda: context)
     monkeypatch.setattr(database, 'Repositories', lambda _: repo)
-    state = {'slots': {'category': 'roofing', 'city': 'Yonkers', 'us_state': 'NY',
+    state = {'slots': {'category': 'roofing', 'us_state': 'NY',
         'record_kind': 'company', 'source': 'jwiz', 'has_email': True}, 'turn_id': 'new-request'}
     response = search_leads.func(source='dasny', quantity=2, record_kind='opportunity', us_state='NY',
         reset_filters=True, state=state, tool_call_id='new-search')
     slots = response.update['slots']
-    assert slots['category'] is None and slots['city'] is None and not slots['has_email']
+    assert slots['category'] is None and not slots['has_email']
     assert slots['source'] == 'dasny' and slots['record_kind'] == 'opportunity'
     followup = search_leads.func(quantity=5, state=state, tool_call_id='followup-search')
-    assert followup.update['slots']['city'] == 'Yonkers'
     assert followup.update['slots']['category'] == 'roofing'
     assert followup.update['slots']['has_email']
 
@@ -28,15 +27,13 @@ def test_current_request_criteria_override_incompatible_old_tool_arguments(monke
     repo = MagicMock(); repo.leads.search_leads.return_value = ([], 0)
     monkeypatch.setattr(database, 'session_scope', lambda: MagicMock())
     monkeypatch.setattr(database, 'Repositories', lambda _: repo)
-    state = {'request_intent': 'records', 'slots': {'category': None, 'city': None,
+    state = {'request_intent': 'records', 'slots': {'category': None, 
         'us_state': 'NY', 'quantity': 2, 'source': 'dasny', 'record_kind': 'opportunity',
         'category_specified': True, 'location_scope': 'statewide', 'has_email': False, 'has_phone': False}}
-    response = search_leads.func(category='roofing', city='Yonkers', quantity=10,
+    response = search_leads.func(category='roofing', quantity=10,
         state=state, tool_call_id='search')
-    assert response.update['slots']['city'] is None
     assert response.update['slots']['category'] is None
     assert response.update['slots']['quantity'] == 2
-    assert repo.leads.search_leads.call_args.kwargs['city'] is None
 
 
 def test_missing_quantity_asks_before_database_search(monkeypatch):
@@ -53,10 +50,10 @@ def test_interpretation_retains_explicitly_cleared_fields(monkeypatch):
     from agents.graph.nodes import gather_requirements as module
     monkeypatch.setattr(module, 'invoke_structured', lambda *a: {'intent': 'records',
         'criteria': {'record_kind': 'opportunity', 'source': 'dasny', 'quantity': 2,
-            'us_state': 'New York', 'city': None, 'category': None}})
+            'us_state': 'New York', 'category': None}})
     result = module.interpret_request({'user_text': 'Two DASNY bids, statewide',
-        'slots': {'city': 'Yonkers', 'category': 'roofing', 'has_email': True}})
-    assert result['slots']['city'] is None and result['slots']['category'] is None
+        'slots': {'category': 'roofing', 'has_email': True}})
+    assert result['slots']['category'] is None
     assert result['slots']['us_state'] == 'NY' and result['slots']['has_email'] is None
     assert result['missing_requirements'] and not result['requirements_met']
 
@@ -79,6 +76,7 @@ def test_greeting_is_model_written_with_requirements_and_without_tools(monkeypat
         assert 'Current Message: Greeting' in prompt
         for requirement in ('record type', 'trade/category', 'location (state, or statewide)', 'number of records', 'required contact fields'):
             assert requirement in prompt
+        assert 'city and state' not in prompt
         assert 'capabilities menu' in prompt
         return reply
     monkeypatch.setattr(agent, 'invoke_llm', invoke)
@@ -104,6 +102,7 @@ def test_each_required_field_blocks_search_until_supplied(monkeypatch):
     for field in ['record_kind', 'category', 'us_state', 'quantity', 'has_email', 'has_phone']:
         slots = {**complete, field: None}
         assert missing_requirements(slots), field
+        assert missing_requirements({**complete, 'city': None, field: None}), field
         state = {'request_intent': 'records', 'slots': slots}
         blocked = search_leads.func(state=state, tool_call_id='blocked')
         assert blocked.update['decision'] == 'CLARIFY'
@@ -119,7 +118,9 @@ def test_explicit_any_and_neither_are_complete_without_silent_defaults():
     assert missing_requirements({**criteria, 'category_specified': False})
     assert missing_requirements({**criteria, 'us_state': None})
     assert missing_requirements({**criteria, 'location_scope': None}) == []
+    assert missing_requirements({**criteria, 'location_scope': None, 'us_state': None})
     assert missing_requirements({**criteria, 'has_email': None})
+    assert missing_requirements({**criteria, 'has_phone': None})
     assert missing_requirements({**criteria, 'location_scope': 'any', 'us_state': None}) == []
 
 
@@ -139,7 +140,8 @@ def test_incomplete_request_has_no_bound_tools_and_no_rag_lookup(monkeypatch):
     monkeypatch.setattr(agent, 'get_chat_model', lambda **kwargs: calls.append(kwargs) or object())
     def reply(model, messages):
         assert 'Requirements Incomplete' in messages[0].content
-        return AIMessage(content='Which city and state, and do you need email, phone, both, or neither?')
+        assert 'location: state, or explicitly any location' in messages[0].content
+        return AIMessage(content='Which state (or any location), and do you need email, phone, both, or neither?')
     monkeypatch.setattr(agent, 'invoke_llm', reply)
     result = agent.call_model(state)
     assert calls == [{}] and result['decision'] == 'CLARIFY'
@@ -163,12 +165,12 @@ def test_approved_incomplete_proposal_cannot_enqueue(monkeypatch):
 def test_clarification_merges_only_supplied_answers_and_new_requests_reset(monkeypatch):
     from agents.graph.nodes import gather_requirements as module
     pending = dict(record_kind='company', category='roofing', quantity=1,
-                   city=None, us_state=None, has_email=None, has_phone=None)
+                   us_state=None, has_email=None, has_phone=None)
     def extract_location(schema, messages):
         assert 'previousCriteria' not in messages[-1].content
         assert 'awaitingRequirements' in messages[-1].content
         return {'intent': 'records', 'is_followup': True,
-                'criteria': {'city': 'New York', 'us_state': 'NY', 'location_scope': 'city'}}
+                'criteria': {'us_state': 'NY', 'location_scope': 'statewide'}}
     monkeypatch.setattr(module, 'invoke_structured', extract_location)
     location = module.interpret_request({'user_text': 'New York city, NY', 'slots': pending,
                                         'missing_requirements': module.missing_requirements(pending)})
@@ -177,11 +179,11 @@ def test_clarification_merges_only_supplied_answers_and_new_requests_reset(monke
     monkeypatch.setattr(module, 'invoke_structured', lambda *args: {'intent': 'records',
         'is_followup': True, 'criteria': {'has_email': False, 'has_phone': False}})
     complete = module.interpret_request({**location, 'user_text': 'Neither'})
-    assert complete['requirements_met'] and complete['slots']['city'] == 'New York'
+    assert complete['requirements_met'] and complete['slots']['us_state'] == 'NY'
     monkeypatch.setattr(module, 'invoke_structured', lambda *args: {'intent': 'records',
         'is_followup': False, 'criteria': {'record_kind': 'company', 'category': 'plumbing', 'quantity': 2}})
     fresh = module.interpret_request({**complete, 'user_text': '2 plumbing contractors'})
-    assert fresh['slots']['city'] is None and fresh['slots']['has_email'] is None
+    assert fresh['slots']['has_email'] is None
     assert not fresh['requirements_met'] and len(fresh['missing_requirements']) == 2
 
 
@@ -225,3 +227,124 @@ def test_everything_uses_context_contacts_and_validated_record_reference(monkeyp
     invalid = module.interpret_request(state)
     assert not invalid['requirements_met'] and invalid['slots']['detail_record_ids'] == []
     assert 'which previously returned' in invalid['missing_requirements'][0]
+
+
+def test_interpret_request_passes_pending_criteria_and_instructions(monkeypatch):
+    from agents.graph.nodes import gather_requirements as module
+    import json
+    captured = {}
+    def mock_invoke(schema, messages):
+        captured['system_prompt'] = messages[0].content
+        captured['payload'] = json.loads(messages[1].content)
+        return {'intent': 'records', 'is_followup': True, 'criteria': {'has_email': True, 'has_phone': False}}
+    monkeypatch.setattr(module, 'invoke_structured', mock_invoke)
+
+    state = {
+        'user_text': 'With email only',
+        'slots': {'record_kind': 'company', 'category': 'roofing', 'quantity': 10, 'us_state': 'NY'},
+        'missing_requirements': ['contact requirements: email, phone, both, or neither'],
+    }
+    result = module.interpret_request(state)
+    assert 'continue pending criteria' in captured['system_prompt']
+    assert captured['payload']['pendingCriteria'] == {'record_kind': 'company', 'category': 'roofing', 'quantity': 10, 'us_state': 'NY'}
+    assert captured['payload']['awaitingRequirements'] == ['contact requirements: email, phone, both, or neither']
+    assert result['slots']['record_kind'] == 'company'
+    assert result['slots']['category'] == 'roofing'
+    assert result['slots']['quantity'] == 10
+    assert result['slots']['us_state'] == 'NY'
+    assert result['slots']['has_email'] is True
+    assert result['slots']['has_phone'] is False
+    assert result['requirements_met'] is True
+
+
+def test_interpret_request_preserves_missing_requirements_on_non_record_turns(monkeypatch):
+    from agents.graph.nodes import gather_requirements as module
+    monkeypatch.setattr(module, 'invoke_structured', lambda *args: {'intent': 'greeting'})
+    state = {
+        'user_text': 'Hello',
+        'slots': {'record_kind': 'company', 'category': 'roofing', 'quantity': 5},
+        'missing_requirements': ['location: state, or explicitly any location', 'contact requirements: email, phone, both, or neither'],
+    }
+    result = module.interpret_request(state)
+    assert result['request_intent'] == 'greeting'
+    assert result['missing_requirements'] == state['missing_requirements']
+    assert result['slots'] == state['slots']
+    assert result['requirements_met'] is False
+
+
+def test_agent_call_model_preserves_missing_requirements_and_retains_conversational_history(monkeypatch):
+    from agents.graph.nodes import agent
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    monkeypatch.setattr(agent, 'get_chat_model', lambda **kwargs: object())
+    invoked_messages = []
+    def mock_invoke(model, messages):
+        invoked_messages.extend(messages)
+        return AIMessage(content='Do you require email, phone, both, or neither?')
+    monkeypatch.setattr(agent, 'invoke_llm', mock_invoke)
+
+    state = {
+        'request_intent': 'records',
+        'intent_interpreted': True,
+        'slots': {'record_kind': 'company', 'category': 'roofing', 'quantity': 5, 'us_state': 'NY'},
+        'missing_requirements': ['contact requirements: email, phone, both, or neither'],
+        'messages': [
+            HumanMessage(content='I need 5 roofing contractors in NY'),
+            AIMessage(content='Do you require email, phone, both, or neither?'),
+            HumanMessage(content='Wait, what states do you support?'),
+            AIMessage(content='We support all US states.'),
+            HumanMessage(content='Okay, in NY then.'),
+        ],
+    }
+    result = agent.call_model(state)
+    assert result['decision'] == 'CLARIFY'
+    assert result['missing_requirements'] == ['contact requirements: email, phone, both, or neither']
+    human_and_ai = [m for m in invoked_messages if isinstance(m, (HumanMessage, AIMessage))]
+    assert len(human_and_ai) == 5
+    assert human_and_ai[0].content == 'I need 5 roofing contractors in NY'
+    assert human_and_ai[-1].content == 'Okay, in NY then.'
+
+
+def test_continuation_without_explicit_missing_requirements_in_state(monkeypatch):
+    from agents.graph.nodes import gather_requirements as module
+    import json
+    captured = {}
+    def mock_invoke(schema, messages):
+        captured['payload'] = json.loads(messages[1].content)
+        return {'intent': 'records', 'is_followup': False, 'criteria': {'us_state': 'NY'}}
+    monkeypatch.setattr(module, 'invoke_structured', mock_invoke)
+
+    state = {
+        'user_text': 'in NY',
+        'slots': {'record_kind': 'company', 'category': 'roofing', 'quantity': 5},
+    }
+    result = module.interpret_request(state)
+    assert 'contact requirements: email, phone, both, or neither' in captured['payload']['awaitingRequirements']
+    assert result['slots']['category'] == 'roofing'
+    assert result['slots']['record_kind'] == 'company'
+    assert result['slots']['quantity'] == 5
+    assert result['slots']['us_state'] == 'NY'
+    assert not result['requirements_met']
+    assert len(result['missing_requirements']) == 1
+
+
+def test_agent_call_model_preserves_slots_and_missing_requirements_on_non_record_turn(monkeypatch):
+    from agents.graph.nodes import agent
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    monkeypatch.setattr(agent, 'get_chat_model', lambda **kwargs: object())
+    monkeypatch.setattr(agent, 'invoke_llm', lambda model, msgs: AIMessage(content='Hello!'))
+
+    state = {
+        'request_intent': 'greeting',
+        'intent_interpreted': True,
+        'slots': {'record_kind': 'company', 'category': 'roofing', 'quantity': 5},
+        'missing_requirements': ['location: state, or explicitly any location', 'contact requirements: email, phone, both, or neither'],
+        'messages': [HumanMessage(content='Hello')],
+    }
+    result = agent.call_model(state)
+    assert result['decision'] == 'NONE'
+    assert result['missing_requirements'] == state['missing_requirements']
+    assert result['slots'] == state['slots']
+    assert result['requirements_met'] is False
+

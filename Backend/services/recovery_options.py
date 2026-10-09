@@ -12,15 +12,13 @@ def timeout_options(slots, failed_source):
         compatible = ready and meta.record_kind == criteria.record_kind
         try:
             validate_params(meta.id, {'limit': 1, 'keyword': criteria.category,
-                'city': criteria.city, 'us_state': criteria.us_state})
+                'us_state': criteria.us_state})
         except InvalidScrapeParams:
             compatible = False
         coverage = meta.coverage or {}
         state = coverage.get('state')
         city = coverage.get('city')
         if state and criteria.us_state and state.casefold() != criteria.us_state.casefold():
-            compatible = False
-        if city and criteria.city and city.casefold() != criteria.city.casefold():
             compatible = False
         choices.append({'id': meta.id, 'name': meta.name, 'description': meta.description,
             'coverage': coverage, 'recordKind': meta.record_kind, 'compatible': compatible, 'ready': ready})

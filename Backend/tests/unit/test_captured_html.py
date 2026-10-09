@@ -83,11 +83,9 @@ def test_jwiz_generic_company_words_do_not_reject_the_observed_trade(monkeypatch
 
 
 def test_jwiz_abbreviated_new_york_city_and_state_only_search():
-    from Database.search import normalize_city
     from scrappers.utils import location_match
     from scrappers.jwiz import build_location_slug
     from scrappers.base import ScrapeParams
-    assert normalize_city('NY') == 'New York'
-    assert location_match('NY', 'NY', ScrapeParams(city='New York', us_state='NY'))
-    assert not location_match('Yonkers', 'NY', ScrapeParams(city='New York', us_state='NY'))
+    assert location_match('NY', 'NY', ScrapeParams(us_state='NY'))
+    assert location_match('Yonkers', 'NY', ScrapeParams(us_state='NY'))
     assert build_location_slug(ScrapeParams(us_state='NY')) == 'ny'

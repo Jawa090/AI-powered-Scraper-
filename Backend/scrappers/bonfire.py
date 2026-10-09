@@ -13,6 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from scrappers.base import BaseScraper, ScrapeContext, ScrapeParams, ScraperMeta, StandardRecord
 from scrappers.driver import make_driver, retry_driver_call
+from scrappers.utils import to_json_safe
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,16 @@ def _parse_due_date(raw: Optional[str]) -> Optional[datetime]:
     cleaned = raw.strip()
     if cleaned.lower() in ("open", "none", "n/a", "tbd", "ongoing"):
         return None
+    from scrappers.utils import parse_local_dt
+    parsed = parse_local_dt(cleaned, "America/Chicago")
+    if parsed:
+        return parsed
     from zoneinfo import ZoneInfo
     tz = ZoneInfo("America/Chicago")
     try:
         from dateutil import parser
-        dt = parser.parse(cleaned)
+        tzinfos = {"CST": -21600, "CDT": -18000, "EST": -18000, "EDT": -14400}
+        dt = parser.parse(cleaned, tzinfos=tzinfos)
         if dt.tzinfo is None:
             return dt.replace(tzinfo=tz)
         return dt.astimezone(tz)
@@ -73,8 +79,11 @@ class BonfireScraper(BaseScraper):
         max_limit=100,
     )
 
-    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: bool = True) -> None:
-        super().__init__(ctx)
+    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: Optional[bool] = None) -> None:
+        from settings import settings
+        if headless is None:
+            headless = getattr(settings, "SCRAPER_HEADLESS", True)
+        super().__init__(ctx, headless=headless)
         self.headless = headless
         self.driver = None
 
@@ -190,38 +199,43 @@ class BonfireScraper(BaseScraper):
 
     def to_standard(self, raw: Dict[str, Any]) -> StandardRecord:
         """Transform raw Bonfire record into StandardRecord."""
-        ref_num = raw.get("ref_number") or raw.get("source_id")
-        title = raw.get("title")
-        close_date = raw.get("close_date")
-        due_at = _parse_due_date(close_date)
+        ref_num = raw.get("ref_number") or raw.get("source_id") or raw.get("external_id")
+        url = raw.get("url") or raw.get("source_url")
+        if not ref_num and url:
+            m = re.search(r"/opportunities/(\d+)", url)
+            if m:
+                ref_num = m.group(1)
 
-        org_name = raw.get("organization_name") or raw.get("issuing_organization")
-        org_name = org_name or "City of Dallas"
+        title = raw.get("title")
+        close_date = raw.get("close_date") or raw.get("due_date") or raw.get("due_date_raw")
+        due_at = raw.get("due_at") or _parse_due_date(close_date)
+
+        org_name = raw.get("organization_name") or raw.get("issuing_organization") or "City of Dallas"
 
         return StandardRecord(
             source_code=self.meta.id,
             record_kind=self.meta.record_kind,
-            external_id=ref_num,
-            source_url=raw.get("url"),
+            external_id=str(ref_num) if ref_num is not None else None,
+            source_url=url,
             title=title,
             description=raw.get("description"),
             organization_name=org_name,
-            contact_name=raw.get("contact_person"),
+            contact_name=raw.get("contact_person") or raw.get("contact_name"),
             contact_title=raw.get("contact_title"),
             email=raw.get("contact_email") or raw.get("email"),
             phone=raw.get("contact_phone") or raw.get("phone"),
-            website=None,
-            city="Dallas",
-            us_state="TX",
-            postal_code=None,
-            category=None,
+            website=raw.get("website"),
+            city=raw.get("city") or "Dallas",
+            us_state=raw.get("us_state") or "TX",
+            postal_code=raw.get("postal_code"),
+            category=raw.get("category"),
             due_at=due_at,
-            extra={
+            extra=to_json_safe({
                 "ref_number": ref_num,
                 "status": raw.get("status"),
                 "close_date": close_date,
                 "detail_blocked": raw.get("detail_blocked", False),
-            },
+            }),
         )
 
     def close(self) -> None:

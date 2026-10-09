@@ -139,7 +139,7 @@ class LeadRepository(BaseRepository[Lead]):
     ):
         """Filter first, count distinct IDs and return a stable ordered page."""
         from datetime import datetime, timedelta, timezone
-        from Database.search import category_terms, normalize_city
+        from Database.search import category_terms
         from Database.normalize import normalize_state, parse_location
         from Database.models.query import Query
         from Database.models.query_result import QueryResult

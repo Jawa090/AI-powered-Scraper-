@@ -20,7 +20,7 @@ from scrappers.base import (
     UnknownScraper,
 )
 from settings import settings
-from scrappers.utils import state_code
+from scrappers.utils import state_code, to_json_safe
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +118,9 @@ def check_ready(scraper_id: str) -> Tuple[bool, Optional[str]]:
     if scraper_id in _IMPORT_ERRORS:
         return False, _IMPORT_ERRORS[scraper_id]
 
+    if getattr(settings, "SCRAPER_MODE", "") == "fixture":
+        return True, None
+
     meta = get_meta(scraper_id)
     for env_var in meta.required_env:
         val = getattr(settings, env_var, None)
@@ -164,9 +167,13 @@ def validate_params(scraper_id: str, raw: Union[Dict[str, Any], ScrapeParams]) -
     loc = raw_dict.get("location")
     if loc:
         loc = str(loc).strip()
-        if not city and not us_state:
+        if not city or not us_state:
             from Database.normalize import parse_location, normalize_state
-            city, us_state = parse_location(loc)
+            parsed_city, parsed_state, _ = parse_location(loc)
+            if not city and parsed_city:
+                city = parsed_city
+            if not us_state and parsed_state:
+                us_state = parsed_state
             if not us_state:
                 us_state = normalize_state(loc)
             if not city and not us_state:
@@ -297,9 +304,11 @@ def run(
                     break
                 # If fixture is already in StandardRecord shape, validate it, otherwise use to_standard
                 if "source_code" in item and "record_kind" in item:
-                    yield StandardRecord(**item)
+                    rec = StandardRecord(**item)
                 else:
-                    yield scraper.to_standard(item)
+                    rec = scraper.to_standard(item)
+                rec.extra = to_json_safe(rec.extra)
+                yield rec
                 count += 1
         finally:
             scraper.close()
@@ -311,9 +320,10 @@ def run(
         raise ScraperNotReady(f"Scraper '{clean_id}' is not ready: {reason}")
 
     # Set headless default from settings. NYSCR overrides this in its own class if needed.
-    # We pass it to the constructor if it accepts it.
-    headless = settings.SCRAPER_HEADLESS
-    # Actually BaseScraper now accepts headless
+    if clean_id == "nyscr":
+        headless = getattr(settings, "NYSCR_HEADLESS", None)
+    else:
+        headless = settings.SCRAPER_HEADLESS
     scraper = scraper_cls(ctx=ctx, headless=headless)
 
     try:

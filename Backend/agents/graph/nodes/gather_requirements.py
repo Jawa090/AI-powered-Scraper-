@@ -10,7 +10,7 @@ from agents.llm.chat_model import invoke_structured
 class RequestCriteria(SearchCriteria):
     record_kind: Literal['company', 'opportunity'] | None = None
     category_specified: bool = False
-    location_scope: Literal['city', 'statewide', 'any'] | None = None
+    location_scope: Literal['statewide', 'any'] | None = None
     has_email: bool | None = None
     has_phone: bool | None = None
     quantity: int | None = Field(default=None, ge=1, le=1000)
@@ -54,13 +54,21 @@ def missing_requirements(slots):
 def interpret_request(state):
     text = state.get('user_text') or next((str(message.content) for message in reversed(state.get('messages', []))
         if getattr(message, 'type', '') == 'human'), '')
+    slots = state.get('slots') or {}
+    pending_missing = state.get('missing_requirements') or []
+    if not pending_missing and slots:
+        pending_missing = missing_requirements(slots)
+    pending_criteria = {k: v for k, v in slots.items() if v is not None and k not in ('detail_record_ids', 'needs_record_choice')} if slots else None
     result = invoke_structured(RequestIntent, [SystemMessage(content=
         'Interpret the latest user message for a business data assistant. Extract ONLY criteria explicitly supplied in this message. '
         'Set is_followup=true only for actual continuations such as only five, also require email, more like those, '
         'or an answer to awaitingRequirements. The application merges these with the pending criteria. '
+        'When pending criteria exist in pendingCriteria or awaitingRequirements is non-empty, and the user provides additional filters, '
+        'answers missing requirements, or refines their search without starting an unrelated request, continue pending criteria when present: '
+        'set is_followup=true and extract ONLY criteria explicitly supplied in this message. '
         'For get 2 more, another five, or additional records, set is_followup=true and additional_records=true, '
         'with quantity equal to the additional count. This excludes records already delivered to the user. '
-        'Reason about the user\'s communicative intent, requested scope and referent using awaitingRequirements and recentRecords. '
+        'Reason about the user\'s communicative intent, requested scope and referent using pendingCriteria, awaitingRequirements and recentRecords. '
         'Interpret natural language semantically, including paraphrases and the user\'s language; do not rely on literal keyword matching. '
         'Distinguish completeness of information about a record from the number of records requested. '
         'When the user requests comprehensive information or all available contact channels, set show_all_details=true '
@@ -75,52 +83,77 @@ def interpret_request(state):
         'A new record request, even an incomplete one such as 2 plumbing contractors after a roofing search, '
         'is_followup=false and must have null location and contacts when absent. Do not assume reuse of earlier details. '
         'Switching from roofing companies to '
-        'DASNY bids with no city restriction means category=null, city=null, record_kind=opportunity, source=dasny; '
+        'DASNY bids with no location restriction means category=null, us_state=null, record_kind=opportunity, source=dasny; '
         'a state is still missing unless explicitly supplied. '
         'General bid/opportunity/contract terms describe record_kind=opportunity, not a trade category. '
-        'Roofing constructors means roofing companies. NY newyork means city New York and state NY. '
+        'Roofing constructors means roofing companies. NY newyork means state NY. '
         'Every record request must specify record type, trade/category, location scope, quantity and contact requirements before any data action. '
         'Do not guess missing quantities, locations or contact preferences; use null for missing values. '
         'For explicit any category set category=null and category_specified=true; otherwise an absent category is unconfirmed. '
-        'Set location_scope=city for a supplied city, statewide only when the user explicitly requests statewide coverage, or any for explicit any location. '
-        'Do not infer a state from a city, source coverage or previous unrelated requests. '
+        'Set location_scope=statewide only when the user explicitly requests statewide coverage, or any for explicit any location. '
+        'Do not infer a state from source coverage or previous unrelated requests. '
         'For contact requirements, explicit with email means has_email=true, has_phone=false; with phone means false,true; '
         'a request for all supported contact channels means true,true; no contact requirements means false,false. If not conveyed, both are null. '
         'When the user answers missing requirements, classify it as records with is_followup=true; extract only supplied answers. '
         'Do not infer authorization to scrape. '
         'Greetings, knowledge questions and job-status questions are not record requests.'),
-        HumanMessage(content=json.dumps({'latestMessage': text, 'hasPreviousRecordRequest': bool(state.get('slots')),
-                                        'awaitingRequirements': state.get('missing_requirements') or [],
-                                        'recentRecords': [{key: row.get(key) for key in ('id', 'name', 'company', 'category', 'city', 'state')}
+        HumanMessage(content=json.dumps({'latestMessage': text, 'hasPreviousRecordRequest': bool(slots),
+                                        'pendingCriteria': pending_criteria,
+                                        'awaitingRequirements': pending_missing,
+                                        'recentRecords': [{key: row.get(key) for key in ('id', 'name', 'company', 'category', 'state')}
                                                           for row in state.get('recent_records') or []]}))])
     result = RequestIntent.model_validate(result.model_dump() if isinstance(result, BaseModel) else result)
-    update = {'request_intent': result.intent, 'intent_interpreted': True, 'missing_requirements': [], 'requirements_met': False}
+    update = {'request_intent': result.intent, 'intent_interpreted': True,
+              'missing_requirements': list(pending_missing), 'requirements_met': False}
+    if slots:
+        update['slots'] = dict(slots)
     if result.intent == 'records' and result.criteria is None:
         from agents.llm.chat_model import LLMUnavailable
         raise LLMUnavailable('provider_error', 'Record request has no interpreted criteria')
     if result.intent == 'records' and result.criteria:
         criteria = result.criteria.model_dump()
-        if result.is_followup:
-            previous = state.get('slots') or {}
+        previous = slots
+        category_switched = bool(
+            criteria.get('category')
+            and previous.get('category')
+            and criteria.get('category') != previous.get('category')
+        )
+        previous_kind = previous.get('record_kind') or ('company' if previous.get('category') else None)
+        criteria_kind = criteria.get('record_kind') or ('company' if criteria.get('category') else None)
+        kind_switched = bool(previous_kind and criteria_kind and previous_kind != criteria_kind)
+        is_continuing = (
+            not category_switched
+            and not kind_switched
+            and (
+                result.is_followup
+                or (
+                    bool(previous)
+                    and (
+                        result.additional_records
+                        or bool(pending_missing)
+                    )
+                )
+            )
+        )
+        if is_continuing:
             supplied = {key: value for key, value in criteria.items() if value is not None
                         and (value is not False or key in ('has_email', 'has_phone'))}
             if criteria.get('category_specified') and not criteria.get('category'):
                 supplied['category'] = None
             if criteria.get('location_scope') in ('any', 'statewide'):
-                supplied['city'] = None
                 if criteria['location_scope'] == 'any':
                     supplied['us_state'] = None
             criteria = {**previous, **supplied}
         new_only = bool(state.get('new_only') or result.additional_records
-                        or (result.is_followup and (state.get('slots') or {}).get('new_only')))
+                        or (is_continuing and previous.get('new_only')))
         update['new_only'] = new_only
         allowed_ids = {row['id'] for row in state.get('recent_records') or []}
-        detail_ids = [lid for lid in result.detail_record_ids if lid in allowed_ids] if result.is_followup else []
+        detail_ids = [lid for lid in result.detail_record_ids if lid in allowed_ids] if is_continuing else []
         update['slots'] = {**criteria, 'new_only': new_only,
             'show_all_details': bool(result.show_all_details if result.show_all_details is not None
-                                     else result.is_followup and criteria.get('show_all_details')),
+                                     else is_continuing and criteria.get('show_all_details')),
             'detail_record_ids': detail_ids, 'needs_record_choice': bool(result.needs_record_choice
-                or (result.is_followup and result.detail_record_ids and len(detail_ids) != len(set(result.detail_record_ids))))}
+                or (is_continuing and result.detail_record_ids and len(detail_ids) != len(set(result.detail_record_ids))))}
         update['missing_requirements'] = missing_requirements(update['slots'])
         update['requirements_met'] = not update['missing_requirements']
     return update

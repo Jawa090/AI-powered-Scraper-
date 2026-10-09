@@ -66,3 +66,17 @@ def test_receiving_records_resets_inactivity_watchdog(monkeypatch):
     started = time.monotonic()
     rows = list(run_isolated('jwiz', {}, ctx, no_data_timeout=.3, target=reporting_source))
     assert len(rows) == 4 and time.monotonic()-started > .3
+
+
+@pytest.mark.parametrize("source", ["bonfire", "dasny", "jwiz", "nyscr"])
+def test_run_isolated_all_four_scrapers_fixture_mode(source, monkeypatch):
+    from settings import settings
+    monkeypatch.setattr(settings, "SCRAPER_MODE", "fixture")
+    monkeypatch.setattr(settings, "ENVIRONMENT", "test")
+    ctx = SimpleNamespace(job_id=f"test-{source}", worker_id="test-worker", should_cancel=lambda: False)
+    params = {"limit": 2, **({"us_state": "NY"} if source == "jwiz" else {})}
+    rows = list(run_isolated(source, params, ctx, no_data_timeout=30))
+    assert len(rows) == 2
+    for r in rows:
+        assert r.source_code == source
+        assert r.record_kind in ("opportunity", "company")

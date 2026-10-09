@@ -189,7 +189,7 @@ def test_incomplete_request_waits_across_followups_before_any_data_lookup(accoun
         else:
             criteria = {}
             if text == 'New York city, NY':
-                criteria.update(city='New York', us_state='NY', location_scope='city')
+                criteria.update(us_state='NY', location_scope='statewide')
             elif text == 'Neither email nor phone is required':
                 criteria.update(has_email=False, has_phone=False)
         return {'intent': 'records', 'criteria': criteria, 'is_followup': text != '1 roofing contractor'}
@@ -242,7 +242,7 @@ def test_more_records_exposes_action_and_click_delivers_two_unseen_rows(account,
             return {'intent': 'records', 'is_followup': True, 'additional_records': True,
                     'criteria': {'quantity': 2}}
         return {'intent': 'records', 'criteria': dict(record_kind='company', category=category,
-            city='New York', us_state='NY', location_scope='city', quantity=1, has_email=False, has_phone=False)}
+            us_state='NY', location_scope='statewide', quantity=1, has_email=False, has_phone=False)}
     monkeypatch.setattr(interpretation, 'invoke_structured', parse)
     monkeypatch.setattr(retrieval.rag_client, 'status', lambda: {'state': 'not_deployed', 'available': False})
     monkeypatch.setattr(agent, 'get_chat_model', lambda **kwargs: object())
@@ -310,8 +310,7 @@ def test_full_details_followup_returns_same_record_without_substitution_or_scrap
             assert payload['recentRecords'][0]['id'] == saved.lead_ids[0]
             return {'intent': 'records', 'is_followup': True, 'show_all_details': True,
                     'detail_record_ids': [saved.lead_ids[0]], 'criteria': {'has_email': True, 'has_phone': True}}
-        return {'intent': 'records', 'criteria': dict(record_kind='company', category=category, city='New York',
-            us_state='NY', location_scope='city', quantity=1, has_email=False, has_phone=False)}
+        return {'intent': 'records', 'criteria': dict(record_kind='company', category=category, us_state='NY', location_scope='statewide', quantity=1, has_email=False, has_phone=False)}
     monkeypatch.setattr(interpretation, 'invoke_structured', parse)
     monkeypatch.setattr(retrieval.rag_client, 'status', lambda: {'state': 'not_deployed', 'available': False})
     monkeypatch.setattr(agent, 'get_chat_model', lambda **kwargs: object())
@@ -423,7 +422,7 @@ def test_empty_scrape_has_explicit_error_and_visible_admin_completion(account, m
     import worker
     import agents.graph.runner as runner
     sid, qid = str(uuid.uuid4()), str(uuid.uuid4())
-    slots = dict(record_kind='company', category='missing-' + uuid.uuid4().hex, city='New York', us_state='NY',
+    slots = dict(record_kind='company', category='missing-' + uuid.uuid4().hex, us_state='NY',
                  quantity=1, source='jwiz', has_email=True, has_phone=True)
     with session_scope() as db:
         db.add(AgentSession(id=sid, user_id=account.id, department_id='dept-default', agent_id='agent-master')); db.flush()

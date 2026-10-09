@@ -33,14 +33,14 @@ def ask_confirmation(state: AgentState) -> Dict[str, Any]:
     source = proposal.get("source", "")
     qty = args.get("quantity")
     category = args.get("category") or "relevant"
-    location = args.get("city") or args.get("us_state") or ""
+    location = args.get("us_state") or ""
     loc_str = f" in {location}" if location else ""
 
     model = get_chat_model()
     # here initilly it was state the source...
     prompt = ('You need to ask the user for explicit permission to START a proposed scrape. It has not run yet. '
         'Describe the scrape details in a natural, flowing paragraph — NOT as a comma-separated list of filters. '
-        'Include the quantity, category/trade, location (city and/or state), and source name naturally in the paragraph. '
+        'Include the quantity, category/trade, location (state), and source name naturally in the paragraph. '
         'If there are contact requirements (email/phone filters), freshness limits, or other notable settings, weave them into the paragraph naturally. '
         'Do NOT use bullet points, numbered lists, or key=value pairs. Write it as a proper human-readable paragraph. '
         'End by asking whether the user would like to proceed. '

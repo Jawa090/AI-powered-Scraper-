@@ -62,7 +62,7 @@ def pending_interrupt(graph, config):
 def classify_confirmation(text, pending):
     prompt = ('Classify the reply to this exact scrape proposal as approve/reject/modify/unrelated. '
         'Only approve explicit consent to the unchanged proposal. For changes return edits as a JSON object '
-        'using category, city, us_state, quantity, record_kind, has_email, has_phone, source. '
+        'using category, us_state, quantity, record_kind, has_email, has_phone, source. '
         'A reduced quantity or changed location is modify and requires another search and approval. '
         f'Proposal: {json.dumps(pending)}\nReply: {text}')
     result = invoke_structured(ConfirmationDecision, [HumanMessage(content=prompt)])

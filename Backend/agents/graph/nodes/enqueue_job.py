@@ -60,10 +60,10 @@ def enqueue_job(state: AgentState) -> Dict[str, Any]:
     params = {
         "keyword": category,
         "category": category,
-        "location": location,
         "city": city,
+        "location": location,
         "us_state": us_state,
-        "limit":max(100, qty),
+        "limit": max(100, qty),
     }
 
     try:

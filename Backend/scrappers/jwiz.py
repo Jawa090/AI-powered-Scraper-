@@ -610,7 +610,7 @@ class HTTPClient:
                     url,
                 )
 
-                return None
+                return response
 
             return response
 
@@ -1438,7 +1438,7 @@ def enrich_profile(
         lead.profile_url
     )
 
-    if response is None:
+    if response is None or getattr(response, "status_code", 200) >= 400:
         return False
 
     soup = BeautifulSoup(
@@ -1915,8 +1915,11 @@ class JWizScraper(BaseScraper):
                 offset = page * 100
                 url = build_search_url(location, keyword, offset)
                 res = client.get(url)
-                if res is None or res.status_code != 200:
-                    status_code = res.status_code if res else "Connection Error"
+                status_code = getattr(res, "status_code", 200) if res else "Connection Error"
+                if res is None or status_code != 200:
+                    if status_code == 403:
+                        from scrappers.base import SourceBlocked
+                        raise SourceBlocked("JWiz directory blocked access with status 403")
                     if page == 0:
                         raise RuntimeError(f"JWiz search request failed with status {status_code}")
                     break
@@ -2004,37 +2007,48 @@ class JWizScraper(BaseScraper):
         """Map raw JWiz dict to StandardRecord with record_kind='company'."""
         profile_url = raw.get("profile_url") or None
 
-        us_state = raw.get("state")
-        if us_state and len(us_state) > 2:
-            us_state = {v.lower(): k for k, v in STATE_CODES.items()}.get(us_state.lower(), us_state)
+        us_state = raw.get("us_state") or raw.get("state")
+        if us_state:
+            from scrappers.utils import state_code
+            sc = state_code(us_state)
+            if sc:
+                us_state = sc
+            elif len(us_state) > 2:
+                us_state = {v.lower(): k for k, v in STATE_CODES.items()}.get(us_state.lower(), us_state)
+
+        company_name = raw.get("company_name") or raw.get("organization_name") or raw.get("name") or raw.get("title")
+        source_url = profile_url or raw.get("source_url") or raw.get("url")
+        external_id = raw.get("external_id") or profile_url or company_name
+
+        from scrappers.utils import to_json_safe
 
         return StandardRecord(
             source_code=self.meta.id,
             record_kind=self.meta.record_kind,
-            external_id=profile_url or raw.get("company_name"),
-            source_url=profile_url or raw.get("source_url"),
+            external_id=external_id,
+            source_url=source_url,
             title=None,
             description=raw.get('description'),
-            organization_name=raw.get("company_name"),
-            contact_name=None,
-            contact_title=None,
+            organization_name=company_name,
+            contact_name=raw.get("contact_name"),
+            contact_title=raw.get("contact_title"),
             email=raw.get("email"),
             phone=raw.get("phone"),
             website=raw.get("website"),
             city=raw.get("city"),
             us_state=us_state,
-            postal_code=None,
+            postal_code=raw.get("postal_code"),
             category=raw.get("category"),
             due_at=None,
-            extra={
-                "lead_priority": raw.get("lead_priority"),
-                "raw_location": raw.get("location_line"),
-                "social": raw.get("social"),
-                "profile_enriched": raw.get("profile_enriched"),
-                "search_keyword": raw.get("source_keyword"),
-                "search_location": raw.get("source_location"),
+            extra=to_json_safe({
+                "lead_priority": raw.get("lead_priority") or priority_from(raw.get("email"), raw.get("phone"), raw.get("city"), profile_url),
+                "raw_location": raw.get("location_line") or raw.get("raw_location"),
+                "social": raw.get("social") or [],
+                "profile_enriched": raw.get("profile_enriched", False),
+                "search_keyword": raw.get("source_keyword") or raw.get("search_keyword"),
+                "search_location": raw.get("source_location") or raw.get("search_location"),
                 "market": raw.get("market", "Both"),
-            },
+            }),
         )
 
 JWizAdapter = JWizScraper

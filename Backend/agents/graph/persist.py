@@ -59,7 +59,7 @@ def _persist(state, paused=False):
         q.response = {**q.response, 'proposedActions': [{'actionType': 'scrape', 'label': reply,
             'parameters': proposal.get('args') or {}, 'requiresConfirmation': True}] if paused else [],
             'suggestions': [], 'updatedRequirement': {'industry': slots.get('category'),
-                'location': ', '.join(v for v in [slots.get('city'), slots.get('us_state')] if v),
+                'location': slots.get('us_state') or '',
                 'quantity': slots.get('quantity'), 'status': 'scraping' if q.job_id else 'collecting',
                 'completionPercentage': min(100, int(len(records) * 100 / max(1, slots.get('quantity') or 1)))}}
         if q.session_id:

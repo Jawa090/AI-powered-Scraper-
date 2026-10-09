@@ -333,6 +333,12 @@ def invoke_llm(model, messages, max_retries=None, retry_delay=None, **kwargs):
 
 def _get_structured_model(model, schema):
     if model.__class__.__name__ == 'ChatOpenAI':
+        base_url = str(getattr(model, 'openai_api_base', '') or getattr(model, 'base_url', ''))
+        model_name = str(getattr(model, 'model_name', '') or getattr(model, 'model', ''))
+        # DeepSeek and thinking/reasoning models reject forced tool_choice in thinking mode.
+        # Passing tool_choice='auto' allows the model to produce its reasoning chain before invoking the schema tool.
+        if 'deepseek' in model_name or 'deepseek.com' in base_url or 'reasoner' in model_name or 'flash' in model_name:
+            return model.with_structured_output(schema, method='function_calling', tool_choice='auto')
         return model.with_structured_output(schema, method='function_calling')
     return model.with_structured_output(schema)
 
