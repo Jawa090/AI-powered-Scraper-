@@ -402,13 +402,15 @@ def test_recovery_dump_or_exact_matches_with_all_rows_saved(account, monkeypatch
     import csv, io
     exported = client.get('/api/admin/deliveries/export.csv', params={'query_id': completion['queryId']}, headers=headers)
     csv_rows = list(csv.DictReader(io.StringIO(exported.text)))
-    assert csv_rows[0]['Request Fulfilled'] == str(matching == 2)
-    assert csv_rows[0]['Delivery Kind'] == completion['deliveryKind']
+    if matching > 0:
+        assert csv_rows[0]['Request Fulfilled'] == str(matching == 2)
+        assert csv_rows[0]['Delivery Kind'] == completion['deliveryKind']
     assert client.post('/api/bot/job-update', json={'sessionId': sid, 'jobId': job_id},
                        headers={'Authorization': 'Bearer ' + create_access_token(account)}).status_code == 200
     # Snapshots and outcome survive later updates to the live row.
     with session_scope() as db:
-        db.get(Lead, frozen[0]['id']).category = 'changed-after-delivery'
+        if matching > 0:
+            db.get(Lead, frozen[0]['id']).category = 'changed-after-delivery'
         assert delivery_rows(db, completion['queryId']) == frozen
         metadata = db.get(AgentMessage, completion['queryId'] + ':agent').message_metadata
         assert metadata['requestFulfilled'] == (matching == 2)

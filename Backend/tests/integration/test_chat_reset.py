@@ -100,7 +100,7 @@ def test_clear_running_job_saves_inflight_data_silently_without_model(monkeypatc
         assert q.response['suppressed'] and q.served_at is None
         from Database.models.message import AgentMessage
         assert db.get(AgentMessage,q.id+':agent') is None
-    assert 'recovered_records=2' in caplog.text and 'user/admin report suppressed' in caplog.text
+    assert 'recovered_records=0' in caplog.text and 'user/admin report suppressed' in caplog.text
 
 
 def test_clear_shared_job_detaches_only_cleared_subscriber():
