@@ -142,8 +142,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => handleItemClick('/agent')}
             className="flex items-center gap-2.5 cursor-pointer select-none"
           >
-            <div className="w-8 h-8 rounded-lg bg-[#2D4351] flex items-center justify-center text-white shadow-sm flex-shrink-0">
-              <Sparkles className="w-4 h-4 text-green-400" />
+            <div className="w-8 h-8 rounded-lg bg-[#2D4351] flex items-center justify-center text-white shadow-sm flex-shrink-0 overflow-hidden">
+              <img src="/logo.jpg" alt="DataOps AI Logo" className="w-full h-full object-cover" />
             </div>
             {!isCollapsed && (
               <div className="min-w-0">

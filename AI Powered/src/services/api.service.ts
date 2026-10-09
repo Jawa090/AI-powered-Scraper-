@@ -385,22 +385,14 @@ class ApiService {
         const errData = await res.json().catch(() => ({}));
         return {
           is503: true,
-          error:
-            errData.error?.message ||
-            'The AI API is not responding. Please try again.',
+          error: 'Server is Down',
         };
       }
 
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        const detail = errData.detail;
-        // detail can be a string or an object like {error: {code, message}}
-        const errorMsg =
-          typeof detail === 'string'
-            ? detail
-            : detail?.error?.message || detail?.message || errData.error?.message || `HTTP ${res.status}`;
         return {
-          error: errorMsg,
+          is503: true,
+          error: 'Server is Down',
         };
       }
 
@@ -409,7 +401,8 @@ class ApiService {
     } catch (e: any) {
       console.warn('API sendBotMessage error:', e);
       return {
-        error: e?.message || 'Network error communicating with AI agent.',
+        is503: true,
+        error: 'Server is Down',
       };
     }
   }
@@ -436,19 +429,18 @@ class ApiService {
       if (res.status === 503) {
         return {
           is503: true,
-          error: 'The AI API is not responding. Please try again.',
+          error: 'Server is Down',
         };
       }
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        return { error: err.detail || `HTTP ${res.status}` };
+        return { is503: true, error: 'Server is Down' };
       }
 
       const data = await res.json();
       return { data };
     } catch (e: any) {
-      return { error: e?.message || 'Network error confirming proposal.' };
+      return { is503: true, error: 'Server is Down' };
     }
   }
 

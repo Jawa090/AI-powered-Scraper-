@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Sparkles, ArrowRight, CheckCircle2, Lock, User, AlertCircle, Loader2 } from 'lucide-react';
+import { Sparkles, ArrowRight, CheckCircle2, Lock, User, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { InteractiveBackground } from '../components/common/InteractiveBackground';
 
 interface LoginProps {
@@ -11,6 +11,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -48,8 +49,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
         <div className="relative z-10">
           <div className="flex items-center gap-2.5 mb-8">
-            <div className="w-9 h-9 rounded-lg bg-white text-[#2D4351] flex items-center justify-center font-bold shadow-md">
-              <Sparkles className="w-5 h-5 text-green-600" />
+            <div className="w-9 h-9 rounded-lg bg-white text-[#2D4351] flex items-center justify-center font-bold shadow-md overflow-hidden">
+              <img src="/logo.jpg" alt="DataOps AI Logo" className="w-full h-full object-cover" />
             </div>
             <div>
               <span className="text-base font-bold tracking-tight block leading-none">
@@ -138,13 +139,20 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               <div className="relative">
                 <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
                   placeholder="••••••••••••"
-                  className="w-full text-xs pl-9 pr-3 py-2.5 bg-white border border-[#E5E7EB] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#2D4351]"
+                  className="w-full text-xs pl-9 pr-10 py-2.5 bg-white border border-[#E5E7EB] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#2D4351]"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 

@@ -212,10 +212,15 @@ def run_event_turn(session_id, job_id):
                     'source in timeoutOptions. Identify recommendedSource as the most likely compatible alternative based on '
                     'record type and coverage, without promising results. If it is null, explain that there is no other '
                     'compatible source; bid scrapers cannot supply contractor companies.') if outcome.get('timedOut') else ''
-                answer = invoke_llm(get_chat_model(), [SystemMessage(content='Report the completed scrape using only supplied facts. When requestFulfilled is false, explicitly say the requested requirements were not met and the displayed rows are the data recovered, which may differ in category, location or contact availability. Never describe recovered rows as matching, verified fulfillment. Explain the understoodRequest and matching count against the requested count. All recovered rows were saved with deduplication. When fulfilled, only requested matching rows are displayed. Explain source errors separately. Use concise, natural language for the user; do not expose internal field names, JSON values, identifiers or code terminology. The displayed table supplies the individual rows. Do not execute new work. Recovery choices require fresh user approval.'),
-                    HumanMessage(content=json.dumps(facts) + timeout_instruction)])
-                from agents.graph.nodes.finalize import grounded_reply
-                answer = grounded_reply(get_chat_model(), [HumanMessage(content=json.dumps(facts))], facts, answer)
+                
+                if len(records) == 0 and not outcome.get('timedOut') and not job.error_message:
+                    from langchain_core.messages import AIMessage
+                    answer = AIMessage(content="Requested data not found")
+                else:
+                    answer = invoke_llm(get_chat_model(), [SystemMessage(content='Report the completed scrape using only supplied facts. When requestFulfilled is false, explicitly say the requested requirements were not met and the requested quantity was not reached. Explain the understoodRequest and matching count against the requested count. When fulfilled, only requested matching rows are displayed. Explain source errors separately. Use concise, natural language for the user; do not expose internal field names, JSON values, identifiers or code terminology. The displayed table supplies the individual rows. Do not execute new work. Recovery choices require fresh user approval.'),
+                        HumanMessage(content=json.dumps(facts) + timeout_instruction)])
+                    from agents.graph.nodes.finalize import grounded_reply
+                    answer = grounded_reply(get_chat_model(), [HumanMessage(content=json.dumps(facts))], facts, answer)
             except LLMUnavailable as exc:
                 if not outcome.get('timedOut'):
                     raise HTTPException(503, exc.to_dict()) from exc

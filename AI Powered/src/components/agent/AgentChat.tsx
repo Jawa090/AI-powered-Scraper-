@@ -71,8 +71,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
     try { await onSendMessage(text); } finally { setIsTyping(false); }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
@@ -93,8 +93,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({
       {/* Chat Header */}
       <div className="p-3.5 border-b border-[#E5E7EB] dark:border-gray-800 flex items-center justify-between bg-white dark:bg-black">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-[#2D4351] text-white flex items-center justify-center shadow-sm">
-            <Bot className="w-4 h-4 text-green-400" />
+          <div className="w-8 h-8 rounded-lg bg-[#2D4351] text-white flex items-center justify-center shadow-sm overflow-hidden">
+            <img src="/logo.jpg" alt="Agent Logo" className="w-full h-full object-cover" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
@@ -200,24 +200,16 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                     )}
                     */}
 
-                    {msg.decision && msg.decision !== 'NONE' && (
-                      <span className="text-[9px] font-mono uppercase bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 px-1.5 py-0.5 rounded border">
-                        {msg.decision}
-                      </span>
-                    )}
                   </div>
                 )}
 
-                {/* 503 Error State */}
+                {/* Server Error State */}
                 {msg.is503 ? (
                   <div className="bg-white text-red-600 border border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 rounded-xl p-3.5 text-xs space-y-2 shadow-subtle">
                     <div className="flex items-center gap-2 font-semibold">
                       <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-500 flex-shrink-0" />
-                      <span>The AI API is not responding</span>
+                      <span>Server is Down</span>
                     </div>
-                    <p className="text-[11px]">
-                      The AI API is not responding. Please try again.
-                    </p>
                     <button
                       type="button"
                       onClick={() => retryBotMessage?.(sessionId, msg.failedClientMessageId || msg.id, msg.failedText || '')}
@@ -247,12 +239,9 @@ export const AgentChat: React.FC<AgentChatProps> = ({
                 )}
 
                 {/* LeadTable Rendering for Discovered Records */}
-                {!isUser && msg.requestFulfilled === false && (
+                {!isUser && msg.requestFulfilled === false && msg.collectionCancelled && (
                   <div role="status" className="mt-3 p-3 rounded-lg border border-amber-400 text-amber-800 dark:text-amber-200">
-                    <p className="font-semibold">{msg.collectionCancelled ? 'Chat cleared — this request was cancelled.' : 'The requested requirements were not fulfilled.'}</p>
-                    <p>{msg.matchingRecordsDelivered ?? 0} of {msg.requestedRecords ?? 0} required matches found.
-                      {' '}This is the data recovered: {msg.records?.length ?? 0} records saved using database deduplication rules.
-                      {' '}Recovered records may differ from the requested category, location or contact requirements.</p>
+                    <p className="font-semibold">Chat cleared — this request was cancelled.</p>
                   </div>
                 )}
                 {!isUser && msg.timedOut && !msg.collectionCancelled && msg.timeoutOptions && (
@@ -412,13 +401,13 @@ export const AgentChat: React.FC<AgentChatProps> = ({
       {/* Input Form */}
       <div className="p-3 border-t border-[#E5E7EB] dark:border-gray-800 bg-white dark:bg-black">
         <div className="relative flex items-center">
-          <input
-            type="text"
+          <textarea
             value={inputText}
             onChange={e => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Describe your data requirement or ask our multi-agent intelligence..."
-            className="w-full bg-[#F8F9FA] dark:bg-gray-900 border border-[#E5E7EB] dark:border-gray-700 rounded-lg pl-3 pr-12 py-2.5 text-xs text-gray-900 dark:text-golden-100 placeholder:text-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#2D4351] dark:focus:ring-golden-500 focus:border-[#2D4351] dark:focus:border-golden-500 transition-colors"
+            rows={1}
+            className="w-full bg-[#F8F9FA] dark:bg-gray-900 border border-[#E5E7EB] dark:border-gray-700 rounded-lg pl-3 pr-12 py-2.5 text-xs text-gray-900 dark:text-golden-100 placeholder:text-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#2D4351] dark:focus:ring-golden-500 focus:border-[#2D4351] dark:focus:border-golden-500 transition-colors resize-none overflow-y-auto"
           />
           <div className="absolute right-1.5 flex items-center gap-1">
             <button

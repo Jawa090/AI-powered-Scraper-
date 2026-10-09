@@ -140,8 +140,19 @@ class NyscrScraper(BaseScraper):
             return True
         logger.info("Setting up Chrome for NYSCR...")
         try:
+            debugger_addr = getattr(settings, 'NYSCR_DEBUGGER_ADDRESS', '') or None
+            if debugger_addr:
+                import socket
+                try:
+                    host, port = debugger_addr.split(":")
+                    with socket.create_connection((host, int(port)), timeout=0.5):
+                        pass
+                except Exception:
+                    logger.warning("Configured NYSCR debugger address %s is unreachable; launching fresh browser instance.", debugger_addr)
+                    debugger_addr = None
+
             self.driver = make_driver(headless=self.headless,
-                debugger_address=getattr(settings, 'NYSCR_DEBUGGER_ADDRESS', '') or None)
+                debugger_address=debugger_addr)
             self.wait = WebDriverWait(self.driver, 15)
             logger.info("Chrome ready for NYSCR.")
             return True
@@ -153,7 +164,10 @@ class NyscrScraper(BaseScraper):
         if self.driver:
             try:
                 if getattr(settings, 'NYSCR_DEBUGGER_ADDRESS', ''):
-                    self.driver.service.stop()
+                    try:
+                        self.driver.service.stop()
+                    except Exception:
+                        self.driver.quit()
                 else:
                     self.driver.quit()
             except Exception:
@@ -597,19 +611,127 @@ class NyscrScraper(BaseScraper):
 
         return raw, None, state, z
 
+    def _parse_public_card(self, item) -> Optional[Dict[str, Any]]:
+        opp_id = item.get("data-ad-id")
+        if not opp_id:
+            return None
+
+        title_el = item.select_one(".bg-primary.text-light")
+        title = clean(title_el.get_text(" ", strip=True)) if title_el else None
+        if not title:
+            title = item.get("title")
+
+        fields = {}
+        for row in item.select(".d-flex"):
+            lbl_el = row.select_one(".w-exact-8")
+            if lbl_el:
+                lbl = clean(lbl_el.get_text(" ", strip=True)).rstrip(":").casefold()
+                val_el = lbl_el.find_next_sibling("div")
+                if val_el:
+                    fields[lbl] = clean(val_el.get_text(" ", strip=True))
+
+        cr_number = fields.get("cr#") or opp_id
+        agency = fields.get("agency")
+        division = fields.get("division")
+        issue_date = fields.get("issue date")
+        due_date_raw = fields.get("ad end date") or fields.get("due date")
+        category = fields.get("category")
+        ad_type = fields.get("ad type")
+
+        due_dt = parse_local_dt(due_date_raw, 'America/New_York') if due_date_raw else None
+
+        desc_parts = []
+        if agency:
+            desc_parts.append(f"Agency: {agency}")
+        if division:
+            desc_parts.append(f"Division: {division}")
+        if category:
+            desc_parts.append(f"Category: {category}")
+        if ad_type:
+            desc_parts.append(f"Type: {ad_type}")
+        description = f"{title}. " + "; ".join(desc_parts) if title else None
+
+        return {
+            "id": opp_id,
+            "url": f"https://www.nyscr.ny.gov/Ads/Details/{opp_id}",
+            "title": title,
+            "cr_number": cr_number,
+            "agency": agency,
+            "division": division,
+            "issue_date": issue_date,
+            "due_date_raw": due_date_raw,
+            "due_dt": due_dt,
+            "location_raw": "NY",
+            "loc_city": None,
+            "loc_state": "NY",
+            "loc_zip": None,
+            "category": category,
+            "description": description,
+            "contacts": [],
+            "documents": [],
+            "updates": [],
+            "bid_results": [],
+            "awards": [],
+            "budget": None,
+        }
+
+    def iter_public_opportunities(self) -> Iterator[Dict[str, Any]]:
+        from bs4 import BeautifulSoup
+        search_url = "https://www.nyscr.ny.gov/Ads/Search?BidFilter=Open"
+        logger.info("Harvesting public NYSCR opportunities from %s", search_url)
+        self.driver.get(search_url)
+        time.sleep(3)
+
+        seen_ids = set()
+        page = 1
+        while page <= self.max_pages:
+            self.check_cancel()
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            items = soup.select(".opp-list-item")
+            if not items:
+                logger.warning("No .opp-list-item elements found on page %d", page)
+                break
+
+            for item in items:
+                self.check_cancel()
+                opp_id = item.get("data-ad-id")
+                if not opp_id or opp_id in seen_ids:
+                    continue
+                seen_ids.add(opp_id)
+                data = self._parse_public_card(item)
+                if data:
+                    yield data
+
+            if not self._go_to_next_page(page):
+                break
+            page += 1
+
     def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
         if not self.setup_chrome():
             return
 
+        logged_in = False
         try:
-            self.login()
+            logged_in = self.login()
+        except (LoginFailed, SourceBlocked, Exception) as e:
+            self.ctx.log("warning", f"NYSCR login was not completed ({e}); proceeding with public open opportunities.")
 
-            n = 0
-            for opp_id in self.iter_opportunity_ids():
-                if n >= params.limit:
-                    break
-                data = self.extract_clean_data(opp_id)
-                if data:
+        try:
+            if logged_in:
+                n = 0
+                for opp_id in self.iter_opportunity_ids():
+                    if n >= params.limit:
+                        break
+                    data = self.extract_clean_data(opp_id)
+                    if data:
+                        n += 1
+                        self.ctx.progress(100.0 * n / params.limit, f"{n}/{params.limit}")
+                        yield data
+            else:
+                n = 0
+                for data in self.iter_public_opportunities():
+                    if n >= params.limit:
+                        break
                     n += 1
                     self.ctx.progress(100.0 * n / params.limit, f"{n}/{params.limit}")
                     yield data

@@ -27,8 +27,13 @@ def main():
     print(f"--- Running {args.scraper_id} ---")
     try:
         results = run(args.scraper_id, params)
+        count = 0
         for r in results:
             print(r.model_dump_json(indent=2))
+            count += 1
+            if count >= args.limit:
+                break
+        print(f"--- Completed {args.scraper_id}: {count} records extracted ---")
     except Exception as e:
         print(f"Error running {args.scraper_id}: {e}")
 

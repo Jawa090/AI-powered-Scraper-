@@ -151,7 +151,7 @@ class LeadRepository(BaseRepository[Lead]):
                 city, us_state, _ = parse_location(location)
             else:
                 city = location
-        city, us_state = normalize_city(city), normalize_state(us_state) if us_state else None
+        city, us_state = None, normalize_state(us_state) if us_state else None
         stmt = select(Lead.id).outerjoin(Lead.organization)
         filters = []
         if exclude_lead_ids:

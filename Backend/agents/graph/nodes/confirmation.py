@@ -38,12 +38,16 @@ def ask_confirmation(state: AgentState) -> Dict[str, Any]:
 
     model = get_chat_model()
     # here initilly it was state the source...
-    prompt = ('Ask for explicit permission to START this proposed scrape. It has not run yet. '
-        'State the quantity and filters accurately; ask whether to proceed. '
+    prompt = ('You need to ask the user for explicit permission to START a proposed scrape. It has not run yet. '
+        'Describe the scrape details in a natural, flowing paragraph — NOT as a comma-separated list of filters. '
+        'Include the quantity, category/trade, location (city and/or state), and source name naturally in the paragraph. '
+        'If there are contact requirements (email/phone filters), freshness limits, or other notable settings, weave them into the paragraph naturally. '
+        'Do NOT use bullet points, numbered lists, or key=value pairs. Write it as a proper human-readable paragraph. '
+        'End by asking whether the user would like to proceed. '
         'Do not report results, invent an outcome, or ask whether a past scrape succeeded. '
         'Use the language of these actual user messages; use English for English messages: '
         + str([str(m.content) for m in state.get('messages', []) if getattr(m, 'type', '') == 'human'][-3:])
-        + f'. Proposal: {proposal}')
+        + f'. Proposal details: {proposal}')
     resp = invoke_llm(model, [HumanMessage(content=prompt)], max_retries=1)
     question = normalize_content(getattr(resp, 'content', '')).strip()
     if not question:

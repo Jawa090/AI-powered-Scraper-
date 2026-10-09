@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Loader2,
   Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { Modal } from '../components/common/Modal';
 
@@ -23,6 +25,7 @@ export const AdminUsers: React.FC = () => {
   // Create User Modal
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', email: '', username: '', password: '' });
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -319,14 +322,23 @@ export const AdminUsers: React.FC = () => {
             <label className="text-xs font-semibold text-gray-700 dark:text-golden-400 block mb-1">
               Password <span className="text-red-500">*</span>
             </label>
-            <input
-              type="password"
-              required
-              value={createForm.password}
-              onChange={e => setCreateForm(prev => ({ ...prev, password: e.target.value }))}
-              placeholder="Minimum 8 characters"
-              className="w-full text-xs px-3 py-2 bg-white dark:bg-gray-900 border border-[#E5E7EB] dark:border-gray-700 dark:text-golden-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#2D4351] dark:focus:ring-golden-500"
-            />
+            <div className="relative">
+              <input
+                type={showCreatePassword ? "text" : "password"}
+                required
+                value={createForm.password}
+                onChange={e => setCreateForm(prev => ({ ...prev, password: e.target.value }))}
+                placeholder="Minimum 8 characters"
+                className="w-full text-xs pl-3 pr-10 py-2 bg-white dark:bg-gray-900 border border-[#E5E7EB] dark:border-gray-700 dark:text-golden-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#2D4351] dark:focus:ring-golden-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCreatePassword(!showCreatePassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+              >
+                {showCreatePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

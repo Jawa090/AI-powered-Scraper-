@@ -533,7 +533,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
           id: `msg-503-${Date.now()}`,
           sessionId: targetSessionId,
           sender: 'agent',
-          text: 'The AI API is not responding. Please try again.',
+          text: 'Server is Down',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           is503: true,
           failedClientMessageId: clientMessageId,
@@ -547,7 +547,20 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
 
       if (botResult.error && !botResult.data) {
-        showToast('AI Request Failed', botResult.error, 'error');
+        const errMsg: AgentMessage = {
+          id: `msg-err-${Date.now()}`,
+          sessionId: targetSessionId,
+          sender: 'agent',
+          text: 'Server is Down',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          is503: true,
+          failedClientMessageId: clientMessageId,
+          failedText: text,
+        };
+        setMessagesBySession(prev => ({
+          ...prev,
+          [targetSessionId]: [...(prev[targetSessionId] || []), errMsg],
+        }));
         return;
       }
 
