@@ -63,7 +63,7 @@ def build_system_prompt(state: AgentState) -> str:
             '\n## Current Message: Greeting\n'
             'Compose a natural greeting yourself in the user\'s language, followed by a concise bullet list '
             'asking for the requirements to begin a data request: record type (companies/contractors or bid opportunities), '
-            'trade/category, location (city and state, or statewide), number of records, and required contact fields '
+            'trade/category, location (state, or statewide), number of records, and required contact fields '
             '(email, phone, or no contact requirement). Label preferred source and freshness as optional. '
             'Do not replace this list with a capabilities menu or only a general question. '
             'Do not run tools, assume a search request, or discuss internal KB status in this greeting.'

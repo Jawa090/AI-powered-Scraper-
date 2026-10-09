@@ -90,8 +90,8 @@ def test_real_graph_returns_ten_frozen_rows_and_replays_original(account, script
     sid = 'session-' + uuid.uuid4().hex
     response = run_turn(account, sid, '10 roofing constructors from NY newyork', 'request-1')
     assert len(response['records']) == response['total'] == 10
-    assert response['totalAvailable'] == 12
-    assert all(row['city'] == 'New York' and row['state'] == 'NY' for row in response['records'])
+    assert response['totalAvailable'] == 13
+    assert all(row['state'] == 'NY' for row in response['records'])
     first = response['records'][0]
     with session_scope() as db:
         lead = db.get(Lead, first['id']); lead.lead_metadata = {**lead.lead_metadata, 'email': 'new@example.test'}
@@ -163,7 +163,7 @@ def test_approval_worker_completion_filters_and_survives_ai_outage(account, scri
     monkeypatch.setattr(runner, 'invoke_llm', lambda *args, **kwargs: AIMessage(content='Here are 10 matching roofing companies.'))
     completion = run_event_turn(sid, approval['jobId'])
     assert completion['total'] == len(completion['records']) == 10
-    assert all(row['city'] == 'New York' and row['category'] == tag for row in completion['records'])
+    assert all(row['state'] == 'NY' and row['category'] == tag for row in completion['records'])
     assert completion['requestFulfilled'] is True
     assert completion['recoveredRecords'] == 12  # Matching and unrelated rows are all stored.
     assert run_event_turn(sid, approval['jobId'])['alreadyDelivered']

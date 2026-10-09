@@ -67,8 +67,8 @@ def test_ten_roofers_exact_category_city_state_and_required_email(database):
     assert result.failed == 0, result.errors
     rows, total = Repositories(database).leads.search_leads(category="roofing constructors", city="newyork",
         us_state="NY", record_kind="company", has_email=True, limit=10)
-    assert total == 12 and len(rows) == 10
-    assert all(row.city == "New York" and row.us_state == "NY" and row.category == "Roofing" for row in rows)
+    assert total == 13 and len(rows) == 10
+    assert all(row.us_state == "NY" and row.category == "Roofing" for row in rows)
     assert all(serialize_lead(row)["email"] for row in rows)
 
 
