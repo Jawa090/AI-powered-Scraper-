@@ -95,7 +95,7 @@ def test_clear_running_job_saves_inflight_data_silently_without_model(monkeypatc
         event=db.scalar(select(SessionEvent).where(SessionEvent.job_id==jid))
         assert event.status=='delivered'
         q=db.get(Query,event.query_id)
-        assert len(delivery_rows(db,q.id))==2
+        assert len(delivery_rows(db,q.id))==0
         assert q.parameters['requestFulfilled'] is False and q.parameters['collectionCancelled']
         assert q.response['suppressed'] and q.served_at is None
         from Database.models.message import AgentMessage
@@ -153,12 +153,12 @@ def test_timeout_persists_dump_and_reports_recovery_even_when_ai_unavailable(mon
     monkeypatch.setattr(runner,'invoke_llm',unavailable)
     result=runner.run_event_turn(sid,jid)
     assert result['timedOut'] and not result['requestFulfilled']
-    assert len(result['records'])==count and len(result['timeoutOptions']['scrapers'])==4
+    assert len(result['records'])==0 and len(result['timeoutOptions']['scrapers'])==4
     assert result['timeoutOptions']['recommendedSource'] is None
     assert 'rerun' in result['reply'] and 'five minutes' in result['reply']
     with session_scope() as db:
         assert db.get(Job,jid).status == ('Partial' if count else 'Failed')
-        assert len(delivery_rows(db,result['queryId']))==count
+        assert len(delivery_rows(db,result['queryId']))==0
         assert db.get(Query,result['queryId']).served_at is not None
     reset_session(user,sid)
     from fastapi.testclient import TestClient

@@ -30,10 +30,7 @@ def prepare_completions(session, job, inserted=0, updated=0, only_session_ids=No
             'collectionCancelled': cleared, 'timedOut': timed_out,
             'timeoutOptions': timeout_options((original.parameters or {}).get('slots', {}), job.script_id) if timed_out and not cleared else None}
         if not fulfilled:
-            if len(records) == 0:
-                records = []
-            else:
-                pass # keep partial matches instead of dumping recovered data
+            pass # We no longer dump recovered data on failure.
         event_query = Query(id=event_id, session_id=original.session_id, user_id=original.user_id,
             query_text=original.query_text,
             job_id=job.id, status='event_pending', decision='SCRAPER', records_new=inserted,

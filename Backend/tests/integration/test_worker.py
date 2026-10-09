@@ -475,7 +475,7 @@ def test_worker_marks_shortfall_partial_when_only_seen_records_exist(monkeypatch
     with session_scope() as db:
         assert db.get(Job, job_id).status == 'Partial'
         event = db.query(Query).filter_by(job_id=job_id, status='event_pending').one()
-        assert [row['id'] for row in delivery_rows(db, event.id)] == [lead_id]
+        assert [row['id'] for row in delivery_rows(db, event.id)] == []
         assert event.parameters['requestFulfilled'] is False
         assert event.parameters['matchingRecordsDelivered'] == 0
         assert event.parameters['deliveryKind'] == 'recovered'

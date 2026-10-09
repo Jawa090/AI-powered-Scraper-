@@ -381,7 +381,7 @@ def test_recovery_dump_or_exact_matches_with_all_rows_saved(account, monkeypatch
         assert db.query(DatasetRecord).filter_by(dataset_id=job.dataset_id).count() == matching + 3
         event = db.scalar(select(SessionEvent).where(SessionEvent.job_id == job_id))
         frozen = delivery_rows(db, event.query_id)
-        assert len(frozen) == (2 if matching == 2 else matching + 3)
+        assert len(frozen) == matching
         q = db.get(Query, event.query_id)
         assert q.parameters['matchingRecordsDelivered'] == matching
         assert q.parameters['requestFulfilled'] == (matching == 2)

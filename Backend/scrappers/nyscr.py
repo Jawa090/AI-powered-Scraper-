@@ -631,20 +631,25 @@ class NyscrScraper(BaseScraper):
                     fields[lbl] = clean(val_el.get_text(" ", strip=True))
 
         cr_number = fields.get("cr#") or opp_id
-        agency = fields.get("agency")
+        company = fields.get("company")
+        agency = fields.get("agency") or company
         division = fields.get("division")
         issue_date = fields.get("issue date")
         due_date_raw = fields.get("ad end date") or fields.get("due date")
         category = fields.get("category")
         ad_type = fields.get("ad type")
+        location_raw = fields.get("location") or "NY"
+        _, loc_city, loc_state, loc_zip = self._parse_location(location_raw)
 
         due_dt = parse_local_dt(due_date_raw, 'America/New_York') if due_date_raw else None
 
         desc_parts = []
         if agency:
-            desc_parts.append(f"Agency: {agency}")
+            desc_parts.append(f"Agency/Company: {agency}")
         if division:
             desc_parts.append(f"Division: {division}")
+        if location_raw and location_raw != "NY":
+            desc_parts.append(f"Location: {location_raw}")
         if category:
             desc_parts.append(f"Category: {category}")
         if ad_type:
@@ -661,10 +666,10 @@ class NyscrScraper(BaseScraper):
             "issue_date": issue_date,
             "due_date_raw": due_date_raw,
             "due_dt": due_dt,
-            "location_raw": "NY",
-            "loc_city": None,
-            "loc_state": "NY",
-            "loc_zip": None,
+            "location_raw": location_raw,
+            "loc_city": loc_city,
+            "loc_state": loc_state or "NY",
+            "loc_zip": loc_zip,
             "category": category,
             "description": description,
             "contacts": [],

@@ -147,9 +147,9 @@ def validate_params(scraper_id: str, raw: Union[Dict[str, Any], ScrapeParams]) -
 
         if limit < 1:
             raise InvalidScrapeParams(f"Limit {limit} must be >= 1")
-        # if limit > meta.max_limit:
-        #     logger.warning(f"Limit {limit} > max {meta.max_limit}. Capping to max.")
-        #     limit = meta.max_limit
+        if limit > meta.max_limit:
+            logger.warning(f"Limit {limit} > max {meta.max_limit}. Capping to max.")
+            limit = meta.max_limit
 
     kw = raw_dict.get("keyword")
     if kw is not None and str(kw).strip():
