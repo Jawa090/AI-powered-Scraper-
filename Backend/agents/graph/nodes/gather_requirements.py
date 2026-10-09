@@ -40,13 +40,8 @@ def missing_requirements(slots):
     elif scope == 'statewide':
         if not slots.get('us_state'):
             missing.append('state for the statewide search')
-    elif slots.get('city') or scope == 'city':
-        if not slots.get('city'):
-            missing.append('city')
-        if not slots.get('us_state'):
-            missing.append('state')
-    else:
-        missing.append('location: city and state, statewide, or explicitly any location')
+    elif not slots.get('us_state'):
+        missing.append('location: state, or explicitly any location')
     if not slots.get('quantity'):
         missing.append('quantity')
     if slots.get('has_email') is None or slots.get('has_phone') is None:
