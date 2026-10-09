@@ -72,12 +72,12 @@ def test_greeting_is_model_written_with_requirements_and_without_tools(monkeypat
         calls.append(kwargs)
         return model
     monkeypatch.setattr(agent, 'get_chat_model', get_model)
-    reply = AIMessage(content='Hello! Please share your trade, city/state, quantity, record type, and contact requirements.')
+    reply = AIMessage(content='Hello! Please share your trade, state, quantity, record type, and contact requirements.')
     def invoke(actual_model, messages):
         assert actual_model is model
         prompt = messages[0].content
         assert 'Current Message: Greeting' in prompt
-        for requirement in ('record type', 'trade/category', 'city and state', 'number of records', 'required contact fields'):
+        for requirement in ('record type', 'trade/category', 'location (state, or statewide)', 'number of records', 'required contact fields'):
             assert requirement in prompt
         assert 'capabilities menu' in prompt
         return reply
@@ -98,9 +98,10 @@ def test_each_required_field_blocks_search_until_supplied(monkeypatch):
     complete = dict(record_kind='company', category='roofing', city='New York', us_state='NY',
         quantity=1, has_email=False, has_phone=False)
     assert missing_requirements(complete) == []
+    assert missing_requirements({**complete, 'city': None}) == []
     database_access = MagicMock(side_effect=AssertionError('Incomplete criteria must not search'))
     monkeypatch.setattr(database, 'session_scope', database_access)
-    for field in ['record_kind', 'category', 'city', 'us_state', 'quantity', 'has_email', 'has_phone']:
+    for field in ['record_kind', 'category', 'us_state', 'quantity', 'has_email', 'has_phone']:
         slots = {**complete, field: None}
         assert missing_requirements(slots), field
         state = {'request_intent': 'records', 'slots': slots}
@@ -116,7 +117,8 @@ def test_explicit_any_and_neither_are_complete_without_silent_defaults():
         location_scope='statewide', us_state='NY', quantity=2, has_email=False, has_phone=False)
     assert missing_requirements(criteria) == []
     assert missing_requirements({**criteria, 'category_specified': False})
-    assert missing_requirements({**criteria, 'location_scope': None})
+    assert missing_requirements({**criteria, 'us_state': None})
+    assert missing_requirements({**criteria, 'location_scope': None}) == []
     assert missing_requirements({**criteria, 'has_email': None})
     assert missing_requirements({**criteria, 'location_scope': 'any', 'us_state': None}) == []
 
