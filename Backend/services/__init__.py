@@ -8,24 +8,22 @@ Architecture:
         ↓
     Services (business workflows, transaction ownership)
         ↓
-    Repositories (database queries & mutations)
-        ↓
-    SQLAlchemy
+    Repositories
         ↓
     PostgreSQL
 
 Usage pattern:
-    from database.connection import SessionLocal
-    from services import LeadService, OrganizationService
-
-    with SessionLocal() as session:
-        lead_service = LeadService(session)
-        leads = lead_service.list_by_status("New")
+    from services import LeadService
+    from Database import get_db
+    session = next(get_db())
+    lead_service = LeadService(session)
+    leads = lead_service.list_by_status("New")
 """
 
 from services.base import BaseService
 from services.contact_service import ContactService
 from services.dataset_service import DatasetService
+from services.ingest import UpsertResult, upsert_leads
 from services.job_service import JobService
 from services.lead_service import LeadService
 from services.organization_service import OrganizationService
@@ -41,4 +39,6 @@ __all__ = [
     "LeadService",
     "DatasetService",
     "JobService",
+    "upsert_leads",
+    "UpsertResult",
 ]

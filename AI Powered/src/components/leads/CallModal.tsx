@@ -56,10 +56,10 @@ export const CallModal: React.FC<CallModalProps> = ({
   };
 
   const outcomes: { status: LeadStatus; label: string; color: string }[] = [
-    { status: 'Interested', label: 'Interested', color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' },
-    { status: 'Follow Up', label: 'Follow Up Required', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
-    { status: 'Called', label: 'No Answer / Left VM', color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
-    { status: 'Not Interested', label: 'Not Interested', color: 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100' },
+    { status: 'Interested', label: 'Interested', color: 'bg-white text-green-600 border-green-200 hover:bg-green-50 dark:bg-black dark:text-green-500 dark:border-green-800 dark:hover:bg-green-900/30' },
+    { status: 'Follow Up', label: 'Follow Up Required', color: 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50 dark:bg-black dark:text-blue-500 dark:border-blue-800 dark:hover:bg-blue-900/30' },
+    { status: 'Called', label: 'No Answer / Left VM', color: 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50 dark:bg-black dark:text-blue-500 dark:border-blue-800 dark:hover:bg-blue-900/30' },
+    { status: 'Not Interested', label: 'Not Interested', color: 'bg-white text-red-600 border-red-200 hover:bg-red-50 dark:bg-black dark:text-red-500 dark:border-red-800 dark:hover:bg-red-900/30' },
   ];
 
   const handleSave = () => {
@@ -82,7 +82,7 @@ export const CallModal: React.FC<CallModalProps> = ({
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center ${
                 callState === 'connected'
-                  ? 'bg-emerald-100 text-emerald-700 animate-pulse'
+                  ? 'bg-green-100 text-green-700 animate-pulse'
                   : 'bg-blue-100 text-blue-700 animate-bounce'
               }`}
             >
@@ -111,7 +111,7 @@ export const CallModal: React.FC<CallModalProps> = ({
             {callState === 'connected' && (
               <button
                 onClick={() => setCallState('completed')}
-                className="px-2.5 py-1 text-xs font-semibold bg-rose-50 border border-rose-200 text-rose-700 rounded-md hover:bg-rose-100 flex items-center gap-1"
+                className="px-2.5 py-1 text-xs font-semibold bg-white text-red-600 border border-red-200 hover:bg-red-50 dark:bg-black dark:text-red-500 dark:border-red-800 dark:hover:bg-red-900/30 rounded-md flex items-center gap-1"
               >
                 <PhoneOff className="w-3.5 h-3.5" />
                 End

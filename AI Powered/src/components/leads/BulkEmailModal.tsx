@@ -139,7 +139,7 @@ export const BulkEmailModal: React.FC<BulkEmailModalProps> = ({
 
         {sendingState === 'sending' && (
           <div className="py-8 px-4 text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 mx-auto flex items-center justify-center animate-spin">
+            <div className="w-12 h-12 rounded-full bg-white text-blue-600 border border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 mx-auto flex items-center justify-center animate-spin">
               <Loader2 className="w-6 h-6" />
             </div>
             <div>
@@ -162,7 +162,7 @@ export const BulkEmailModal: React.FC<BulkEmailModalProps> = ({
 
         {sendingState === 'completed' && (
           <div className="py-8 px-4 text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full bg-white border border-green-200 text-green-600 dark:bg-black dark:border-green-800 dark:text-green-500 mx-auto flex items-center justify-center">
               <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>

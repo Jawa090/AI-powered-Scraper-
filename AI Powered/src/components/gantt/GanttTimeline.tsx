@@ -127,7 +127,7 @@ export const GanttTimeline: React.FC = () => {
                       >
                         {/* Progress Fill inside bar */}
                         <div
-                          className="absolute inset-0 bg-emerald-600/30"
+                          className="absolute inset-0 bg-green-600/30"
                           style={{ width: `${task.progress}%` }}
                         />
                         <span className="relative text-[11px] font-medium truncate z-10">
@@ -169,7 +169,7 @@ export const GanttTimeline: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Status</span>
-                <span className="font-semibold text-emerald-700">{selectedTask.status}</span>
+                <span className="font-semibold text-green-700">{selectedTask.status}</span>
               </div>
             </div>
 

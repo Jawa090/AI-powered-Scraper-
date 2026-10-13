@@ -1,0 +1,14 @@
+[tool.ruff]
+lint.select = ["E", "F", "I", "B", "BLE", "T20", "S110", "ERA"]
+exclude = [
+    "migrations/versions/",
+    "RAG/migrations/versions/",
+    "_unused_scripts/"
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scrappers/jwiz.py" = ["T201"]
+
+[tool.mypy]
+ignore_missing_imports = true
+strict = false

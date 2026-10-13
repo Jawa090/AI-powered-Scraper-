@@ -19,8 +19,8 @@ interface LeadDrawerProps {
   lead: Lead | null;
   isOpen: boolean;
   onClose: () => void;
-  onCall: (lead: Lead) => void;
-  onEmail: (lead: Lead) => void;
+  onCall?: (lead: Lead) => void;
+  onEmail?: (lead: Lead) => void;
 }
 
 export const LeadDrawer: React.FC<LeadDrawerProps> = ({
@@ -46,10 +46,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
           <div className="p-5 border-b border-[#E5E7EB] bg-[#F8F9FA]/60">
             <div className="flex items-start justify-between">
               <div>
-                <StatusBadge status={lead.status} />
-                <h2 className="text-base font-bold text-gray-900 mt-2">{lead.name}</h2>
+                <StatusBadge status={lead.status || 'New'} />
+                <h2 className="text-base font-bold text-gray-900 mt-2">{lead.name || lead.company || 'Unnamed Lead'}</h2>
                 <p className="text-xs text-gray-600 font-medium">
-                  {lead.title} at <span className="text-gray-900">{lead.company}</span>
+                  {lead.title ? `${lead.title} at ` : ''}<span className="text-gray-900">{lead.company || '—'}</span>
                 </p>
               </div>
               <button
@@ -61,22 +61,28 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
             </div>
 
             {/* Quick action buttons */}
-            <div className="flex items-center gap-2 mt-4">
-              <button
-                onClick={() => onCall(lead)}
-                className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span>Call Lead</span>
-              </button>
-              <button
-                onClick={() => onEmail(lead)}
-                className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-              >
-                <Mail className="w-3.5 h-3.5 text-purple-600" />
-                <span>Send Email</span>
-              </button>
-            </div>
+            {(onCall || onEmail) && (
+              <div className="flex items-center gap-2 mt-4">
+                {onCall && (
+                  <button
+                    onClick={() => onCall(lead)}
+                    className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-[#2D4351] text-white hover:bg-[#20313C] flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>Call Lead</span>
+                  </button>
+                )}
+                {onEmail && (
+                  <button
+                    onClick={() => onEmail(lead)}
+                    className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Send Email</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Drawer Content */}
@@ -89,17 +95,21 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               <div className="space-y-2 text-xs">
                 <div className="flex items-center gap-2.5 text-gray-700">
                   <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <a href={`mailto:${lead.email}`} className="text-blue-600 hover:underline">
-                    {lead.email}
-                  </a>
+                  {lead.email ? (
+                    <a href={`mailto:${lead.email}`} className="text-blue-600 hover:underline">
+                      {lead.email}
+                    </a>
+                  ) : (
+                    <span className="text-gray-400 italic">No email address</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2.5 text-gray-700">
                   <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <span>{lead.phone}</span>
+                  <span>{lead.phone || <span className="text-gray-400 italic">No phone number</span>}</span>
                 </div>
                 <div className="flex items-center gap-2.5 text-gray-700">
                   <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <span>{lead.location}</span>
+                  <span>{lead.location || <span className="text-gray-400 italic">Location not specified</span>}</span>
                 </div>
                 {lead.linkedin && (
                   <div className="flex items-center gap-2.5 text-gray-700">
@@ -166,7 +176,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               </div>
 
               {lead.notes && (
-                <div className="mt-3 p-3 bg-amber-50/70 border border-amber-200/80 rounded-lg text-xs text-amber-900">
+                <div className="mt-3 p-3 bg-white text-blue-900 border border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 rounded-lg text-xs">
                   <p className="font-semibold mb-0.5">Rep Notes:</p>
                   <p className="leading-relaxed">{lead.notes}</p>
                 </div>
@@ -180,8 +190,8 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               </h3>
               <div className="space-y-3 pl-2 border-l-2 border-gray-200">
                 <div className="relative pl-3">
-                  <span className="absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
-                  <p className="text-xs font-semibold text-gray-900">{lead.lastActivity}</p>
+                  <span className="absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full bg-green-600 dark:bg-green-500 ring-2 ring-white dark:ring-black" />
+                  <p className="text-xs font-semibold text-gray-900 dark:text-golden-100">{lead.lastActivity}</p>
                   <p className="text-[11px] text-gray-400">Recent action logged</p>
                 </div>
                 <div className="relative pl-3">

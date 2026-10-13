@@ -6,15 +6,13 @@ from pathlib import Path
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Ensure backend root is in sys.path
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-if str(BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(BACKEND_DIR))
+import _paths
+from settings import settings
+from Database.base import Base
+import Database.models  # Registers all models with Base.metadata
+from sqlalchemy import create_engine
 
-# Import database Base and connection engine
-from database.base import Base
-from database.connection import engine as db_engine, DATABASE_URL, _normalize_database_url
-import database.models  # Registers all 19 models with Base.metadata
+DATABASE_URL = settings.DATABASE_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -40,7 +38,7 @@ def run_migrations_offline() -> None:
     Calls to context.execute() here emit the given string to the
     script output.
     """
-    url = _normalize_database_url(DATABASE_URL)
+    url = DATABASE_URL
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -58,12 +56,21 @@ def run_migrations_online() -> None:
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    connectable = db_engine
+    connectable = create_engine(DATABASE_URL)
 
     with connectable.connect() as connection:
+        def include_object(object, name, type_, reflected, compare_to):
+            if type_ == "table" and name.startswith("checkpoint"):
+                return False
+            if type_ == "table" and object.schema == "rag":
+                return False
+            return True
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            include_object=include_object,
+            include_schemas=False,
         )
 
         with context.begin_transaction():

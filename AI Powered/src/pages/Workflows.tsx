@@ -14,7 +14,7 @@ export const Workflows: React.FC = () => {
             <h1 className="text-xl font-bold tracking-tight text-gray-900">
               Autonomous Extraction Workflows
             </h1>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 border">
               Admin Only
             </span>
           </div>
@@ -62,7 +62,7 @@ export const Workflows: React.FC = () => {
                       <div
                         className={`p-3 rounded-lg border flex flex-col justify-between h-24 ${
                           isDone
-                            ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
+                            ? 'bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800'
                             : isRunning
                             ? 'bg-[#EAEFF2] border-[#2D4351] text-[#2D4351] ring-1 ring-[#2D4351]'
                             : 'bg-[#F8F9FA] border-gray-200 text-gray-500'
@@ -71,7 +71,7 @@ export const Workflows: React.FC = () => {
                         <div className="flex items-center justify-between">
                           <span className="font-mono text-[10px] font-bold">Node 0{idx + 1}</span>
                           {isDone ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-500" />
                           ) : isRunning ? (
                             <Loader2 className="w-3.5 h-3.5 text-[#2D4351] animate-spin" />
                           ) : (

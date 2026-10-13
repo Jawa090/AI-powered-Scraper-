@@ -1,0 +1,250 @@
+{
+  "runtime": "3.14.7 (tags/v3.14.7:823f032, Aug  5 2026, 10:51:32) [MSC v.1944 64 bit (AMD64)]",
+  "scope": "Offline test configuration; no application database writes, live AI calls, or live scraping",
+  "syntax": {
+    "files": 185,
+    "errors": []
+  },
+  "missing_internal_imports": [
+    {
+      "file": "Database\\seed.py",
+      "line": 22,
+      "module": "execution.registry",
+      "target_exists": false
+    }
+  ],
+  "direct_repository_imports_outside_database": [
+    {
+      "file": "Backend\\worker.py",
+      "line": 39,
+      "module": "Database.repositories.leads",
+      "target_exists": true
+    }
+  ],
+  "search_probe": {
+    "requested": 50,
+    "repository_arguments": {
+      "category": "roofing",
+      "location": "Dallas, TX",
+      "limit": 20,
+      "offset": 0
+    },
+    "last_search": {
+      "turn_id": "audit-turn",
+      "slots_hash": "34ac5cf920f06a625b6f727404ee3aae3aebb9ad14743f790954710aa9bc1c61",
+      "total": 50,
+      "returned": 20,
+      "lead_ids": [
+        "audit-0",
+        "audit-1",
+        "audit-2",
+        "audit-3",
+        "audit-4",
+        "audit-5",
+        "audit-6",
+        "audit-7",
+        "audit-8",
+        "audit-9",
+        "audit-10",
+        "audit-11",
+        "audit-12",
+        "audit-13",
+        "audit-14",
+        "audit-15",
+        "audit-16",
+        "audit-17",
+        "audit-18",
+        "audit-19"
+      ],
+      "sufficient": true,
+      "reasons": []
+    },
+    "reply": "I searched the database and found 50 matching records! You can view them in the table."
+  },
+  "database_failure_probe": {
+    "turn_id": "audit-turn",
+    "slots_hash": "34ac5cf920f06a625b6f727404ee3aae3aebb9ad14743f790954710aa9bc1c61",
+    "total": 0,
+    "returned": 0,
+    "lead_ids": [],
+    "sufficient": false,
+    "reasons": [
+      "Insufficient verified leads matching criteria."
+    ]
+  },
+  "unready_source_proposal": {
+    "source": "nyscr",
+    "ready": false
+  },
+  "bonfire_wrong_city_probe": {
+    "limit": 5,
+    "keyword": null,
+    "city": null,
+    "us_state": null,
+    "location": null,
+    "timeout_s": 60
+  },
+  "graph_edges": [
+    {
+      "source": "__start__",
+      "target": "load_context"
+    },
+    {
+      "source": "agent",
+      "target": "finalize"
+    },
+    {
+      "source": "agent",
+      "target": "tools"
+    },
+    {
+      "source": "agent",
+      "target": "validate_proposal"
+    },
+    {
+      "source": "ask_confirmation",
+      "target": "await_confirmation"
+    },
+    {
+      "source": "auto_propose",
+      "target": "ask_confirmation"
+    },
+    {
+      "source": "auto_search",
+      "target": "auto_propose"
+    },
+    {
+      "source": "auto_search",
+      "target": "finalize"
+    },
+    {
+      "source": "await_confirmation",
+      "target": "agent"
+    },
+    {
+      "source": "await_confirmation",
+      "target": "enqueue_job"
+    },
+    {
+      "source": "await_confirmation",
+      "target": "validate_proposal"
+    },
+    {
+      "source": "enqueue_job",
+      "target": "agent"
+    },
+    {
+      "source": "gather_requirements",
+      "target": "auto_search"
+    },
+    {
+      "source": "gather_requirements",
+      "target": "finalize"
+    },
+    {
+      "source": "load_context",
+      "target": "rag_retrieve"
+    },
+    {
+      "source": "rag_retrieve",
+      "target": "gather_requirements"
+    },
+    {
+      "source": "tools",
+      "target": "agent"
+    },
+    {
+      "source": "validate_proposal",
+      "target": "agent"
+    },
+    {
+      "source": "validate_proposal",
+      "target": "ask_confirmation"
+    },
+    {
+      "source": "validate_proposal",
+      "target": "enqueue_job"
+    },
+    {
+      "source": "finalize",
+      "target": "__end__"
+    }
+  ],
+  "confirmation_ai_outage": "Would you like me to scrape 10 relevant leads from JWIZ?",
+  "approval_ai_outage": {
+    "decision": "approve",
+    "text": "yes"
+  },
+  "finalization_ai_outage": "I have processed your request with the available information.",
+  "confirmation_modify_probe": {
+    "pending_proposal": {
+      "source": "jwiz",
+      "args": {
+        "quantity": 50
+      }
+    },
+    "confirmed": true
+  },
+  "jwt_lifetime_hours": 24.0,
+  "password_hash_roundtrip": true,
+  "builtin_account_hashes": [
+    {
+      "role": "admin",
+      "auth_source": "env",
+      "has_hash": false
+    },
+    {
+      "role": "user",
+      "auth_source": "env",
+      "has_hash": false
+    }
+  ],
+  "company_identity_probe": {
+    "source_a": "src:a:123",
+    "source_b": "src:b:456"
+  },
+  "api_paths": [
+    "/",
+    "/api/admin/requests",
+    "/api/admin/requests/export.csv",
+    "/api/admin/requests/{request_id}",
+    "/api/admin/stats",
+    "/api/admin/users",
+    "/api/admin/users/{user_id}",
+    "/api/admin/users/{user_id}/requests",
+    "/api/admin/users/{user_id}/sessions",
+    "/api/auth/login",
+    "/api/auth/me",
+    "/api/bot/chat",
+    "/api/bot/chat/new",
+    "/api/bot/confirm",
+    "/api/bot/job-update",
+    "/api/bot/state",
+    "/api/datasets",
+    "/api/health",
+    "/api/jobs",
+    "/api/jobs/{job_id}",
+    "/api/jobs/{job_id}/cancel",
+    "/api/jobs/{job_id}/resume",
+    "/api/leads",
+    "/api/leads/export.csv",
+    "/api/rag/{path}",
+    "/api/scripts",
+    "/api/scripts/{script_id}",
+    "/health",
+    "/health/llm",
+    "/health/ready"
+  ],
+  "llm_health_security": [],
+  "seed_import": "ModuleNotFoundError: No module named 'execution.registry'",
+  "environment_override_honored": false,
+  "installed_packages": {
+    "pytest": "9.1.1",
+    "fastapi": "0.141.1",
+    "sqlalchemy": "2.1.1",
+    "langgraph": "1.2.12",
+    "psycopg": "3.3.6",
+    "pytz": "2026.5"
+  },
+  "pytz_in_production_requirements": false
+}

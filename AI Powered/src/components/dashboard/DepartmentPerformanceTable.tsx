@@ -64,10 +64,10 @@ export const DepartmentPerformanceTable: React.FC<DepartmentPerformanceTableProp
                 <td className="py-3 px-3 text-right text-blue-700 font-medium">
                   {dept.calledCount.toLocaleString()}
                 </td>
-                <td className="py-3 px-3 text-right text-purple-700 font-medium">
+                <td className="py-3 px-3 text-right text-blue-700 font-medium">
                   {dept.emailedCount.toLocaleString()}
                 </td>
-                <td className="py-3 px-3 text-right text-emerald-700 font-bold">
+                <td className="py-3 px-3 text-right text-green-700 font-bold">
                   {dept.interestedCount.toLocaleString()}
                 </td>
                 <td className="py-3 px-3 text-right text-gray-500">

@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { apiService } from '../services/api.service';
+import { Lead } from '../types';
 import { useDataOps } from '../context/DataOpsContext';
 import { StatusBadge } from '../components/common/StatusBadge';
 import { ArrowLeft, Users2, Database, ShieldCheck, CheckCircle2, FileText } from 'lucide-react';
@@ -9,9 +11,14 @@ interface DatasetDetailProps {
 }
 
 export const DatasetDetail: React.FC<DatasetDetailProps> = ({ id, onNavigate }) => {
-  const { datasets, leads } = useDataOps();
-  const dataset = datasets.find(d => d.id === id) || datasets[0];
-  const datasetLeads = leads.filter(l => l.datasetId === dataset?.id);
+  const { datasets } = useDataOps();
+  const dataset = datasets.find(d => d.id === id);
+  const [datasetLeads, setDatasetLeads] = useState<Lead[]>([]);
+  useEffect(() => {
+    let active = true;
+    void apiService.getLeads(id).then(rows => { if (active) setDatasetLeads(rows); });
+    return () => { active = false; };
+  }, [id]);
 
   if (!dataset) {
     return <div className="p-8 text-center text-xs text-gray-500">Dataset not found</div>;
@@ -56,11 +63,11 @@ export const DatasetDetail: React.FC<DatasetDetailProps> = ({ id, onNavigate }) 
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">Verified Contacts</span>
-            <p className="text-xl font-bold text-emerald-600 font-mono mt-0.5">{dataset.verifiedCount.toLocaleString()}</p>
+            <p className="text-xl font-bold text-green-600 font-mono mt-0.5">{dataset.verifiedCount.toLocaleString()}</p>
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">Deduplicated</span>
-            <p className="text-xl font-bold text-amber-600 font-mono mt-0.5">{dataset.duplicatesCount}</p>
+            <p className="text-xl font-bold text-blue-600 font-mono mt-0.5">{dataset.duplicatesCount}</p>
           </div>
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#848485]">Associated Workflow</span>
@@ -76,12 +83,12 @@ export const DatasetDetail: React.FC<DatasetDetailProps> = ({ id, onNavigate }) 
             {datasetLeads.slice(0, 5).map(lead => (
               <div key={lead.id} className="p-3 flex items-center justify-between hover:bg-gray-50 text-xs">
                 <div>
-                  <span className="font-semibold text-gray-900">{lead.name}</span>
-                  <span className="text-gray-500 ml-2">{lead.title} at {lead.company}</span>
+                  <span className="font-semibold text-gray-900">{lead.name || lead.company || '—'}</span>
+                  <span className="text-gray-500 ml-2">{lead.title ? `${lead.title} at ` : ''}{lead.company || '—'}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-mono text-gray-500 text-[11px]">{lead.email}</span>
-                  <StatusBadge status={lead.status} />
+                  <span className="font-mono text-gray-500 text-[11px]">{lead.email || '—'}</span>
+                  <StatusBadge status={lead.status || 'New'} />
                 </div>
               </div>
             ))}

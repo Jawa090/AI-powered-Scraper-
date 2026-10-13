@@ -1,0 +1,44 @@
+[
+  {
+    "id": "2088910",
+    "opp_id": "2088910",
+    "source_id": "nyscr_2088910",
+    "url": "https://www.nyscr.ny.gov/Ads/Details/2088910",
+    "title": "Statewide Highway Pavement Markings and Safety Infrastructure",
+    "description": "Contract for maintenance, repair, and replacement of pavement markings on NY State highways.",
+    "issuing_organization": "New York State Department of Transportation",
+    "location_city": "Albany",
+    "location_address": "50 Wolf Road, Albany NY 12232",
+    "bid_deadline": "2026-11-28",
+    "issue_date": "2026-10-01",
+    "categories": "Highway & Heavy Construction",
+    "project_type": "construction_bid",
+    "contact_details": {
+      "name": "David Reynolds",
+      "title": "Contract Management Specialist",
+      "email": "d.reynolds@dot.ny.example.gov",
+      "phone": "518-555-0140"
+    }
+  },
+  {
+    "id": "2088925",
+    "opp_id": "2088925",
+    "source_id": "nyscr_2088925",
+    "url": "https://www.nyscr.ny.gov/Ads/Details/2088925",
+    "title": "IT Infrastructure Modernization and Cloud Migration Services",
+    "description": "Enterprise cloud architecture and modernization services for NY State Office of Information Technology Services.",
+    "issuing_organization": "NYS Office of Information Technology Services",
+    "location_city": "Albany",
+    "location_address": "Empire State Plaza, Albany NY 12223",
+    "bid_deadline": "2026-12-10",
+    "issue_date": "2026-10-05",
+    "categories": "Information Technology",
+    "project_type": "rfp",
+    "contact_details": {
+      "name": "Karen Williams",
+      "title": "Procurement Director",
+      "email": "karen.williams@its.ny.example.gov",
+      "phone": "518-555-0177"
+    }
+  }
+]

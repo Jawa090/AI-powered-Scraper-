@@ -1,0 +1,25 @@
+{
+  "realProvider": true,
+  "controlledTestData": true,
+  "request": "10 roofing constructors from NY newyork",
+  "initialClarification": "I have most of your request noted (10 roofing companies in New York, NY). To proceed I just need one more detail:\n\n**Contact requirements** \u2014 should these leads include email, phone, both, or neither?",
+  "slots": {
+    "city": "New York",
+    "source": null,
+    "category": "roofing companies",
+    "new_only": false,
+    "quantity": 10,
+    "us_state": "NY",
+    "has_email": false,
+    "has_phone": false,
+    "record_kind": "company",
+    "location_scope": "city",
+    "include_expired": false,
+    "fresh_within_days": null,
+    "category_specified": true
+  },
+  "returned": 10,
+  "reply": "Done \u2014 here are your **10 roofing companies in New York, NY**.\n\n- **Returned:** 10 matching records\n- **Total available in database:** 287\n- **Contact fields:** neither email nor phone required (email shown where available)\n\nThe full records table is rendered above. Since the database already has ample coverage (287 matches), no scraping is needed. Let me know if you'd like more than 10, or if you'd like to add source/freshness filters.",
+  "jobQueued": false,
+  "passed": true
+}

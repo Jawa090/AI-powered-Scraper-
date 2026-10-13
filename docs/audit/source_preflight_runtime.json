@@ -1,0 +1,32 @@
+{
+  "workerAvailable": true,
+  "health": 200,
+  "ready": 200,
+  "users": [
+    {
+      "username": "User",
+      "email": "User@bitwords.com"
+    },
+    {
+      "username": "Admin",
+      "email": null
+    },
+    {
+      "username": "user1",
+      "email": "user1@rushcorp.com"
+    }
+  ],
+  "reportedJobs": [
+    {
+      "id": "76c8ddc9-3065-4097-9cbf-ab860dbe49bd",
+      "status": "Failed",
+      "recovered": 0
+    },
+    {
+      "id": "118c4f1a-4811-492e-aa97-36f0b74062f5",
+      "status": "Partial",
+      "recovered": 17
+    }
+  ],
+  "invalidJwizRejected": true
+}

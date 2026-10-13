@@ -1,0 +1,137 @@
+{
+  "realProvider": true,
+  "isolatedDatabase": true,
+  "checks": [
+    {
+      "request": "1 roofing contractor",
+      "reply": "I can help with that. Before I start, I just need to confirm two things:\n\n1. **Location** \u2014 Which city and state should the roofing contractor be in? Or would you like a specific statewide search, or any location at all?\n2. **Contact requirements** \u2014 Do you want the contractor to have an email, a phone number, both, or neither required?",
+      "slots": {
+        "city": null,
+        "source": null,
+        "category": "roofing companies",
+        "new_only": false,
+        "quantity": 1,
+        "us_state": null,
+        "has_email": null,
+        "has_phone": null,
+        "record_kind": "company",
+        "location_scope": null,
+        "include_expired": false,
+        "fresh_within_days": null,
+        "category_specified": true
+      },
+      "missingRequirements": [
+        "location: city and state, statewide, or explicitly any location",
+        "contact requirements: email, phone, both, or neither"
+      ],
+      "decision": "CLARIFY",
+      "toolTrace": [],
+      "noJobEnqueued": true
+    },
+    {
+      "request": "New York city, NY",
+      "reply": "Got it \u2014 New York City, NY for roofing companies.\n\nOne last thing before I start: for the contact info, would you like the company's email, phone number, both, or neither?",
+      "slots": {
+        "city": "New York",
+        "source": null,
+        "category": "roofing companies",
+        "new_only": false,
+        "quantity": 1,
+        "us_state": "NY",
+        "has_email": null,
+        "has_phone": null,
+        "record_kind": "company",
+        "location_scope": "city",
+        "include_expired": false,
+        "fresh_within_days": null,
+        "category_specified": true
+      },
+      "missingRequirements": [
+        "contact requirements: email, phone, both, or neither"
+      ],
+      "decision": "CLARIFY",
+      "toolTrace": [],
+      "noJobEnqueued": true
+    },
+    {
+      "request": "Neither email nor phone is required",
+      "reply": "Here's your result:\n\n**1 roofing contractor in New York, NY** \u2014 found in the verified database (316 total matching available).\n\n- **Company:** Flow roofer roofing-c96a74f0eeff4defa1b315b6f2494078 1\n- **Location:** New York, NY\n- **Source:** JWiz directory\n- **Status:** New\n\nThe full record is displayed in the table in your UI. No email or phone was required, so that's not a limiting factor here.\n\nWould you like me to pull additional roofing contractors beyond this one? There are 315 more matching records available \u2014 just let me know how many you'd like.",
+      "slots": {
+        "city": "New York",
+        "source": null,
+        "category": "roofing companies",
+        "new_only": false,
+        "quantity": 1,
+        "us_state": "NY",
+        "has_email": false,
+        "has_phone": false,
+        "record_kind": "company",
+        "location_scope": "city",
+        "include_expired": false,
+        "fresh_within_days": null,
+        "category_specified": true
+      },
+      "missingRequirements": [],
+      "decision": "DB",
+      "toolTrace": [
+        {
+          "tool": "rag_retrieve",
+          "state": "not_deployed",
+          "hit_ids": [],
+          "tool_name": "rag_retrieve"
+        },
+        {
+          "ids": [
+            "97fdb650-ce23-45cd-844e-fdb7465aae4b"
+          ],
+          "counts": {
+            "returned": 1,
+            "available": 316
+          },
+          "filters": {
+            "city": "New York",
+            "source": null,
+            "category": "roofing companies",
+            "new_only": false,
+            "quantity": 1,
+            "us_state": "NY",
+            "has_email": false,
+            "has_phone": false,
+            "record_kind": "company",
+            "include_expired": false,
+            "fresh_within_days": null
+          },
+          "tool_name": "search_leads"
+        }
+      ],
+      "noJobEnqueued": true
+    },
+    {
+      "request": "2 plumbing contractors",
+      "reply": "Before I can pull those two plumbing contractors, I need a couple of details from you:\n\n1. **Location** \u2014 Which city and state should I search, a whole state, or would you like me to use any location?\n2. **Contact info** \u2014 Do you need email addresses, phone numbers, both, or neither?",
+      "slots": {
+        "city": null,
+        "source": null,
+        "category": "plumbing contractors",
+        "new_only": false,
+        "quantity": 2,
+        "us_state": null,
+        "has_email": null,
+        "has_phone": null,
+        "record_kind": "company",
+        "location_scope": null,
+        "include_expired": false,
+        "fresh_within_days": null,
+        "category_specified": true
+      },
+      "missingRequirements": [
+        "location: city and state, statewide, or explicitly any location",
+        "contact requirements: email, phone, both, or neither"
+      ],
+      "decision": "CLARIFY",
+      "toolTrace": [],
+      "noJobEnqueued": true
+    }
+  ],
+  "passed": true
+}

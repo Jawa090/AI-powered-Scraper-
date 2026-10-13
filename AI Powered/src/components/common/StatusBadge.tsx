@@ -9,34 +9,21 @@ interface StatusBadgeProps {
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'sm' }) => {
   const getStyles = () => {
     switch (status) {
-      case 'New':
-        return 'bg-gray-100 text-gray-700 border-gray-200';
-      case 'Called':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'Emailed':
-        return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'Interested':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold';
-      case 'Follow Up':
-        return 'bg-amber-50 text-amber-700 border-amber-200 font-semibold';
       case 'Qualified':
-        return 'bg-teal-50 text-teal-800 border-teal-200 font-semibold';
-      case 'Not Interested':
-        return 'bg-rose-50 text-rose-700 border-rose-200';
       case 'Completed':
       case 'Active':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'Running':
-      case 'In Progress':
-        return 'bg-sky-50 text-sky-700 border-sky-200 animate-pulse';
-      case 'Queued':
-      case 'Pending':
-        return 'bg-gray-100 text-gray-600 border-gray-200';
+        return 'bg-white text-green-600 border-green-200 dark:bg-black dark:text-green-500 dark:border-green-800 font-semibold';
+      case 'Not Interested':
       case 'Failed':
       case 'Delayed':
-        return 'bg-red-50 text-red-700 border-red-200';
+        return 'bg-white text-red-600 border-red-200 dark:bg-black dark:text-red-500 dark:border-red-800 font-semibold';
+      case 'Running':
+      case 'In Progress':
+        return 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 animate-pulse font-semibold';
       default:
-        return 'bg-gray-100 text-gray-700 border-gray-200';
+        // New, Called, Emailed, Follow Up, Queued, Pending, etc.
+        return 'bg-white text-blue-600 border-blue-200 dark:bg-black dark:text-blue-500 dark:border-blue-800 font-semibold';
     }
   };
 
@@ -48,17 +35,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'sm' })
     >
       <span
         className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
-          status === 'Interested' || status === 'Qualified' || status === 'Completed'
-            ? 'bg-emerald-500'
-            : status === 'Running' || status === 'Called'
-            ? 'bg-blue-500'
-            : status === 'Emailed'
-            ? 'bg-purple-500'
-            : status === 'Follow Up'
-            ? 'bg-amber-500'
-            : status === 'Failed'
-            ? 'bg-red-500'
-            : 'bg-gray-400'
+          status === 'Interested' || status === 'Qualified' || status === 'Completed' || status === 'Active'
+            ? 'bg-green-600 dark:bg-green-500'
+            : status === 'Failed' || status === 'Delayed' || status === 'Not Interested'
+            ? 'bg-red-600 dark:bg-red-500'
+            : 'bg-blue-600 dark:bg-blue-500'
         }`}
       />
       {status}

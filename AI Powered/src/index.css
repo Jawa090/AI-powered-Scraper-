@@ -46,3 +46,34 @@
     border-color: #2D4351;
   }
 }
+
+/* Global Dark Mode Overrides for Hardcoded Light Mode Utility Classes */
+.dark .bg-white {
+  background-color: #000000 !important;
+}
+.dark .bg-\[\#F8F9FA\] {
+  background-color: #111827 !important; /* gray-900 */
+}
+.dark .border-\[\#E5E7EB\] {
+  border-color: #1f2937 !important; /* gray-800 */
+}
+.dark .text-gray-900 {
+  color: #eab308 !important; /* golden-500 */
+}
+.dark .text-\[\#848485\],
+.dark .text-gray-700,
+.dark .text-gray-600 {
+  color: #fef08a !important; /* golden-200 */
+}
+.dark .divide-\[\#E5E7EB\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1f2937 !important;
+}
+.dark .text-gray-500 {
+  color: #ca8a04 !important; /* golden-600 */
+}
+.dark .bg-gray-100 {
+  background-color: #1f2937 !important; /* gray-800 */
+}
+.dark .bg-gray-50 {
+  background-color: #111827 !important; /* gray-900 */
+}

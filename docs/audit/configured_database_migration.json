@@ -1,0 +1,26 @@
+{
+  "applied": true,
+  "revision": "20261007_delivery",
+  "before": {
+    "leads": 20,
+    "users": 336,
+    "queries": 4,
+    "query_results": 1,
+    "agent_sessions": 4,
+    "agent_messages": 1,
+    "jobs": 4,
+    "datasets": 0
+  },
+  "after": {
+    "leads": 20,
+    "users": 336,
+    "queries": 4,
+    "query_results": 1,
+    "agent_sessions": 4,
+    "agent_messages": 1,
+    "jobs": 4,
+    "datasets": 0
+  },
+  "existingRowsPreserved": true,
+  "seedIdempotent": true
+}

@@ -9,10 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
 
-from database.models.source import Source
-from repositories.sources import SourceRepository
+from Database.models.source import Source
 from services.base import BaseService
 
 
@@ -21,9 +19,9 @@ class SourceService(BaseService):
     Business service for data sources (BONFIRE, DASNY, JWIZ, NYSCR, etc.).
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session) -> None:
         super().__init__(session)
-        self.source_repo = SourceRepository(session)
+        self.source_repo = self.repos.sources
 
     def get_by_id(self, source_id: str) -> Optional[Source]:
         """Retrieve a source by its primary key."""

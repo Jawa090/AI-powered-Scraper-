@@ -1,0 +1,51 @@
+{
+  "source": "jwiz",
+  "mode": "live",
+  "ready": true,
+  "params": {
+    "limit": 10,
+    "timeout_s": 45,
+    "keyword": "roofing companies",
+    "city": "New York",
+    "us_state": "NY"
+  },
+  "found": 1,
+  "inserted": 1,
+  "updated": 0,
+  "unchanged": 0,
+  "failed": 0,
+  "skipped": 0,
+  "savedRecords": [
+    {
+      "id": "e4911009-6613-4d18-94f1-27660aa93441",
+      "recordKind": "company",
+      "recordVersion": 1,
+      "category": "Roofing",
+      "sourceUrl": "https://jwiz.com/jewish/adamspops-roofing-17451.html",
+      "datasetId": null,
+      "name": null,
+      "company": "Adams/Pop's Roofing",
+      "title": null,
+      "email": null,
+      "phone": "+12125810744",
+      "location": "New York, NY",
+      "city": "New York",
+      "state": "NY",
+      "sourceCode": "jwiz",
+      "dueAt": null,
+      "status": "New",
+      "assignedTo": null,
+      "assignedToName": null,
+      "departmentId": "dept-default",
+      "departmentName": "Default",
+      "lastActivity": null,
+      "companySize": null,
+      "website": null,
+      "industry": "Roofing",
+      "createdAt": "2026-10-07T19:38:34.010296+05:00",
+      "updatedAt": "2026-10-07T19:38:34.010296+05:00",
+      "notes": "Specializing in roofing, waterproofing, concrete, painting, masonry and skylights"
+    }
+  ],
+  "persistedAfterCommit": true
+}

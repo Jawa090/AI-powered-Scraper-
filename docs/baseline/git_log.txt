@@ -1,0 +1,14 @@
+ef4c813 wip: snapshot before remediation v8
+a671fbe phase-3(P3.1,P3.4): normalize.py with 36 tests, removed fabricated values from dispatcher
+53c3957 phase-2(P2.1-P2.5): new columns, tables, migration b226615a3c81, env.py path fix
+273ef29 phase-1(P1.1-P1.6): session-per-request, rollback on error, worker cleanup, N+1 fix, filter validation, DB smoke test
+c6724e9 phase-14(P14.0-P14.1): LLM baseline confirmed, chat model factory with Gemini+DeepSeek fallback, health endpoint, tests
+081a6f7 phase-0(P0.1-P0.5): security cleanup - remove hardcoded creds, move codemod scripts, consolidate packages, fix seed/check scripts, clean scraper imports
+2816288 NYSCR scrapper wasn't working, system ran scrapers without asking permission, the new schema for db
+f8548fe Agent issues, reasoning problems solved and migration of code to Langgraph
+c414bd5 Scrapper working issues resolved
+a58c6e4 Database restructuring
+8c96b8e update
+50513c8 changes
+7f85ab3 checkpoint: stabilize chatbot and scraper orchestration
+917ced4 first commit

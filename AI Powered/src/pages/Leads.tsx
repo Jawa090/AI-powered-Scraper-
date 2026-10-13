@@ -54,12 +54,12 @@ export const Leads: React.FC<LeadsProps> = ({ onNavigate }) => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold tracking-tight text-gray-900">Leads Workspace</h1>
-            <span className="text-xs font-mono font-semibold bg-[#2D4351] text-white px-2 py-0.5 rounded-full">
+            <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-golden-500">Leads Workspace</h1>
+            <span className="text-xs font-mono font-semibold bg-[#2D4351] dark:bg-golden-500 text-white dark:text-black px-2 py-0.5 rounded-full">
               {kpis.totalLeads.toLocaleString()} total
             </span>
           </div>
-          <p className="text-xs text-[#848485] mt-0.5">
+          <p className="text-xs text-[#848485] dark:text-golden-600 mt-0.5">
             Autonomous verified contact registry with direct telephone dialing and mailbox sequence tools
           </p>
         </div>
@@ -67,21 +67,19 @@ export const Leads: React.FC<LeadsProps> = ({ onNavigate }) => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => onNavigate('/agent')}
-            className="px-3.5 py-2 rounded-lg bg-[#2D4351] text-white hover:bg-[#20313C] text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
+            className="px-3.5 py-2 rounded-lg bg-[#2D4351] dark:bg-golden-500 text-white dark:text-black hover:bg-[#20313C] dark:hover:bg-golden-600 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
           >
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+            <Sparkles className="w-3.5 h-3.5 text-green-400 dark:text-black" />
             <span>Generate New Leads</span>
           </button>
         </div>
       </div>
 
       {/* Main Enterprise Lead Table */}
+      {/* Verified Leads Table (read-only per P13.6) */}
       <LeadTable
         leads={leads}
         onSelectLead={handleRowClick}
-        onCallLead={handleOpenCall}
-        onEmailLead={handleOpenEmail}
-        onOpenBulkEmail={handleOpenBulkEmail}
       />
 
       {/* Slide-over Detail Drawer */}
@@ -89,44 +87,6 @@ export const Leads: React.FC<LeadsProps> = ({ onNavigate }) => {
         lead={selectedLead}
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
-        onCall={lead => {
-          setIsDrawerOpen(false);
-          handleOpenCall(lead);
-        }}
-        onEmail={lead => {
-          setIsDrawerOpen(false);
-          handleOpenEmail(lead);
-        }}
-      />
-
-      {/* Call Modal */}
-      <CallModal
-        lead={callLead}
-        isOpen={isCallModalOpen}
-        onClose={() => setIsCallModalOpen(false)}
-        onSaveCall={(id, outcome, notes, nextFollowUp) => {
-          logCall(id, outcome, notes, nextFollowUp);
-        }}
-      />
-
-      {/* Single Email Composer Modal */}
-      <EmailComposerModal
-        lead={emailLead}
-        isOpen={isEmailModalOpen}
-        onClose={() => setIsEmailModalOpen(false)}
-        onSendEmail={(id, subject, body) => {
-          sendEmail(id, subject, body);
-        }}
-      />
-
-      {/* Bulk Email Outreach Modal */}
-      <BulkEmailModal
-        selectedLeads={bulkLeads}
-        isOpen={isBulkModalOpen}
-        onClose={() => setIsBulkModalOpen(false)}
-        onSendBulk={async (ids, subject, body) => {
-          await sendBulkEmail(ids, subject, body);
-        }}
       />
     </div>
   );

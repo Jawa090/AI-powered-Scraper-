@@ -1,0 +1,18 @@
+{
+  "audit_date": "2026-10-07",
+  "application_code_modified": false,
+  "runtime": {"python": "3.14.7", "node": "24.21.0"},
+  "frontend_build": {"command": "npm.cmd run build", "cwd": "AI Powered", "passed": true},
+  "completed_selected_tests": {"passed": 183, "failed": 1, "deselected_http_test": 1},
+  "groups": [
+    {"passed": 138, "deselected": 1, "files": ["Backend/tests/test_normalize.py", "Backend/tests/unit/test_settings.py", "Backend/tests/unit/test_chat_model.py", "Backend/tests/unit/test_scraper_contract.py", "Backend/tests/unit/test_scraper_fixtures.py", "Backend/tests/unit/test_scrapers_registered.py", "Backend/tests/unit/test_no_direct_scraper_imports.py", "Backend/tests/unit/test_rag_isolation.py", "Backend/tests/unit/test_rag_client.py", "Backend/tests/unit/test_pii.py"], "excluded": "fastapi_returns_503_d4"},
+    {"passed": 33, "files": ["Backend/tests/unit/test_docker_manifests.py", "Backend/tests/unit/test_requirements_p14.py", "Backend/tests/unit/test_fakes.py"]},
+    {"passed": 12, "failed": 1, "files": ["Backend/tests/unit/test_agent_graph.py"], "failure": "test_full_interrupt_and_resumption_flow: LLMUnavailable(not_configured); new requirements extraction is not mocked by the existing workflow test", "checkpointer": "substituted MemorySaver"}
+  ],
+  "backend_collection": {"collected": 247, "checkpointer": "substituted MemorySaver", "fixtures_executed": false},
+  "offline_flags": ["--noconftest", "-c Backend/pytest.ini"],
+  "test_configuration": "Backend/.env.test.example",
+  "database_probe": {"read_only": true, "connected": false, "error_type": "OperationalError"},
+  "not_verified": ["full database-backed suite", "RAG HTTP contract completion", "backend FastAPI HTTP outage test", "Docker build and runtime", "browser end-to-end behavior", "live external scrapers and CAPTCHA", "real AI provider fallback", "production database and migrations"],
+  "notes": ["Installed dependencies differ from some pinned versions; not a clean locked-runtime verification.", "No live AI, external scraping or application database writes were performed.", "Counts represent partial selected tests, not a full-suite pass."]
+}

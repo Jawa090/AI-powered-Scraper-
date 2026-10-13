@@ -10,11 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy.orm import Session
 
-from database.models.job import Job
-from repositories.datasets import DatasetRepository
-from repositories.jobs import JobRepository
+from Database.models.job import Job
 from services.base import BaseService
 
 
@@ -23,10 +20,10 @@ class JobService(BaseService):
     Business service for managing scraping/processing jobs and their lifecycle events.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session) -> None:
         super().__init__(session)
-        self.job_repo = JobRepository(session)
-        self.dataset_repo = DatasetRepository(session)
+        self.job_repo = self.repos.jobs
+        self.dataset_repo = self.repos.datasets
 
     # ------------------------------------------------------------------
     # Lookups & Queries
@@ -72,6 +69,8 @@ class JobService(BaseService):
         dataset_id: Optional[str] = None,
         department_id: Optional[str] = None,
         created_by: Optional[str] = None,
+        query_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
         total_target: int = 20,
         commit: bool = True,
@@ -86,6 +85,8 @@ class JobService(BaseService):
             "dataset_id": dataset_id,
             "department_id": department_id,
             "created_by": created_by,
+            "query_id": query_id,
+            "idempotency_key": idempotency_key,
             "parameters": parameters or {},
             "status": "Queued",
             "progress": 0,
@@ -194,7 +195,7 @@ class JobService(BaseService):
         duration_str: Optional[str] = None
         if existing.started_at:
             secs = int((now - existing.started_at).total_seconds())
-            duration_str = f"{secs}s"
+            duration_str = f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
 
         data: Dict[str, Any] = {
             "status": "Completed",
@@ -221,8 +222,8 @@ class JobService(BaseService):
     def fail(
         self,
         job_id: str,
-        error_message: str,
         *,
+        error_message: str,
         commit: bool = True,
     ) -> Optional[Job]:
         """Mark a job as Failed."""

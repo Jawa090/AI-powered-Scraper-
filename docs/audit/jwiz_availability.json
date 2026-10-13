@@ -1,0 +1,427 @@
+{
+  "requested": "New York, NY roofing",
+  "websiteCount": 879,
+  "cards": 105,
+  "locations": [
+    {
+      "company": "Renzi Home Improvement Inc.",
+      "location": "410 Hawthorne Ave., Yonkers, NY"
+    },
+    {
+      "company": "Nikolin's Contracting Co.",
+      "location": "NY"
+    },
+    {
+      "company": "First Class Roofing",
+      "location": "NY"
+    },
+    {
+      "company": "Global Quality Inc.",
+      "location": "NY"
+    },
+    {
+      "company": "Melva Construction Corp.",
+      "location": "NY"
+    },
+    {
+      "company": "M Square Roofing",
+      "location": "NY"
+    },
+    {
+      "company": "M & M Contracting, Inc.",
+      "location": ""
+    },
+    {
+      "company": "Welmac Construction, Inc.",
+      "location": "Queens Village, NY"
+    },
+    {
+      "company": "M.F.A., LLC",
+      "location": "NJ"
+    },
+    {
+      "company": "Century Roofing",
+      "location": "CA"
+    },
+    {
+      "company": "Top Notch Roofing",
+      "location": "CA"
+    },
+    {
+      "company": "D.E.I. Rooofing",
+      "location": ""
+    },
+    {
+      "company": "Unlimited Restoration LLC",
+      "location": ""
+    },
+    {
+      "company": "Brooklynite Construction Corp.",
+      "location": "Brklyn, NY"
+    },
+    {
+      "company": "Ramsey Roofing, LLC",
+      "location": "NJ"
+    },
+    {
+      "company": "GM General Contracting, Inc.",
+      "location": "NY"
+    },
+    {
+      "company": "Dudson Roofing, Inc.",
+      "location": "122-18 18th Avenue, College Point, NY"
+    },
+    {
+      "company": "Brothers Construction Inc.",
+      "location": "NJ"
+    },
+    {
+      "company": "Max & Sons Roofing & Siding",
+      "location": "NJ"
+    },
+    {
+      "company": "Excel Contractors",
+      "location": ""
+    },
+    {
+      "company": "MSS Golden Const. USA Co. Inc.",
+      "location": ""
+    },
+    {
+      "company": "Sal Terranova",
+      "location": "NJ"
+    },
+    {
+      "company": "Up On The Roof Inc.",
+      "location": "NJ"
+    },
+    {
+      "company": "Tipp Roofing",
+      "location": "NY"
+    },
+    {
+      "company": "McCollum Roofing & Siding",
+      "location": "Wayne, NJ"
+    },
+    {
+      "company": "John's Roofing",
+      "location": "Passaic, Bergen & Essex, NJ"
+    },
+    {
+      "company": "Single Solution Construction",
+      "location": "NJ"
+    },
+    {
+      "company": "Tipperary Roofing",
+      "location": "NY"
+    },
+    {
+      "company": "Gerber Construction Corp.",
+      "location": "NY"
+    },
+    {
+      "company": "Tres Construction",
+      "location": "NY"
+    },
+    {
+      "company": "Alliance Tri-State Construction, Inc.",
+      "location": "NY"
+    },
+    {
+      "company": "All Weather Roofing & Waterproofing",
+      "location": ""
+    },
+    {
+      "company": "Top Notch Home Improvement",
+      "location": "NJ"
+    },
+    {
+      "company": "Valor Waterproofing Corp.",
+      "location": "220 45th St., Brooklyn, NY"
+    },
+    {
+      "company": "Bednarz Construction",
+      "location": "Fair Lawn, NJ"
+    },
+    {
+      "company": "Adams/Pop's Roofing",
+      "location": "453 West 54th Street, Suite 2A, NY, NY"
+    },
+    {
+      "company": "ATM Roofing Corp.",
+      "location": "NY"
+    },
+    {
+      "company": "Sudden Brothers",
+      "location": "NY"
+    },
+    {
+      "company": "Allstate Roofing",
+      "location": "NJ"
+    },
+    {
+      "company": "Segelman Roofing",
+      "location": "NY"
+    },
+    {
+      "company": "Bud Garlasco Builders",
+      "location": "NJ"
+    },
+    {
+      "company": "L & G Construction",
+      "location": "NJ"
+    },
+    {
+      "company": "Atkins Roofing",
+      "location": "NJ"
+    },
+    {
+      "company": "Accurate Roofing & Contracting",
+      "location": ""
+    },
+    {
+      "company": "R.S. Matland",
+      "location": ""
+    },
+    {
+      "company": "Professional Roofing, Inc.",
+      "location": "17-18 71st St., Brooklyn, NY"
+    },
+    {
+      "company": "All Season Construction & Roofing Corp.",
+      "location": "NY"
+    },
+    {
+      "company": "Golden Touch",
+      "location": ""
+    },
+    {
+      "company": "Grodno, LLC",
+      "location": "NJ"
+    },
+    {
+      "company": "Sunrise Roofing, Inc.",
+      "location": "NY"
+    },
+    {
+      "company": "Kodiak Construction L.L.C.",
+      "location": "NJ"
+    },
+    {
+      "company": "Alpine Roofing",
+      "location": "Wyckoff Avenue, Wyckoff, NJ"
+    },
+    {
+      "company": "Rescue Roofers Inc.",
+      "location": "CA"
+    },
+    {
+      "company": "CKG Roofing Inc.",
+      "location": "NJ"
+    },
+    {
+      "company": "Scymanski Enterprise",
+      "location": "NJ"
+    },
+    {
+      "company": "A.J.A. Building Co. LLC.",
+      "location": "NJ"
+    },
+    {
+      "company": "AAA Construction",
+      "location": "NY"
+    },
+    {
+      "company": "Gutter Gurus",
+      "location": "PA"
+    },
+    {
+      "company": "Vinyl House, LLC.",
+      "location": "CT"
+    },
+    {
+      "company": "Lucas Kent Home Improvement",
+      "location": "NY"
+    },
+    {
+      "company": "Ron Bianchi",
+      "location": "NJ"
+    },
+    {
+      "company": "De Vito's Home Improvement",
+      "location": "NY"
+    },
+    {
+      "company": "Shirk Landscape and Lawn Maintenance Company",
+      "location": "Paramus, NJ"
+    },
+    {
+      "company": "Marcelino Roofing",
+      "location": "NY"
+    },
+    {
+      "company": "Tonic Construction, Inc",
+      "location": "NY"
+    },
+    {
+      "company": "Dovcon Roofing & Construction Co. Inc.",
+      "location": "520 Rt., 17 South, Carlstadt, NJ"
+    },
+    {
+      "company": "AG & B Construction",
+      "location": ""
+    },
+    {
+      "company": "E & B Roofing & Home Improvement",
+      "location": "NY"
+    },
+    {
+      "company": "Manhattan Planter & Decking",
+      "location": "153 Park Side Rd., Plainfield, NJ"
+    },
+    {
+      "company": "Pro Roofing Inc.",
+      "location": "NY"
+    },
+    {
+      "company": "Danny's Roofing Corp.",
+      "location": "NY"
+    },
+    {
+      "company": "Gorman Roofing",
+      "location": ""
+    },
+    {
+      "company": "W.G. Siding & Roofing Inc.",
+      "location": "PA"
+    },
+    {
+      "company": "Elvin Contracting Co.",
+      "location": "Yonkers, NY"
+    },
+    {
+      "company": "Chris Thorne Masonry",
+      "location": "NJ"
+    },
+    {
+      "company": "Craig Roof Company, Inc.",
+      "location": "CA"
+    },
+    {
+      "company": "Pristine Painting Contractors - Pressure Cleaning Division",
+      "location": "FL"
+    },
+    {
+      "company": "NFC Aluminum, Inc.",
+      "location": "FL"
+    },
+    {
+      "company": "16 On Center",
+      "location": "NY"
+    },
+    {
+      "company": "Expert Leak Finder",
+      "location": ""
+    },
+    {
+      "company": "ERWIN Roofing & Construction, Inc.",
+      "location": "GA"
+    },
+    {
+      "company": "Peak Performance Construction., Inc.",
+      "location": "NY"
+    },
+    {
+      "company": "PMTC Contracting, Inc.",
+      "location": "NY"
+    },
+    {
+      "company": "Mercury Contracting",
+      "location": ""
+    },
+    {
+      "company": "JMMM, LLC: DBA All Professional Roofing",
+      "location": ""
+    },
+    {
+      "company": "Shem-Tov Roffing",
+      "location": ""
+    },
+    {
+      "company": "Jon Jus",
+      "location": "NY"
+    },
+    {
+      "company": "L & M Home Improvement, Inc.",
+      "location": "2177 70th Street, Brooklyn, NY"
+    },
+    {
+      "company": "Universal Construction Of DK, Inc.",
+      "location": "NY"
+    },
+    {
+      "company": "Alam Roofing & Waterproofing",
+      "location": "NY"
+    },
+    {
+      "company": "Ariola Construction, Inc.",
+      "location": "CT"
+    },
+    {
+      "company": "AJ Roofing & Infrared Inspection, Inc.",
+      "location": "CA"
+    },
+    {
+      "company": "Powell's Roofing",
+      "location": "NJ"
+    },
+    {
+      "company": "BILAL Home Improvement Corp.",
+      "location": "NY"
+    },
+    {
+      "company": "CGA Contracting",
+      "location": "NY"
+    },
+    {
+      "company": "J & R Painting, L.L.C.",
+      "location": "NJ"
+    },
+    {
+      "company": "Southern Roofing",
+      "location": "Atlanta, GA"
+    },
+    {
+      "company": "First Class Roofing",
+      "location": "NY"
+    },
+    {
+      "company": "Atlantic Roofing and Sheet Metal",
+      "location": "NY"
+    },
+    {
+      "company": "All Contractors Roofing and Construction Corp.",
+      "location": "NY"
+    },
+    {
+      "company": "",
+      "location": ""
+    },
+    {
+      "company": "",
+      "location": ""
+    },
+    {
+      "company": "",
+      "location": ""
+    },
+    {
+      "company": "",
+      "location": ""
+    },
+    {
+      "company": "",
+      "location": ""
+    }
+  ]
+}

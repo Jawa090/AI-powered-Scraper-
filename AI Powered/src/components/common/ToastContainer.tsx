@@ -21,11 +21,11 @@ export const ToastContainer: React.FC = () => {
 
         const iconColor =
           toast.type === 'success'
-            ? 'text-emerald-500'
+            ? 'text-green-500'
             : toast.type === 'error'
-            ? 'text-rose-500'
+            ? 'text-red-500'
             : toast.type === 'warning'
-            ? 'text-amber-500'
+            ? 'text-blue-500'
             : 'text-blue-500';
 
         return (
@@ -36,7 +36,7 @@ export const ToastContainer: React.FC = () => {
             <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconColor}`} />
             <div className="flex-1 min-w-0">
               <h4 className="text-xs font-semibold text-gray-900">{toast.title}</h4>
-              <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">{toast.message}</p>
+              <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">{typeof toast.message === 'string' ? toast.message : JSON.stringify(toast.message)}</p>
             </div>
             <button
               onClick={() => removeToast(toast.id)}

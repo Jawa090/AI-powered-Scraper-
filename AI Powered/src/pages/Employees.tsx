@@ -106,8 +106,8 @@ export const Employees: React.FC<EmployeesProps> = ({ onNavigate }) => {
                   <td className="py-3 px-3 text-right font-mono text-gray-900">{emp.assignedCount}</td>
                   <td className="py-3 px-3 text-right font-mono text-gray-700">{emp.completedCount}</td>
                   <td className="py-3 px-3 text-right font-mono text-blue-700 font-medium">{emp.callsCount}</td>
-                  <td className="py-3 px-3 text-right font-mono text-purple-700 font-medium">{emp.emailsCount}</td>
-                  <td className="py-3 px-3 text-right font-mono text-emerald-700 font-bold">{emp.interestedCount}</td>
+                  <td className="py-3 px-3 text-right font-mono text-blue-700 font-medium">{emp.emailsCount}</td>
+                  <td className="py-3 px-3 text-right font-mono text-green-700 font-bold">{emp.interestedCount}</td>
                   <td className="py-3 px-3 text-right font-mono text-gray-500">{emp.pendingCount}</td>
                   <td className="py-3 px-4 text-right">
                     <span className="font-mono font-bold text-gray-900">{emp.completionRate}%</span>

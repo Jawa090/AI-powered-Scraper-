@@ -1,0 +1,20 @@
+{
+  "source": "jwiz",
+  "mode": "live",
+  "ready": true,
+  "params": {
+    "limit": 2,
+    "timeout_s": 45,
+    "keyword": "roofing",
+    "city": "New York",
+    "us_state": "NY"
+  },
+  "found": 0,
+  "inserted": 0,
+  "updated": 0,
+  "unchanged": 0,
+  "failed": 0,
+  "skipped": 0,
+  "savedRecords": [],
+  "persistedAfterCommit": true
+}

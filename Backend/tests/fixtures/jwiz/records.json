@@ -1,0 +1,28 @@
+[
+  {
+    "company_name": "Empire State Roofing & Waterproofing",
+    "category": "Roofing Contractor",
+    "city": "Brooklyn",
+    "state": "NY",
+    "phone": "718-555-0155",
+    "email": "info@empireroofing.example.com",
+    "profile_url": "https://jwiz.com/profile/empire-state-roofing-brooklyn-ny",
+    "location_line": "Brooklyn, NY",
+    "lead_priority": "High",
+    "external_id": "https://jwiz.com/profile/empire-state-roofing-brooklyn-ny",
+    "source_url": "https://jwiz.com/profile/empire-state-roofing-brooklyn-ny"
+  },
+  {
+    "company_name": "Metro Mechanical & Plumbing Services",
+    "category": "Plumber",
+    "city": "Flushing",
+    "state": "NY",
+    "phone": "718-555-0188",
+    "email": "service@metromechanical.example.com",
+    "profile_url": "https://jwiz.com/profile/metro-mechanical-flushing-ny",
+    "location_line": "Flushing, NY",
+    "lead_priority": "Standard",
+    "external_id": "https://jwiz.com/profile/metro-mechanical-flushing-ny",
+    "source_url": "https://jwiz.com/profile/metro-mechanical-flushing-ny"
+  }
+]

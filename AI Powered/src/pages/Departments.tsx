@@ -69,7 +69,7 @@ export const Departments: React.FC<DepartmentsProps> = ({ onNavigate }) => {
                   <strong className="text-blue-700 font-mono">{dept.calledCount.toLocaleString()}</strong> calls
                 </span>
                 <span>
-                  <strong className="text-purple-700 font-mono">{dept.emailedCount.toLocaleString()}</strong> emails
+                  <strong className="text-blue-700 font-mono">{dept.emailedCount.toLocaleString()}</strong> emails
                 </span>
               </div>
             </div>

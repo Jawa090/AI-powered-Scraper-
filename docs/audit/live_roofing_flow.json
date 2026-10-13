@@ -1,0 +1,28 @@
+{
+  "database": "configured",
+  "syntheticRecordsWritten": false,
+  "requested": 10,
+  "slots": {
+    "city": "New York",
+    "source": null,
+    "category": "roofing companies",
+    "new_only": false,
+    "quantity": 10,
+    "us_state": "NY",
+    "has_email": false,
+    "has_phone": false,
+    "record_kind": "company",
+    "include_expired": false,
+    "fresh_within_days": null
+  },
+  "jobStatus": "Partial",
+  "sourceRecordsScanned": 1,
+  "returned": 1,
+  "shortfall": 9,
+  "queryId": "98191700-4c06-5d07-939c-b3a89a870ce7",
+  "jobId": "73727157-bfe0-42f0-9294-46dc3dc1f39d",
+  "reply": "Scrape status: **Partial**.\n\n- **Records requested:** 10\n- **Records found:** 1\n- **Records delivered:** 1\n- **Initial records delivered:** 0\n- **Request total delivered:** 1\n- **Error:** none reported\n\nOnly 1 of the 10 requested records was found and delivered, so the request fell short by 9 records. No error was reported.\n\nThe single delivered record:\n- **Company:** Adams/Pop's Roofing\n- **Category/Industry:** Roofing\n- **Location:** New York, NY\n- **Phone:** +12125810744\n- **Notes:** Specializing in roofing, waterproofing, concrete, painting, masonry and skylights\n- **Status:** New\n- **Source:** jwiz (https://jwiz.com/jewish/adamspops-roofing-17451.html)\n\nFields left empty on the record: name, title, dueAt, email, website, companySize, assignedTo, assignedToName, lastActivity.",
+  "snapshotMatches": true,
+  "correctTradeTypeAndLocation": true,
+  "passed": true
+}

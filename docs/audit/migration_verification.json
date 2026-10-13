@@ -1,0 +1,7 @@
+{
+  "freshMigration": true,
+  "rollbackReapply": true,
+  "legacyBackfill": true,
+  "rowsPreserved": true,
+  "revision": "20261007_delivery"
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "ref_number": "DAL-2026-001",
+    "title": "Roof Replacement for Dallas Public Library",
+    "status": "OPEN",
+    "close_date": "2026-11-30",
+    "issuing_organization": "City of Dallas",
+    "location": "Dallas, TX, USA",
+    "url": "https://dallascityhall.bonfirehub.com/opportunities/1001",
+    "description": "City of Dallas municipal procurement opportunity for Roof Replacement for Dallas Public Library.",
+    "contact_person": "Sarah Johnson",
+    "contact_title": "Senior Procurement Officer",
+    "contact_email": "s.johnson@dallascity.example.com",
+    "contact_phone": "+1-214-555-0144"
+  },
+  {
+    "ref_number": "DAL-2026-002",
+    "title": "HVAC Maintenance Services for City Hall",
+    "status": "OPEN",
+    "close_date": "2026-12-15",
+    "issuing_organization": "City of Dallas",
+    "location": "Dallas, TX, USA",
+    "url": "https://dallascityhall.bonfirehub.com/opportunities/1002",
+    "description": "City of Dallas municipal procurement opportunity for HVAC Maintenance Services.",
+    "contact_person": "Michael Davis",
+    "contact_title": "Contracts Specialist",
+    "contact_email": "m.davis@dallascity.example.com",
+    "contact_phone": "+1-214-555-0188"
+  }
+]

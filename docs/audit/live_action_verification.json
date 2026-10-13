@@ -1,0 +1,36 @@
+{
+  "realProvider": true,
+  "realBrowser": true,
+  "isolatedDatabase": true,
+  "controlledSourceRecords": true,
+  "initialRecords": 1,
+  "requestedAdditional": 2,
+  "pendingAction": true,
+  "proposal": {
+    "id": "c326c7da03ded057f48bcc46411381968340e6d3257ddc92ea1a295819f911d5",
+    "args": {
+      "city": "New York",
+      "source": "jwiz",
+      "category": "general contractor audit5613b755ac494051b2c60c7e2369cecc",
+      "new_only": true,
+      "quantity": 2,
+      "us_state": "NY",
+      "has_email": false,
+      "has_phone": false,
+      "record_kind": "company",
+      "include_expired": false,
+      "fresh_within_days": null
+    },
+    "source": "jwiz",
+    "query_id": "2a13be1e-3467-4851-b767-80d5905e2823",
+    "question": "Just to confirm before anything runs \u2014 I have **not** started this scrape yet. Here's exactly what's being proposed:\n\n- **Source:** jwiz\n- **Quantity:** 2 records\n- **Filters:**\n  - Category: general contractor (audit5613b755ac494051b2c60c7e2369cecc)\n  - City: New York\n  - State: NY\n  - Record kind: company\n  - Has email: No\n  - Has phone: No\n  - Fresh within days: none\n  - Include expired: No\n  - New only: Yes\n\nWould you like me to proceed with this scrape?",
+    "tool_call_id": "proposal-e19fe7fe7709450ea1a12155419451cf",
+    "criteria_hash": "ee0ba5845a657f8fc40186f09b988715e3a906a763b4a57566e20540ae64e125"
+  },
+  "actionButtonVisible": true,
+  "buttonClickQueuedJob": true,
+  "jobId": "b02b52ef-94fe-48ab-a56c-9ab6a80e4499",
+  "workerCompleted": true,
+  "twoNewRowsShownInChat": true,
+  "passed": true
+}

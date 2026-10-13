@@ -1,0 +1,6 @@
+{
+  "port": 8000,
+  "python": "3.11",
+  "backendLauncherId": 27660,
+  "supervised": true
+}

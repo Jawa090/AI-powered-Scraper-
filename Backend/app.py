@@ -5,84 +5,119 @@ and connects seamlessly with the frontend AI Agent Bot.
 
 Layer 13: Production Readiness, API Hardening & Health Monitoring.
 """
-
 import logging
-import os
-import sys
 import time
-from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request, Query
+import _paths
+from settings import settings
+
+from fastapi import FastAPI, HTTPException, Request, Query, Depends
+from fastapi.security import HTTPBearer
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-from sqlalchemy import text
 
-from database.connection import SessionLocal
-from scraper_manager import scraper_manager
-from execution.registry import SCRIPTS_REGISTRY
-from agents.orchestrator import agent_orchestrator
+from routes.admin import router as admin_router
 
-# Configure production logging
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+from utils.logging_config import setup_structured_logging, request_id_var
+setup_structured_logging()
+
+import sentry_sdk
+from utils.pii import mask_text as _mask_pii_text
+
+def _mask_sentry_pii(event, hint):
+    from utils.pii import mask_payload
+    return mask_payload(event)
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        send_default_pii=False,
+        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+        before_send=_mask_sentry_pii,
+        max_request_body_size="never",
+        include_local_variables=False,
+    )
+
 logger = logging.getLogger("dataops_backend")
+
+import asyncio
+from datetime import datetime, timezone, timedelta
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from Database.seed import seed
+    seed()
+    from agents.graph.checkpointer import setup_checkpointer
+    setup_checkpointer()
+    from services.worker_runtime import start_local_supervisor
+    worker_supervisor = start_local_supervisor()
+
+    yield
+    worker_supervisor.set()
+
+    try:
+        from agents.graph.checkpointer import pool
+        pool.close()
+    except Exception:
+        pass
 
 app = FastAPI(
     title="DataOps AI Extraction Backend",
     description="FastAPI service connecting DASNY, NYSCR, JWiz, and Dallas Bonfire scrapers with the AI Agent.",
     version="1.0.0",
+    lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
 
-# CORS configuration (Environment-configurable for production with dev fallback)
-CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS")
-ALLOWED_ORIGINS = (
-    [o.strip() for o in CORS_ORIGINS_ENV.split(",") if o.strip()]
-    if CORS_ORIGINS_ENV
-    else ["*"]
-)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ── Register routers ─────────────────────────────────────────────────────
+from routes.auth import router as auth_router
+from routes.admin import router as admin_router
+from routes.bot import router as bot_router
+from routes.rag_proxy import router as rag_proxy_router
+from routes.scripts import router as scripts_router
+from routes.jobs import router as jobs_router
+from routes.datasets import router as datasets_router
+from routes.leads import router as leads_router
 
-@app.on_event("startup")
-def fail_interrupted_jobs() -> None:
-    """
-    Jobs run on in-process threads, so anything still Queued/Running when the
-    server starts was killed by the previous shutdown. Close those out as
-    Failed instead of leaving them "Running" forever.
-    """
-    from database.models.dataset import Dataset  # noqa: PLC0415
-    from database.models.job import Job  # noqa: PLC0415
-    from services.job_service import JobService  # noqa: PLC0415
+app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
+app.include_router(admin_router)
+app.include_router(bot_router)
+app.include_router(rag_proxy_router)
+app.include_router(scripts_router)
+app.include_router(jobs_router)
+app.include_router(datasets_router)
+app.include_router(leads_router)
 
+import uuid
+
+@app.middleware("http")
+async def context_injection_middleware(request: Request, call_next):
+    # Generate and set request ID
+    req_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+    req_id_token = request_id_var.set(req_id)
+    
+    started = time.perf_counter()
     try:
-        with SessionLocal() as db:
-            stale = db.query(Job).filter(Job.status.in_(["Queued", "Running"])).all()
-            service = JobService(db)
-            for job in stale:
-                service.fail(job.id, "Interrupted: server restarted before the job finished", commit=False)
-                if job.dataset_id:
-                    ds = db.get(Dataset, job.dataset_id)
-                    if ds is not None and ds.status == "Running":
-                        ds.status = "Failed"
-            db.commit()
-            if stale:
-                logger.info("Marked %d interrupted job(s) as Failed", len(stale))
-    except Exception as exc:  # never block startup on housekeeping
-        logger.warning("Could not reconcile interrupted jobs: %s", exc)
+        response = await call_next(request)
+        response.headers['x-request-id'] = req_id
+        logger.info('request_complete', extra={'path': request.url.path, 'status': response.status_code,
+            'duration_ms': round((time.perf_counter() - started)*1000, 2)})
+        return response
+    finally:
+        request_id_var.reset(req_id_token)
+
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +132,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         loc = " -> ".join(str(l) for l in err.get("loc", []))
         errors.append(f"{loc}: {err.get('msg', 'Invalid value')}")
     logger.warning("Validation error on %s: %s", request.url.path, errors)
+    from fastapi.encoders import jsonable_encoder
     return JSONResponse(
         status_code=422,
         content={
@@ -104,10 +140,26 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "error": {
                 "code": "VALIDATION_ERROR",
                 "message": "; ".join(errors) or "Request validation failed.",
-                "details": exc.errors(),
+                "details": [{"type": err.get("type"), "loc": list(err.get("loc", [])), "message": err.get("msg")} for err in exc.errors()],
             },
         },
     )
+
+
+from agents.llm.chat_model import LLMUnavailable
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    content = exc.detail if isinstance(exc.detail, dict) and 'error' in exc.detail else {'detail': exc.detail}
+    return JSONResponse(status_code=exc.status_code, content=content, headers=exc.headers)
+
+
+@app.exception_handler(LLMUnavailable)
+async def llm_unavailable_exception_handler(request: Request, exc: LLMUnavailable):
+    """Handles LLM unavailable errors conforming to Decision D4 (HTTP 503)."""
+    logger.error("LLM unavailable (%s): %s", exc.reason, exc.detail)
+    return exc.to_response()
 
 
 @app.exception_handler(Exception)
@@ -127,61 +179,23 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 # ---------------------------------------------------------------------------
-# Pydantic Schemas
+# Health Check
 # ---------------------------------------------------------------------------
 
-class RunScriptRequest(BaseModel):
-    scriptId: str = Field(
-        ...,
-        min_length=1,
-        max_length=50,
-        description="ID of script to run: bonfire, dasny, jwiz, or nyscr",
-    )
-    parameters: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Custom parameters (limit, keyword, location, etc.)",
-    )
+@app.get("/health/llm")
+def llm_health(probe: bool = Query(False, description="Run probe call"), credentials=Depends(HTTPBearer(auto_error=False))):
+    """Return LLM provider configuration status (never exposes keys)."""
+    from agents.llm.chat_model import llm_health_check
+    if probe:
+        from services.auth import get_current_user
+        from Database.controller import session_scope
+        if not credentials:
+            raise HTTPException(401, 'Authentication is required for a provider probe.')
+        with session_scope() as db:
+            if get_current_user(credentials, db).role != 'admin':
+                raise HTTPException(403, 'Administrator access is required.')
+    return llm_health_check(probe_mode=probe)
 
-
-class BotChatRequest(BaseModel):
-    sessionId: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="Session identifier",
-    )
-    message: str = Field(
-        ...,
-        min_length=1,
-        max_length=10000,
-        description="User message text",
-    )
-    history: Optional[List[Dict[str, Any]]] = Field(
-        default=None,
-        description="Optional conversation history",
-    )
-    currentRequirement: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Optional current requirement state",
-    )
-
-
-class BotConfirmRequest(BaseModel):
-    sessionId: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="Session identifier",
-    )
-    requirement: Dict[str, Any] = Field(
-        ...,
-        description="Requirement dictionary",
-    )
-    preferredScriptId: Optional[str] = Field(
-        default=None,
-        max_length=50,
-        description="Optional preferred script identifier",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -193,11 +207,12 @@ class BotConfirmRequest(BaseModel):
 @app.get("/api/health", tags=["Health"])
 def health_check():
     """Liveness probe: confirms application process is running."""
+    from scrappers.controller import scraper_ids
     return {
         "status": "healthy",
         "service": "DataOps AI Backend",
         "timestamp": time.time(),
-        "registeredScripts": len(SCRIPTS_REGISTRY),
+        "registeredScripts": len(scraper_ids()),
     }
 
 
@@ -205,8 +220,10 @@ def health_check():
 def readiness_check():
     """Readiness probe: verifies active PostgreSQL connectivity."""
     try:
-        with SessionLocal() as db:
-            db.execute(text("SELECT 1"))
+        from Database.controller import session_scope
+        from sqlalchemy import text
+        with session_scope() as session:
+            session.execute(text("SELECT 1"))
         return {
             "status": "ready",
             "database": "connected",
@@ -219,116 +236,6 @@ def readiness_check():
             detail="Database service unavailable",
         )
 
-
-# ---------------------------------------------------------------------------
-# Script Management Endpoints
-# ---------------------------------------------------------------------------
-
-@app.get("/api/scripts", tags=["Scripts"])
-def list_scripts():
-    """Returns all 4 registered scraping scripts with live metadata."""
-    return {"scripts": scraper_manager.get_scripts()}
-
-
-@app.get("/api/scripts/{script_id}", tags=["Scripts"])
-def get_script_detail(script_id: str):
-    script = scraper_manager.get_script(script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail=f"Script '{script_id}' not found.")
-    return {"script": script}
-
-
-@app.post("/api/scripts/run", tags=["Scripts"])
-def run_script(req: RunScriptRequest):
-    """Triggers any of the 4 scripts in the background and returns a jobId."""
-    script = scraper_manager.get_script(req.scriptId)
-    if not script:
-        raise HTTPException(status_code=404, detail=f"Unknown script '{req.scriptId}'")
-
-    job_id = scraper_manager.create_job(req.scriptId, req.parameters)
-    return {
-        "success": True,
-        "message": f"Execution started for {script['name']}",
-        "jobId": job_id,
-        "scriptId": req.scriptId,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Job Execution & Progress Tracking
-# ---------------------------------------------------------------------------
-
-@app.get("/api/jobs", tags=["Jobs"])
-def list_jobs():
-    """Returns list of all scraper jobs (both active and completed)."""
-    return {"jobs": scraper_manager.get_jobs()}
-
-
-@app.get("/api/jobs/{job_id}", tags=["Jobs"])
-def get_job(job_id: str):
-    """Returns real-time status, progress, records count, and logs for a job."""
-    job = scraper_manager.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
-    return {"job": job}
-
-
-# ---------------------------------------------------------------------------
-# Leads and Datasets
-# ---------------------------------------------------------------------------
-
-@app.get("/api/datasets", tags=["Datasets"])
-def list_datasets():
-    """Returns datasets created from scraper runs."""
-    return {"datasets": scraper_manager.get_datasets()}
-
-
-@app.get("/api/leads", tags=["Leads"])
-def list_leads(
-    datasetId: Optional[str] = Query(None, description="Filter by dataset ID"),
-    query: Optional[str] = Query(None, description="Search keyword"),
-):
-    """Returns leads and opportunities extracted by scrapers."""
-    leads = scraper_manager.get_leads(dataset_id=datasetId, query=query)
-    return {"leads": leads, "total": len(leads)}
-
-
-# ---------------------------------------------------------------------------
-# AI Agent Bot Integration Endpoints — Layer 5 & 12: routed through AgentOrchestrator
-# ---------------------------------------------------------------------------
-
-@app.post("/api/bot/chat", tags=["AI Bot"])
-def bot_chat(req: BotChatRequest):
-    """
-    Multi-turn conversational agent endpoint.
-    Delegates fully to AgentOrchestrator which handles:
-      - Query normalization
-      - DB-first data availability decision
-      - Task decomposition & Multi-Agent Collaboration (Layer 12)
-      - Specialized Agent execution (Sales, Data, Research, Email, Growth)
-      - Session & message persistence
-      - Requirement tracking
-    Response is fully compatible with the React frontend BotChatResponse contract.
-    """
-    return agent_orchestrator.handle_message(
-        session_id=req.sessionId,
-        message=req.message,
-        current_requirement=req.currentRequirement,
-    )
-
-
-@app.post("/api/bot/confirm-and-generate", tags=["AI Bot"])
-def bot_confirm_and_generate(req: BotConfirmRequest):
-    """
-    Called when the user clicks 'Confirm & Generate Data' in the bot UI.
-    Delegates to AgentOrchestrator.confirm_and_generate which enforces the
-    execution boundary (Orchestrator → Job Service → Execution Layer → Scraper).
-    """
-    return agent_orchestrator.confirm_and_generate(
-        session_id=req.sessionId,
-        requirement_data=req.requirement,
-        preferred_script_id=req.preferredScriptId,
-    )
 
 
 if __name__ == "__main__":

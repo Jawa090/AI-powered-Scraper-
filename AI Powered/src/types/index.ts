@@ -1,14 +1,18 @@
-export type UserRole = 'admin' | 'manager' | 'sales' | 'email';
+export type UserRole = 'admin' | 'user';
 
 export interface User {
   id: string;
+  username?: string;
   name: string;
-  email: string;
+  email?: string;
   role: UserRole;
-  roleTitle: string;
-  departmentId: string;
-  departmentName: string;
-  avatar: string;
+  roleTitle?: string;
+  departmentId?: string;
+  departmentName?: string;
+  avatar?: string;
+  status?: string;
+  auth_source?: string;
+  builtIn?: boolean;
 }
 
 export interface Department {
@@ -58,7 +62,21 @@ export interface AgentTaskStep {
   executionOrder?: number;
 }
 
-export interface AgentMessage {
+export interface ScrapeOutcome {
+  timedOut?: boolean;
+  timeoutOptions?: { retrySource: string; recommendedSource?: string | null;
+    scrapers: { id: string; name: string; description: string; compatible: boolean }[] };
+  collectionCancelled?: boolean;
+  requestFulfilled?: boolean;
+  deliveryKind?: 'matched' | 'recovered';
+  matchingRecordsDelivered?: number;
+  requestedRecords?: number;
+  recoveredRecords?: number;
+  understoodRequest?: Record<string, any>;
+}
+
+export interface AgentMessage extends ScrapeOutcome {
+  showAllDetails?: boolean;
   id: string;
   sessionId: string;
   sender: 'user' | 'agent' | 'system';
@@ -76,6 +94,20 @@ export interface AgentMessage {
   agentsInvolved?: string[];
   agentSteps?: AgentTaskStep[];
   proposedActions?: ProposedAction[];
+  clientMessageId?: string;
+  is503?: boolean;
+  failedClientMessageId?: string;
+  failedText?: string;
+  records?: Lead[];
+  total?: number;
+  queryId?: string;
+  pendingAction?: any;
+  kb?: {
+    state?: string;
+    available?: boolean;
+    hits?: Array<{ chunkId?: string; documentId?: string; title?: string; content?: string; score?: number; [key: string]: any }>;
+    [key: string]: any;
+  };
 }
 
 export interface RequirementFields {
@@ -132,38 +164,44 @@ export type LeadStatus =
   | 'Converted';
 
 export interface Lead {
+  scrapedData?: Record<string, any>;
   id: string;
-  datasetId: string;
-  datasetName: string;
-  name: string;
-  company: string;
-  organizationName?: string;
-  title: string;
-  email: string;
-  phone: string;
-  location: string;
-  city?: string;
-  state?: string;
-  status: LeadStatus;
-  assignedTo: string;
-  assignedToId?: string;
-  assignedToName: string;
-  departmentId: string;
-  departmentName: string;
-  lastActivity: string;
-  notes?: string;
-  nextFollowUp?: string;
-  companySize?: string;
-  website?: string;
-  industry?: string;
-  linkedin?: string;
-  createdAt: string;
-  score?: number;
-  priority?: string;
-  sourceCode?: string;
-  qualityScore?: number;
-  emailVerified?: boolean;
-  phoneVerified?: boolean;
+  category?: string | null;
+  recordKind?: string | null;
+  sourceUrl?: string | null;
+  datasetId?: string | null;
+  datasetName?: string | null;
+  name?: string | null;
+  company?: string | null;
+  organizationName?: string | null;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  location?: string | null;
+  city?: string | null;
+  state?: string | null;
+  status?: LeadStatus | string | null;
+  assignedTo?: string | null;
+  assignedToId?: string | null;
+  assignedToName?: string | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  lastActivity?: string | null;
+  notes?: string | null;
+  nextFollowUp?: string | null;
+  dueAt?: string | null;
+  companySize?: string | null;
+  website?: string | null;
+  industry?: string | null;
+  linkedin?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  score?: number | null;
+  priority?: string | null;
+  sourceCode?: string | null;
+  qualityScore?: number | null;
+  emailVerified?: boolean | null;
+  phoneVerified?: boolean | null;
 }
 
 export interface Dataset {
@@ -316,14 +354,25 @@ export interface SystemStatus {
   error?: string | null;
 }
 
-export interface BotChatResponse {
+export interface BotChatResponse extends ScrapeOutcome {
+  showAllDetails?: boolean;
   reply: string;
-  suggestions: string[];
-  updatedRequirement: Requirement;
+  suggestions?: string[];
+  updatedRequirement?: Requirement;
   recommendedScript?: string | null;
   sessionId?: string;
   decision?: string;
   query?: any;
+  queryId?: string;
+  total?: number;
+  records?: Lead[];
+  pendingAction?: any;
+  kb?: {
+    state?: string;
+    available?: boolean;
+    hits?: Array<{ chunkId?: string; documentId?: string; title?: string; content?: string; score?: number; [key: string]: any }>;
+    [key: string]: any;
+  };
   agentCode?: string;
   handledBy?: string;
   agentResult?: any;
@@ -339,6 +388,102 @@ export interface BotConfirmResponse {
   success: boolean;
   jobId: string;
   scriptId: string;
-  datasetId: string;
+  datasetId: string | null;
   message: string;
 }
+
+export interface LlmUnavailableError {
+  code: 'LLM_UNAVAILABLE';
+  reason?: 'not_configured' | 'timeout' | 'auth_error' | 'rate_limited' | 'provider_error' | string;
+  message: string;
+}
+
+export interface ApiErrorResponse {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+    reason?: string;
+    details?: any;
+  };
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  username: string;
+  email?: string | null;
+  role: string;
+  status: string;
+  auth_source: string;
+  builtIn: boolean;
+}
+
+export interface AdminRequestItem {
+  id: string;
+  userId: string;
+  userName?: string | null;
+  sessionId?: string;
+  queryText?: string;
+  parameters?: Record<string, any>;
+  decision?: string;
+  status?: string;
+  jobId?: string | null;
+  recordsReturned?: number;
+  recordsNew?: number;
+  recordsUpdated?: number;
+  servedAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface AdminRequestDetail {
+  request: AdminRequestItem;
+  job?: {
+    id: string;
+    name?: string;
+    status: string;
+    progress: number;
+    scriptId: string;
+    recordsFound: number;
+    verifiedCount: number;
+    duplicatesCount: number;
+    errorMessage?: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+  } | null;
+  transcript: Array<{
+    id: string;
+    sender: string;
+    text: string;
+    toolTrace?: any;
+    createdAt?: string | null;
+  }>;
+  rowsServed: Array<{
+    leadId: string;
+    rank: number;
+    company?: string | null;
+    contact?: string | null;
+    title?: string | null;
+  }>;
+}
+
+export interface RagStatus {
+  state: string;
+  available: boolean;
+  message?: string;
+  documents?: number;
+  chunks?: number;
+  embeddingModel?: string;
+  dim?: number;
+  version?: string;
+}
+
+export interface RagDocument {
+  id: string;
+  title?: string;
+  content?: string;
+  chunksCount?: number;
+  createdAt?: string;
+  [key: string]: any;
+}
+

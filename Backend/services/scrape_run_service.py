@@ -10,10 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy.orm import Session
 
-from database.models.scrape_run import ScrapeRun
-from repositories.scrape_runs import ScrapeRunRepository
+from Database.models.scrape_run import ScrapeRun
 from services.base import BaseService
 
 
@@ -22,9 +20,9 @@ class ScrapeRunService(BaseService):
     Business service for managing scrape execution runs.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session) -> None:
         super().__init__(session)
-        self.scrape_run_repo = ScrapeRunRepository(session)
+        self.scrape_run_repo = self.repos.scrape_runs
 
     def get_by_id(self, run_id: str) -> Optional[ScrapeRun]:
         """Retrieve a scrape run by ID."""
@@ -163,8 +161,8 @@ class ScrapeRunService(BaseService):
     def fail(
         self,
         run_id: str,
-        error_message: str,
         *,
+        error_message: str,
         commit: bool = True,
     ) -> Optional[ScrapeRun]:
         """Mark a scrape run as Failed with error message."""

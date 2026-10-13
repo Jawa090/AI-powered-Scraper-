@@ -1,0 +1,21 @@
+{
+  "realProvider": true,
+  "isolatedDatabase": true,
+  "checks": [
+    {
+      "greeting": "hi",
+      "reply": "Hello! \ud83d\udc4b I'm here to help you find verified business leads, contractors, and procurement opportunities. To get started, please provide the following:\n\n- **Record type**: Companies/contractors or bid opportunities\n- **Trade/category**: e.g. roofing, HVAC, electrical (or say \"any category\")\n- **Location**: City and state (e.g. Dallas, TX) \u2014 or statewide (e.g. statewide NY)\n- **Quantity**: How many records you need\n- **Required contact fields**: Email, phone, both, or no contact requirement\n\n*Optional:*\n- **Preferred source**\n- **Freshness** (how recent the records should be)\n\nJust share these details and I'll find the best matches for you!",
+      "decision": "NONE",
+      "requirementsList": true,
+      "noSearchOrScrape": true
+    },
+    {
+      "greeting": "hello",
+      "reply": "Hello again! \ud83d\ude0a\n\nWhenever you're ready to start a data request, just share these details:\n\n- **Record type**: Companies/contractors or bid opportunities\n- **Trade/category**: e.g. roofing, HVAC, electrical (or say \"any category\")\n- **Location**: City and state (e.g. Dallas, TX) \u2014 or statewide (e.g. statewide NY)\n- **Quantity**: How many records you need\n- **Required contact fields**: Email, phone, both, or no contact requirement\n\n*Optional:*\n- **Preferred source**\n- **Freshness** (how recent the records should be)\n\nLet me know what you're looking for and I'll get right on it!",
+      "decision": "NONE",
+      "requirementsList": true,
+      "noSearchOrScrape": true
+    }
+  ],
+  "passed": true
+}
