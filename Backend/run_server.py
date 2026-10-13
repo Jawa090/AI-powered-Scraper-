@@ -4,7 +4,7 @@ Server runner for DataOps FastAPI backend.
 Complies with P1.1 and P1.3.
 """
 import _paths
-from settings import settings, BACKEND_DIR
+from settings import settings, BACKEND_DIR, PROJECT_ROOT
 import uvicorn
 
 if __name__ == "__main__":
