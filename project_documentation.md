@@ -152,7 +152,7 @@ RAG status distinguishes states such as not_configured, extension_missing, empty
 
 Use Python 3.11, Node.js 22.12 or newer, and PostgreSQL. Docker Compose uses PostgreSQL 16 with pgvector and a Selenium Chrome service.
 
-Backend settings are validated at startup. The loader uses DATAOPS_ENV_FILE when set, otherwise Backend/.env if present, otherwise the repository-root .env; example values are the base configuration and process environment overrides file values. RAG settings use DATAOPS_RAG_ENV_FILE, RAG/.env, or the repository-root .env.
+Backend settings are validated at startup. The loader uses DATAOPS_ENV_FILE when set, otherwise the repository-root .env in the main directory if present, otherwise Backend/.env; example values are the base configuration and process environment overrides file values. RAG settings use DATAOPS_RAG_ENV_FILE, the repository-root .env, or RAG/.env.
 
 Important settings include:
 

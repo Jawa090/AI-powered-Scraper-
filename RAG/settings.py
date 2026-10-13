@@ -11,14 +11,14 @@ from dotenv import load_dotenv
 
 RAG_DIR = Path(__file__).resolve().parent
 
-# Check for custom env file or local .env
+# Check for custom env file or main root .env
 _env_file = os.environ.get("DATAOPS_RAG_ENV_FILE")
 if _env_file and Path(_env_file).exists():
     load_dotenv(_env_file)
-elif (RAG_DIR / ".env").exists():
-    load_dotenv(RAG_DIR / ".env")
 elif (RAG_DIR.parent / ".env").exists():
     load_dotenv(RAG_DIR.parent / ".env")
+elif (RAG_DIR / ".env").exists():
+    load_dotenv(RAG_DIR / ".env")
 
 
 class ConfigError(Exception):
@@ -58,7 +58,18 @@ class RAGSettings:
         errors: List[str] = []
 
         # Database
-        self.RAG_DATABASE_URL: str = (raw.get("RAG_DATABASE_URL") or raw.get("DATABASE_URL") or "").strip()
+        rag_db = (raw.get("RAG_DATABASE_URL") or raw.get("DATABASE_URL") or "").strip()
+        if not rag_db:
+            db_user = raw.get("DB_USER") or raw.get("POSTGRES_USER")
+            db_pass = raw.get("DB_PASSWORD") or raw.get("POSTGRES_PASSWORD")
+            db_host = (raw.get("DB_HOST") or "localhost").strip()
+            db_port = (raw.get("DB_PORT") or "5432").strip()
+            db_name = (raw.get("DB_NAME") or raw.get("POSTGRES_DB") or "").strip()
+            if db_user and db_pass and db_name:
+                from urllib.parse import quote_plus
+                rag_db = f"postgresql+psycopg://{quote_plus(str(db_user))}:{quote_plus(str(db_pass))}@{db_host}:{db_port}/{db_name}"
+        self.RAG_DATABASE_URL: str = rag_db
+        self.DATABASE_URL: str = self.RAG_DATABASE_URL
         if not self.RAG_DATABASE_URL:
             errors.append("RAG_DATABASE_URL: required database connection string")
         elif not (self.RAG_DATABASE_URL.startswith("postgresql://") or self.RAG_DATABASE_URL.startswith("postgresql+psycopg://") or self.RAG_DATABASE_URL.startswith("sqlite://")):
