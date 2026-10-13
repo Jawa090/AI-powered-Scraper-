@@ -20,9 +20,9 @@ Run commands from the repository root. Activate a Python virtual environment fir
 python -m pip install -r Backend/requirements.txt -r RAG/requirements.txt
 ```
 
-The existing root `.env` is supported. Configuration precedence is process environment, the file named by `DATAOPS_ENV_FILE`, `Backend/.env` when present, otherwise the root `.env`, with example defaults underneath. An explicitly named missing file is an error. Avoid creating `Backend/.env` over an existing root configuration without copying the needed values.
+The central configuration is managed in the main root `.env` file. Configuration precedence is process environment, the file named by `DATAOPS_ENV_FILE`, the root `.env` in the main directory, and `Backend/.env` when present, with example defaults underneath. An explicitly named missing file is an error.
 
-For a new installation, copy `Backend/.env.example` to `Backend/.env` and configure:
+For configuration, configure the root `.env` in the main directory (or `Backend/.env` using `Backend/.env.example` as reference):
 
 - `DATABASE_URL=postgresql+psycopg://...` and `CHECKPOINT_DB_URL=postgresql://...`.
 - A `JWT_SECRET` of at least 32 characters. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.

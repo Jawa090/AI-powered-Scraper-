@@ -4,7 +4,17 @@ from settings import settings
 import requests
 from bs4 import BeautifulSoup
 
-def test_login(username, password):
+__test__ = False  # Prevent pytest from treating this script as a test suite
+
+
+def check_login(username=None, password=None):
+    username = username or getattr(settings, 'NYSCR_USERNAME', None) or os.getenv('NYSCR_USERNAME') or os.getenv('ny_USERNAME')
+    password = password or getattr(settings, 'NYSCR_PASSWORD', None) or os.getenv('NYSCR_PASSWORD') or os.getenv('ny_PASSWORD')
+
+    if not username or not password:
+        print("Skipping login check: username or password missing from configuration.")
+        return
+
     print(f"\n--- Testing login for {username} ---")
     session = requests.Session()
     session.headers.update({
@@ -48,5 +58,32 @@ def test_login(username, password):
         errors = [e.get_text(strip=True) for e in soup2.select('.text-danger, .validation-summary-errors')]
         print("Form errors:", [e for e in errors if e])
 
-test_login("Johnwood123", "Rush@123456789")
-test_login("kody2143", "TTHg6n*C7KuMES*")
+
+# Alias for backwards compatibility
+test_login = check_login
+
+
+def main():
+    creds_to_test = []
+    # Primary credentials
+    u1 = getattr(settings, 'NYSCR_USERNAME', None) or os.getenv('NYSCR_USERNAME') or os.getenv('ny_USERNAME')
+    p1 = getattr(settings, 'NYSCR_PASSWORD', None) or os.getenv('NYSCR_PASSWORD') or os.getenv('ny_PASSWORD')
+    if u1 and p1:
+        creds_to_test.append((u1, p1))
+
+    # Secondary credentials
+    u2 = getattr(settings, 'NYSCR_USERNAME_2', None) or os.getenv('NYSCR_USERNAME_2') or os.getenv('ny_USERNAME_2')
+    p2 = getattr(settings, 'NYSCR_PASSWORD_2', None) or os.getenv('NYSCR_PASSWORD_2') or os.getenv('ny_PASSWORD_2')
+    if u2 and p2 and (u2, p2) not in creds_to_test:
+        creds_to_test.append((u2, p2))
+
+    if not creds_to_test:
+        print("No NYSCR credentials found in settings or environment (.env).")
+        return
+
+    for u, p in creds_to_test:
+        check_login(u, p)
+
+
+if __name__ == "__main__":
+    main()

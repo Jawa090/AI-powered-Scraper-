@@ -238,6 +238,29 @@ def readiness_check():
 
 
 
+# ---------------------------------------------------------------------------
+# OpenAI-compatible /v1/models stub
+# ---------------------------------------------------------------------------
+# Some IDE extensions and OpenAI-compatible clients (Cursor, Continue.dev,
+# etc.) probe localhost:8000/v1/models expecting an OpenAI API.  Return the
+# configured LLM providers so the 404 noise disappears from the logs.
+
+@app.get("/v1/models", tags=["OpenAI Compat"])
+def list_models():
+    """Return configured LLM providers in the OpenAI list-models format."""
+    from agents.llm.chat_model import ProviderChain
+    data = []
+    for name, _prov, model, key, _base in ProviderChain()._candidates():
+        if key and model:
+            data.append({
+                "id": model,
+                "object": "model",
+                "created": 0,
+                "owned_by": name,
+            })
+    return {"object": "list", "data": data}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -3,7 +3,8 @@ Backend/tests/unit/test_settings.py — Unit tests for Settings configuration va
 Complies with P1.1.
 """
 import pytest
-from Backend.settings import Settings, ConfigError
+
+from Backend.settings import ConfigError, Settings
 
 
 def get_valid_config() -> dict:
@@ -142,3 +143,150 @@ def test_identical_admin_and_user_usernames():
     with pytest.raises(ConfigError) as exc_info:
         Settings(cfg)
     assert "must differ" in str(exc_info.value)
+
+
+@pytest.mark.unit
+def test_nyscr_credentials_loaded_and_aliased():
+    cfg = get_valid_config()
+    cfg["NYSCR_USERNAME"] = "testuser"
+    cfg["NYSCR_PASSWORD"] = "testpass"
+    cfg["NYSCR_USERNAME_2"] = "seconduser"
+    cfg["NYSCR_PASSWORD_2"] = "secondpass"
+    s = Settings(cfg)
+    assert s.NYSCR_USERNAME == "testuser"
+    assert s.NYSCR_PASSWORD == "testpass"
+    assert s.ny_USERNAME == "testuser"
+    assert s.ny_PASSWORD == "testpass"
+    assert s.NYSCR_USERNAME_2 == "seconduser"
+    assert s.NYSCR_PASSWORD_2 == "secondpass"
+    assert s.ny_USERNAME_2 == "seconduser"
+    assert s.ny_PASSWORD_2 == "secondpass"
+
+
+@pytest.mark.unit
+def test_nyscr_credentials_fallback_to_secondary():
+    cfg = get_valid_config()
+    cfg["NYSCR_USERNAME"] = ""
+    cfg["NYSCR_PASSWORD"] = ""
+    cfg["NYSCR_USERNAME_2"] = "fallbackuser"
+    cfg["NYSCR_PASSWORD_2"] = "fallbackpass"
+    s = Settings(cfg)
+    assert s.NYSCR_USERNAME == "fallbackuser"
+    assert s.NYSCR_PASSWORD == "fallbackpass"
+
+
+@pytest.mark.unit
+def test_db_connection_info_extracted_from_database_url():
+    cfg = get_valid_config()
+    cfg["DATABASE_URL"] = "postgresql+psycopg://myuser:mypass@myhost:5433/mydb"
+    cfg["CHECKPOINT_DB_URL"] = "postgresql://myuser:mypass@myhost:5433/mydb"
+    s = Settings(cfg)
+    assert s.DB_USER == "myuser"
+    assert s.DB_PASSWORD == "mypass"
+    assert s.DB_HOST == "myhost"
+    assert s.DB_PORT == 5433
+    assert s.DB_NAME == "mydb"
+
+
+@pytest.mark.unit
+def test_db_url_constructed_from_components():
+    cfg = get_valid_config()
+    cfg["DATABASE_URL"] = ""
+    cfg["CHECKPOINT_DB_URL"] = ""
+    cfg["DB_USER"] = "postgres"
+    cfg["DB_PASSWORD"] = "secret123"
+    cfg["DB_HOST"] = "localhost"
+    cfg["DB_PORT"] = "5432"
+    cfg["DB_NAME"] = "dataops"
+    s = Settings(cfg)
+    assert s.DATABASE_URL == "postgresql+psycopg://postgres:secret123@localhost:5432/dataops"
+    assert s.CHECKPOINT_DB_URL == "postgresql://postgres:secret123@localhost:5432/dataops"
+    assert s.DB_USER == "postgres"
+    assert s.DB_PASSWORD == "secret123"
+    assert s.POSTGRES_USER == "postgres"
+    assert s.POSTGRES_PASSWORD == "secret123"
+    assert s.POSTGRES_DB == "dataops"
+
+
+@pytest.mark.unit
+def test_db_url_constructed_from_postgres_prefixed_components():
+    cfg = get_valid_config()
+    cfg["DATABASE_URL"] = ""
+    cfg["CHECKPOINT_DB_URL"] = ""
+    cfg["POSTGRES_USER"] = "pguser"
+    cfg["POSTGRES_PASSWORD"] = "pgpass"
+    cfg["POSTGRES_DB"] = "pgdatabase"
+    s = Settings(cfg)
+    assert s.DATABASE_URL == "postgresql+psycopg://pguser:pgpass@localhost:5432/pgdatabase"
+    assert s.CHECKPOINT_DB_URL == "postgresql://pguser:pgpass@localhost:5432/pgdatabase"
+    assert s.DB_USER == "pguser"
+    assert s.DB_PASSWORD == "pgpass"
+    assert s.DB_NAME == "pgdatabase"
+
+
+@pytest.mark.unit
+def test_db_url_construction_escapes_special_characters():
+    cfg = get_valid_config()
+    cfg["DATABASE_URL"] = ""
+    cfg["CHECKPOINT_DB_URL"] = ""
+    cfg["DB_USER"] = "admin"
+    cfg["DB_PASSWORD"] = "p@ss#word!123"
+    cfg["DB_HOST"] = "db.internal"
+    cfg["DB_PORT"] = "5432"
+    cfg["DB_NAME"] = "app_db"
+    s = Settings(cfg)
+    assert s.DATABASE_URL == "postgresql+psycopg://admin:p%40ss%23word%21123@db.internal:5432/app_db"
+    assert s.CHECKPOINT_DB_URL == "postgresql://admin:p%40ss%23word%21123@db.internal:5432/app_db"
+    assert s.DB_PASSWORD == "p@ss#word!123"
+
+
+@pytest.mark.unit
+def test_ny_prefixed_credentials_fallback():
+    cfg = get_valid_config()
+    cfg["NYSCR_USERNAME"] = ""
+    cfg["NYSCR_PASSWORD"] = ""
+    cfg["ny_USERNAME"] = "ny_user"
+    cfg["ny_PASSWORD"] = "ny_pass"
+    s = Settings(cfg)
+    assert s.NYSCR_USERNAME == "ny_user"
+    assert s.NYSCR_PASSWORD == "ny_pass"
+    assert s.ny_USERNAME == "ny_user"
+    assert s.ny_PASSWORD == "ny_pass"
+
+
+@pytest.mark.unit
+def test_load_settings_prioritizes_root_env(monkeypatch, tmp_path):
+    import Backend.settings as s_mod
+    backend_dir = tmp_path / "Backend"
+    backend_dir.mkdir()
+    
+    # Base example config so required fields are present
+    base_lines = [f"{k}={v}" for k, v in get_valid_config().items()]
+    example_text = "\n".join(base_lines) + "\n"
+    (backend_dir / ".env.example").write_text(example_text, encoding="utf-8")
+
+    root_env = tmp_path / ".env"
+    root_env.write_text(
+        "DATABASE_URL=postgresql+psycopg://rootusr:rootpass@localhost:5432/rootdb\n"
+        "NYSCR_USERNAME=RootUser\n"
+        "NYSCR_PASSWORD=RootPassword123\n",
+        encoding="utf-8"
+    )
+    backend_env = backend_dir / ".env"
+    backend_env.write_text(
+        "DATABASE_URL=postgresql+psycopg://backendusr:backendpass@localhost:5432/backenddb\n"
+        "NYSCR_USERNAME=BackendUser\n"
+        "NYSCR_PASSWORD=BackendPassword123\n",
+        encoding="utf-8"
+    )
+    monkeypatch.setattr(s_mod, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(s_mod, "BACKEND_DIR", backend_dir)
+    monkeypatch.delenv("DATAOPS_ENV_FILE", raising=False)
+    monkeypatch.delenv("NYSCR_USERNAME", raising=False)
+    monkeypatch.delenv("NYSCR_PASSWORD", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    s = s_mod.load_settings()
+    assert s.NYSCR_USERNAME == "RootUser"
+    assert s.NYSCR_PASSWORD == "RootPassword123"
+    assert "rootdb" in s.DATABASE_URL

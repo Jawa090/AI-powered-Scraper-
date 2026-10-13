@@ -76,13 +76,59 @@ class Settings:
         errors: List[str] = []
 
         # Database
-        self.DATABASE_URL: str = (raw.get("DATABASE_URL") or "").strip()
+        db_url = (raw.get("DATABASE_URL") or "").strip()
+        if not db_url:
+            db_user = raw.get("DB_USER") or raw.get("POSTGRES_USER")
+            db_pass = raw.get("DB_PASSWORD") or raw.get("POSTGRES_PASSWORD")
+            db_host = (raw.get("DB_HOST") or "localhost").strip()
+            db_port = (raw.get("DB_PORT") or "5432").strip()
+            db_name = (raw.get("DB_NAME") or raw.get("POSTGRES_DB") or "").strip()
+            if db_user and db_pass and db_name:
+                from urllib.parse import quote_plus
+                db_url = f"postgresql+psycopg://{quote_plus(str(db_user))}:{quote_plus(str(db_pass))}@{db_host}:{db_port}/{db_name}"
+        self.DATABASE_URL: str = db_url
         if not self.DATABASE_URL.startswith("postgresql+psycopg://"):
             errors.append("DATABASE_URL: must start with 'postgresql+psycopg://'")
 
-        self.CHECKPOINT_DB_URL: str = (raw.get("CHECKPOINT_DB_URL") or "").strip()
+        chk_url = (raw.get("CHECKPOINT_DB_URL") or "").strip()
+        if not chk_url and self.DATABASE_URL.startswith("postgresql+psycopg://"):
+            chk_url = self.DATABASE_URL.replace("postgresql+psycopg://", "postgresql://", 1)
+        self.CHECKPOINT_DB_URL: str = chk_url
         if not self.CHECKPOINT_DB_URL.startswith("postgresql://"):
             errors.append("CHECKPOINT_DB_URL: must start with 'postgresql://'")
+
+        self.DB_USER: str = (raw.get("DB_USER") or raw.get("POSTGRES_USER") or "").strip()
+        self.DB_PASSWORD: str = raw.get("DB_PASSWORD") or raw.get("POSTGRES_PASSWORD") or ""
+        self.DB_HOST: str = (raw.get("DB_HOST") or "").strip()
+        self.DB_PORT: int = _parse_int(raw.get("DB_PORT"), "DB_PORT", errors, min_val=1, max_val=65535) if raw.get("DB_PORT") else 0
+        self.DB_NAME: str = (raw.get("DB_NAME") or raw.get("POSTGRES_DB") or "").strip()
+
+        if self.DATABASE_URL:
+            try:
+                from sqlalchemy.engine import make_url
+                parsed = make_url(self.DATABASE_URL)
+                if not self.DB_USER and parsed.username:
+                    self.DB_USER = parsed.username
+                if not self.DB_PASSWORD and parsed.password:
+                    self.DB_PASSWORD = parsed.password
+                if not self.DB_HOST and parsed.host:
+                    self.DB_HOST = parsed.host
+                if not self.DB_PORT and parsed.port:
+                    self.DB_PORT = parsed.port
+                if not self.DB_NAME and parsed.database:
+                    self.DB_NAME = parsed.database
+            except Exception:
+                pass
+
+        if not self.DB_HOST:
+            self.DB_HOST = "localhost"
+        if not self.DB_PORT:
+            self.DB_PORT = 5432
+
+        # Aliases for backward compatibility
+        self.POSTGRES_USER: str = self.DB_USER
+        self.POSTGRES_PASSWORD: str = self.DB_PASSWORD
+        self.POSTGRES_DB: str = self.DB_NAME
 
         self.ENVIRONMENT: str = (raw.get("ENVIRONMENT") or "").strip()
         if self.ENVIRONMENT not in ("development", "test", "production"):
@@ -171,6 +217,7 @@ class Settings:
         os.environ["LANGGRAPH_STRICT_MSGPACK"] = "true" if self.LANGGRAPH_STRICT_MSGPACK else "false"
 
         # RAG
+        self.RAG_DATABASE_URL: str = (raw.get("RAG_DATABASE_URL") or self.DATABASE_URL or "").strip()
         self.RAG_SERVICE_URL: str = (raw.get("RAG_SERVICE_URL") or "").strip()
         self.RAG_SERVICE_TOKEN: str = (raw.get("RAG_SERVICE_TOKEN") or "").strip()
         if self.RAG_SERVICE_URL and not self.RAG_SERVICE_TOKEN:
@@ -180,8 +227,19 @@ class Settings:
         self.RAG_TOP_K: int = _parse_int(raw.get("RAG_TOP_K"), "RAG_TOP_K", errors, min_val=1, max_val=20)
 
         # Scrapers / Worker
-        self.NYSCR_USERNAME: str = (raw.get("NYSCR_USERNAME") or raw.get("ny_USERNAME") or raw.get("ny_USERNAME_2") or "").strip()
-        self.NYSCR_PASSWORD: str = raw.get("NYSCR_PASSWORD") or raw.get("ny_PASSWORD") or raw.get("ny_PASSWORD_2") or ""
+        self.NYSCR_USERNAME: str = (raw.get("NYSCR_USERNAME") or raw.get("ny_USERNAME") or "").strip()
+        self.NYSCR_PASSWORD: str = raw.get("NYSCR_PASSWORD") or raw.get("ny_PASSWORD") or ""
+        self.NYSCR_USERNAME_2: str = (raw.get("NYSCR_USERNAME_2") or raw.get("ny_USERNAME_2") or "").strip()
+        self.NYSCR_PASSWORD_2: str = raw.get("NYSCR_PASSWORD_2") or raw.get("ny_PASSWORD_2") or ""
+        if not self.NYSCR_USERNAME and self.NYSCR_USERNAME_2:
+            self.NYSCR_USERNAME = self.NYSCR_USERNAME_2
+            self.NYSCR_PASSWORD = self.NYSCR_PASSWORD_2
+
+        # Aliases for backward compatibility
+        self.ny_USERNAME: str = self.NYSCR_USERNAME
+        self.ny_PASSWORD: str = self.NYSCR_PASSWORD
+        self.ny_USERNAME_2: str = self.NYSCR_USERNAME_2
+        self.ny_PASSWORD_2: str = self.NYSCR_PASSWORD_2
         self.NYSCR_HEADLESS: bool = _parse_bool(raw.get("NYSCR_HEADLESS", "false"), "NYSCR_HEADLESS", errors)
         self.NYSCR_MAX_PAGES: int = _parse_int(raw.get("NYSCR_MAX_PAGES", "20"), "NYSCR_MAX_PAGES", errors, min_val=1)
         self.NYSCR_VIEWER_URL: str = (raw.get("NYSCR_VIEWER_URL") or "").strip()
@@ -231,11 +289,16 @@ def load_settings() -> Settings:
         if not path.is_absolute():
             path = PROJECT_ROOT / path
     else:
-        path = BACKEND_DIR / ".env"
+        # Centralized configuration in root .env in the main project directory
+        path = PROJECT_ROOT / ".env"
         if not path.exists():
-            path = PROJECT_ROOT / ".env"
+            path = BACKEND_DIR / ".env"
 
-    raw = _read_env_file(BACKEND_DIR / ".env.example")
+    raw = {}
+    if (BACKEND_DIR / ".env.example").exists():
+        raw.update(_read_env_file(BACKEND_DIR / ".env.example"))
+    if (PROJECT_ROOT / ".env.example").exists():
+        raw.update(_read_env_file(PROJECT_ROOT / ".env.example"))
     if path.exists():
         raw.update(_read_env_file(path))
     elif env_file_override:

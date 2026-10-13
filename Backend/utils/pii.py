@@ -66,8 +66,17 @@ def mask_payload(value):
         import sys
         config = getattr(sys.modules.get('settings'), 'settings', None)
         if config:
-            for name in ['NYSCR_PASSWORD', 'NYSCR_USERNAME', 'JWT_SECRET', 'LLM_API_KEY', 'DEEPSEEK_API_KEY',
-                'GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'RAG_SERVICE_TOKEN', 'DATABASE_URL', 'CHECKPOINT_DB_URL']:
+            for name in [
+                'DB_PASSWORD', 'POSTGRES_PASSWORD',
+                'NYSCR_PASSWORD', 'NYSCR_USERNAME',
+                'NYSCR_PASSWORD_2', 'NYSCR_USERNAME_2',
+                'ny_PASSWORD', 'ny_USERNAME',
+                'ny_PASSWORD_2', 'ny_USERNAME_2',
+                'JWT_SECRET', 'LLM_API_KEY', 'DEEPSEEK_API_KEY',
+                'GEMINI_API_KEY', 'OPENROUTER_API_KEY',
+                'RAG_SERVICE_TOKEN', 'DATABASE_URL',
+                'CHECKPOINT_DB_URL', 'RAG_DATABASE_URL',
+            ]:
                 secret = getattr(config, name, '')
                 if secret and len(secret) >= 4:
                     value = value.replace(secret, '[redacted]')
