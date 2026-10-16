@@ -76,7 +76,10 @@ def test_greeting_is_model_written_with_requirements_and_without_tools(monkeypat
         assert 'Current Message: Greeting' in prompt
         for requirement in ('record type', 'trade/category', 'location (state, or statewide)', 'number of records', 'required contact fields'):
             assert requirement in prompt
-        assert 'city and state' not in prompt
+        # The greeting requirement list should ask for state, not city+state.
+        # The scraper catalog may mention city in descriptions—that's informational, not a requirement.
+        greeting_section = prompt.split('Current Message: Greeting')[1].split('## Available Scraper Sources')[0] if '## Available Scraper Sources' in prompt else prompt.split('Current Message: Greeting')[1]
+        assert 'city and state' not in greeting_section
         assert 'capabilities menu' in prompt
         return reply
     monkeypatch.setattr(agent, 'invoke_llm', invoke)

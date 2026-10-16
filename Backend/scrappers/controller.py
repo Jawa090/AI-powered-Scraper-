@@ -29,6 +29,7 @@ SCRAPER_PATHS = [
     "scrappers.dasny:DasnyScraper",
     "scrappers.jwiz:JWizScraper",
     "scrappers.nyscr:NyscrScraper",
+    "scrappers.GoogleMaps_Allcategories:GoogleMapsScrapper",
 ]
 
 REGISTERED_SCRAPERS: List[Type[BaseScraper]] = []
@@ -40,6 +41,7 @@ for path in SCRAPER_PATHS:
     try:
         mod = importlib.import_module(mod_path)
         cls = getattr(mod, cls_name)
+        scraper_id = getattr(getattr(cls, "meta", None), "id", scraper_id).lower()
         REGISTERED_SCRAPERS.append(cls)
     except Exception as e:
         logger.error(f"Failed to load scraper {scraper_id}: {e}")
@@ -190,6 +192,15 @@ def validate_params(scraper_id: str, raw: Union[Dict[str, Any], ScrapeParams]) -
         raise InvalidScrapeParams(f"{meta.name} requires a city or state before it can run. "
             "Ask the user for a search location; an unrestricted database search is still allowed.")
 
+    if getattr(meta, "requires_city", False) and not city:
+        raise InvalidScrapeParams(f"{meta.name} requires a city before it can run. Ask the user for the city.")
+
+    if getattr(meta, "supported_cities", None) and city:
+        city_lookup = {c.lower(): c for c in meta.supported_cities}
+        if city.lower() not in city_lookup:
+            raise InvalidScrapeParams(f"Requested City Data Not Avaliable: '{city}'. Available cities: {', '.join(meta.supported_cities)}")
+        city = city_lookup[city.lower()]
+
     if has_location_filter:
         cov_city = meta.coverage.get("city")
         cov_state = meta.coverage.get("state")
@@ -234,6 +245,8 @@ def describe_for_llm() -> List[Dict[str, Any]]:
             "coverage": meta.coverage,
             "supports": meta.supports,
             "requires_location": meta.requires_location,
+            "requires_city": getattr(meta, "requires_city", False),
+            "supported_cities": getattr(meta, "supported_cities", None),
             "fields": meta.fields,
             "ready": ready,
             "unready_reason": reason if not ready else None,
@@ -253,6 +266,8 @@ def to_api_dict(meta: ScraperMeta) -> Dict[str, Any]:
         "coverage": meta.coverage,
         "supports": meta.supports,
         "requiresLocation": meta.requires_location,
+        "requiresCity": getattr(meta, "requires_city", False),
+        "supportedCities": getattr(meta, "supported_cities", None),
         "fields": meta.fields,
         "defaultLimit": meta.default_limit,
         "maxLimit": meta.max_limit,

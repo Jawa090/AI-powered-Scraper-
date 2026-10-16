@@ -53,18 +53,29 @@ def _required_scrape_proposal(state):
                   if meta.record_kind == criteria.record_kind
                   and (not criteria.source or meta.id == criteria.source)]
     eligible = []
+    invalid_city_err = None
     for meta in candidates:
         if not check_ready(meta.id)[0]:
             continue
         try:
             validate_params(meta.id, {'limit': quantity, 'keyword': criteria.category,
-                                      'us_state': criteria.us_state})
-        except InvalidScrapeParams:
+                                      'us_state': criteria.us_state, 'city': criteria.city})
+        except InvalidScrapeParams as exc:
+            if "Requested City Data Not Avaliable" in str(exc):
+                invalid_city_err = (meta, str(exc))
             continue
         eligible.append(meta)
     # Respect an explicit source; otherwise use the first compatible ready adapter.
     # Its name and exact filters are shown before the user starts it.
     if not eligible:
+        if invalid_city_err:
+            return invalid_city_err
+        needs_city = [m for m in candidates if getattr(m, 'requires_city', False) and check_ready(m.id)[0]]
+        if needs_city and not criteria.city:
+            chosen = needs_city[0]
+            cov_state = chosen.coverage.get("state")
+            if not cov_state or not criteria.us_state or criteria.us_state == cov_state:
+                return chosen
         return None
     import uuid
     return AIMessage(content='', tool_calls=[{'id': 'proposal-' + uuid.uuid4().hex,
@@ -139,9 +150,24 @@ def call_model(state: AgentState) -> Dict[str, Any]:
                 {'id': 'detail-' + uuid.uuid4().hex, 'name': 'get_lead', 'args': {'lead_id': lid}} for lid in targets])],
                 'missing_requirements': [], 'requirements_met': True, 'tool_steps': state.get('tool_steps', 0) + 1}
         proposal = _required_scrape_proposal(working_state)
-        if proposal is not None:
+        if isinstance(proposal, AIMessage):
             return {**interpretation, 'messages': [proposal], 'missing_requirements': [],
                     'requirements_met': True, 'tool_steps': state.get('tool_steps', 0) + 1}
+        elif isinstance(proposal, tuple):
+            meta, err_msg = proposal
+            working_state['slots'] = dict(working_state.get('slots') or {})
+            working_state['slots']['source'] = meta.id
+            record_missing = [err_msg]
+            current_missing = [err_msg]
+            working_state['missing_requirements'] = [err_msg]
+        elif proposal is not None:
+            meta = proposal
+            working_state['slots'] = dict(working_state.get('slots') or {})
+            working_state['slots']['source'] = meta.id
+            req_city = f"city in {working_state['slots'].get('us_state') or 'the target location'} to scrape using {meta.name}"
+            record_missing = [req_city]
+            current_missing = [req_city]
+            working_state['missing_requirements'] = [req_city]
     system_text = build_system_prompt(working_state)
     system_msg = SystemMessage(content=system_text)
 

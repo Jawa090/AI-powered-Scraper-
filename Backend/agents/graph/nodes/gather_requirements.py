@@ -48,6 +48,15 @@ def missing_requirements(slots):
         missing.append('contact requirements: email, phone, both, or neither')
     if slots.get('needs_record_choice'):
         missing.append('which previously returned contractor/record you mean')
+    src = slots.get('source')
+    if src:
+        try:
+            from scrappers.controller import get_meta
+            meta = get_meta(src)
+            if getattr(meta, 'requires_city', False) and not slots.get('city'):
+                missing.append(f'city in {slots.get("us_state") or "the target location"} to scrape using {meta.name}')
+        except Exception:
+            pass
     return missing
 
 
@@ -88,6 +97,7 @@ def interpret_request(state):
         'General bid/opportunity/contract terms describe record_kind=opportunity, not a trade category. '
         'Roofing constructors means roofing companies. NY newyork means state NY. '
         'Every record request must specify record type, trade/category, location scope, quantity and contact requirements before any data action. '
+        'Extract city if the user specifies a city (e.g. Buffalo, Miami, Austin). '
         'Do not guess missing quantities, locations or contact preferences; use null for missing values. '
         'For explicit any category set category=null and category_specified=true; otherwise an absent category is unconfirmed. '
         'Set location_scope=statewide only when the user explicitly requests statewide coverage, or any for explicit any location. '
@@ -143,6 +153,7 @@ def interpret_request(state):
             if criteria.get('location_scope') in ('any', 'statewide'):
                 if criteria['location_scope'] == 'any':
                     supplied['us_state'] = None
+                    supplied['city'] = None
             criteria = {**previous, **supplied}
         new_only = bool(state.get('new_only') or result.additional_records
                         or (is_continuing and previous.get('new_only')))

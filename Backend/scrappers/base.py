@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 from pydantic import BaseModel, Field
-
+#from normalize import Normalize
 logger = logging.getLogger(__name__)
 
 
@@ -65,6 +65,8 @@ class ScraperMeta(BaseModel):
     supports: List[str] = Field(..., description="Supported filtering features: subset of ['limit', 'keyword', 'location']")
     fields: List[str] = Field(..., description="List of standard fields populated by this scraper")
     requires_location: bool = Field(default=False, description="A city, state or raw location is required to execute this source")
+    requires_city: bool = Field(default=False, description="Whether this scraper specifically requires a city to run")
+    supported_cities: Optional[List[str]] = Field(default=None, description="Optional list of supported city names")
     required_env: List[str] = Field(default_factory=list, description="Environment variable names required for operation")
     default_limit: int = Field(default=20, ge=1, description="Default record extraction limit")
     max_limit: int = Field(default=100, ge=1, description="Maximum record extraction limit")
@@ -77,7 +79,7 @@ class ScrapeParams(BaseModel):
     city: Optional[str] = None
     us_state: Optional[str] = None
     location: Optional[str] = None
-    timeout_s: int = Field(default=60, ge=1)
+    timeout_s: int = Field(default=60, ge=10)
 
 
 # ---------------------------------------------------------------------------
@@ -125,8 +127,8 @@ class StandardRecord(BaseModel):
     """Canonical lead/opportunity record produced by all scrapers."""
     source_code: str = Field(..., description="Lowercase source code, e.g. 'bonfire'")
     record_kind: str = Field(..., description="'opportunity' or 'company'")
-    external_id: Optional[str] = Field(default=None, description="Per-source unique identifier")
-    source_url: Optional[str] = Field(default=None, description="URL of the specific opportunity or company")
+    external_id: Optional[str] = Field(default=None, description="Per-source unique identifier, bid number, RFP/solicitation ID, or notice ID")
+    source_url: Optional[str] = Field(default=None, description="Direct permalink/URL to the specific bid, opportunity, or listing page")
     title: Optional[str] = Field(default=None, description="Title of the bid or business headline")
     description: Optional[str] = Field(default=None, description="Detailed text or scope description")
     organization_name: Optional[str] = Field(default=None, description="Issuing agency or company name")
@@ -134,12 +136,12 @@ class StandardRecord(BaseModel):
     contact_title: Optional[str] = Field(default=None, description="Point of contact job title")
     email: Optional[str] = Field(default=None, description="Contact email address")
     phone: Optional[str] = Field(default=None, description="Contact phone number")
-    website: Optional[str] = Field(default=None, description="Website URL")
+    website: Optional[str] = Field(default=None, description="General homepage URL of the organization, vendor, or agency")
     city: Optional[str] = Field(default=None, description="City name")
     us_state: Optional[str] = Field(default=None, description="2-letter US state code or full state")
     postal_code: Optional[str] = Field(default=None, description="ZIP or postal code")
-    category: Optional[str] = Field(default=None, description="Industry or category classification")
-    due_at: Optional[datetime] = Field(default=None, description="Bid submission deadline or closing timestamp")
+    category: Optional[str] = Field(default=None, description="Industry, commodity code, NAICS/NIGP code, or trade classification")
+    due_at: Optional[datetime] = Field(default=None, description="Bid submission deadline, closing date, or expiration timestamp (DO NOT map posted_date, publish_date, or start_date here)")
     extra: Dict[str, Any] = Field(default_factory=dict, description="Raw metadata or additional attributes")
 
 
@@ -174,11 +176,16 @@ class BaseScraper(ABC):
         """Execute extraction yielding raw dictionary records."""
         pass
 
-    @abstractmethod
-    def to_standard(self, raw: Dict[str, Any]) -> StandardRecord:
+    #@abstractmethod 
+    """this class is now virtual so that scrappers can 
+    just use the implementation given here or give their own implementation"""
+    def to_standard(self, raw: Dict[str, Any]) -> Optional[StandardRecord]:
         """Transform a raw source dictionary into a canonical StandardRecord."""
-        pass
-
+        from Backend.scrappers.normalize import normalizer
+        report = normalizer.create_map(raw)
+        return report
+        
+#this is the entry point where the system enters the scrapper.
     def run(self, params: ScrapeParams) -> Iterator[StandardRecord]:
         """High-level runner iterating over scrape() and converting via to_standard()."""
         try:

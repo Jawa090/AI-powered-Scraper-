@@ -12,5 +12,12 @@ export default defineConfig({
   server: {
     port: 3000,
     open: false,
+    allowedHosts: ['.ngrok-free.dev'],
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000', // Replace 8000 with your actual backend port
+        changeOrigin: true,
+      },
+    },
   },
 });

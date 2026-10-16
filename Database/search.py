@@ -23,6 +23,7 @@ def normalize_city(value: str | None) -> str | None:
 class SearchCriteria(BaseModel):
     category: str | None = None
     us_state: str | None = None
+    city: str | None = None
     record_kind: str | None = None
     quantity: int = Field(default=20, ge=1)
     has_email: bool = False
@@ -31,6 +32,11 @@ class SearchCriteria(BaseModel):
     fresh_within_days: int | None = Field(default=None, ge=1)
     include_expired: bool = False
     new_only: bool = False
+
+    @field_validator("city", mode="before")
+    @classmethod
+    def clean_city(cls, value):
+        return normalize_city(value)
 
     @field_validator("category", mode="before")
     @classmethod

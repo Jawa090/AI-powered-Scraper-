@@ -75,9 +75,10 @@ def build_system_prompt(state: AgentState) -> str:
         cat_lines = ["\n## Available Scraper Sources:"]
         for s in catalog:
             ready_str = "READY" if s.get("ready") else f"UNREADY ({s.get('unready_reason')})"
+            city_req = f", Requires city: {s.get('requires_city', False)}" if s.get('requires_city') else ""
             cat_lines.append(
                 f"- **{s['name']}** (`{s['id']}`): {s.get('description', '')} "
-                f"[{ready_str}] Coverage: {s.get('coverage')}, Supports: {s.get('supports')}, Requires location: {s.get('requires_location', False)}"
+                f"[{ready_str}] Coverage: {s.get('coverage')}, Supports: {s.get('supports')}, Requires location: {s.get('requires_location', False)}{city_req}"
             )
         sections.append("\n".join(cat_lines))
     except Exception as e:

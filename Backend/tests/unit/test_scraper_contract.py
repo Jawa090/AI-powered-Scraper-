@@ -39,11 +39,11 @@ class TestScraperContract:
             )
 
     def test_scraper_count(self):
-        """There should be exactly 4 registered scrapers."""
-        assert len(scraper_ids()) == 4
+        """There should be exactly 5 registered scrapers."""
+        assert len(scraper_ids()) == 5
 
     def test_known_scraper_ids(self):
         """Known scraper IDs should be present."""
         ids = set(scraper_ids())
-        expected = {"bonfire", "dasny", "jwiz", "nyscr"}
+        expected = {"bonfire", "dasny", "jwiz", "nyscr", "googlemaps"}
         assert expected == ids, f"Expected {expected}, got {ids}"

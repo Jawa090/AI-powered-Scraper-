@@ -24,6 +24,7 @@ from Database.models.action import AgentAction
 from Database.models.query_result import QueryResult
 from Database.models.lead_source import LeadSource
 from Database.models.session_event import SessionEvent
+from Database.models.scrapper_record_map import Scrapper_Record_Map
 
 __all__ = [
     "Department",
@@ -48,4 +49,6 @@ __all__ = [
     "QueryResult",
     "LeadSource",
     "SessionEvent",
+    "Scrapper_Record_Map",
+
 ]

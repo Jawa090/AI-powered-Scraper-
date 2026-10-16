@@ -22,7 +22,9 @@ import {
   RagDocument,
 } from '../types';
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+//const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
 const API_BASE = `${BASE_URL}/api`;
 const TOKEN_STORAGE_KEY = 'dataops_jwt_token';
 

@@ -69,10 +69,10 @@ def test_controller_fixture_mode_execution(scraper_id, monkeypatch):
 def test_controller_describe_and_to_api_dict():
     """Verify describe_for_llm and to_api_dict output structure and completeness."""
     ids = scraper_ids()
-    assert set(ids) == {"bonfire", "dasny", "jwiz", "nyscr"}
+    assert set(ids) == {"bonfire", "dasny", "jwiz", "nyscr", "googlemaps"}
 
     all_meta = list_scrapers()
-    assert len(all_meta) == 4
+    assert len(all_meta) == 5
 
     for meta in all_meta:
         api_dict = to_api_dict(meta)
@@ -95,10 +95,10 @@ def test_sync_sources_creates_rows():
     session.query.return_value.filter.return_value.first.return_value = None
 
     synced = sync_sources(session)
-    assert len(synced) == 4
+    assert len(synced) == 5
     synced_codes = {s.code for s in synced}
-    assert synced_codes == {"bonfire", "dasny", "jwiz", "nyscr"}
-    assert session.add.call_count == 4
+    assert synced_codes == {"bonfire", "dasny", "jwiz", "nyscr", "googlemaps"}
+    assert session.add.call_count == 5
     session.flush.assert_called_once()
 
 
@@ -150,6 +150,15 @@ def test_validate_params_location_handling():
 
     with pytest.raises(InvalidScrapeParams, match="NY, not TX"):
         validate_params("nyscr", {"us_state": "TX"})
+
+    # Google Maps: requires city and location
+    with pytest.raises(InvalidScrapeParams, match="requires a city before it can run"):
+        validate_params("googlemaps", {"us_state": "FL"})
+    with pytest.raises(InvalidScrapeParams, match="Requested City Data Not Avaliable"):
+        validate_params("googlemaps", {"city": "NonExistentCityXYZ", "us_state": "FL"})
+    p_gmaps = validate_params("googlemaps", {"city": "Miami", "us_state": "FL"})
+    assert p_gmaps.city == "Miami"
+    assert p_gmaps.us_state == "FL"
 
 
 @pytest.mark.unit

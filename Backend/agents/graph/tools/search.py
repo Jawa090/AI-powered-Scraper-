@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @tool
 def search_leads(
-    category: Optional[str] = None, us_state: Optional[str] = None,
+    category: Optional[str] = None, us_state: Optional[str] = None, city: Optional[str] = None,
     has_email: Optional[bool] = None, has_phone: Optional[bool] = None,
     source: Optional[str] = None, quantity: Optional[int] = None,
     fresh_within_days: Optional[int] = None, include_expired: Optional[bool] = None,
@@ -50,7 +50,7 @@ def search_leads(
     if (st.get('slots') or {}).get('detail_record_ids'):
         return Command(update={'messages': [ToolMessage(content='Use get_lead for the referenced records; do not search for replacements.', tool_call_id=tool_call_id)]})
     values = SearchCriteria.from_slots(st.get('slots') if authoritative else {} if reset_filters else st.get('slots')).model_dump()
-    for key, value in {'category': category, 'us_state': us_state,
+    for key, value in {'category': category, 'us_state': us_state, 'city': city,
         'has_email': has_email, 'has_phone': has_phone, 'source': source,
         'quantity': quantity, 'fresh_within_days': fresh_within_days,
         'include_expired': include_expired, 'record_kind': record_kind}.items():
@@ -78,7 +78,7 @@ def search_leads(
 
 
 @tool
-def count_leads(category: Optional[str] = None, us_state: Optional[str] = None,
+def count_leads(category: Optional[str] = None, us_state: Optional[str] = None, city: Optional[str] = None,
     has_email: Optional[bool] = None, has_phone: Optional[bool] = None, source: Optional[str] = None,
     record_kind: Optional[str] = None, fresh_within_days: Optional[int] = None,
     include_expired: Optional[bool] = None, reset_filters: bool = False,
@@ -95,7 +95,7 @@ def count_leads(category: Optional[str] = None, us_state: Optional[str] = None,
     if missing:
         return {'error': 'Requirements incomplete', 'missingRequirements': missing}
     values = SearchCriteria.from_slots((state or {}).get('slots') if authoritative else {} if reset_filters else (state or {}).get('slots')).model_dump()
-    for key, value in {'category': category, 'us_state': us_state, 'has_email': has_email,
+    for key, value in {'category': category, 'us_state': us_state, 'city': city, 'has_email': has_email,
         'has_phone': has_phone, 'source': source, 'record_kind': record_kind,
         'fresh_within_days': fresh_within_days, 'include_expired': include_expired}.items():
         if value is not None and not authoritative:

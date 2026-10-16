@@ -42,8 +42,8 @@ def enqueue_job(state: AgentState) -> Dict[str, Any]:
 
     source = proposal.get("source") or args.get("source", "")
     category = args.get("category")
-    city = args.get("city")
-    us_state = args.get("us_state")
+    city = args.get("city") or (state.get("slots") or {}).get("city")
+    us_state = args.get("us_state") or (state.get("slots") or {}).get("us_state")
     qty = args.get("quantity")
     if qty is None:
         qty=100

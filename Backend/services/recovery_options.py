@@ -12,7 +12,7 @@ def timeout_options(slots, failed_source):
         compatible = ready and meta.record_kind == criteria.record_kind
         try:
             validate_params(meta.id, {'limit': 1, 'keyword': criteria.category,
-                'us_state': criteria.us_state})
+                'us_state': criteria.us_state, 'city': criteria.city})
         except InvalidScrapeParams:
             compatible = False
         coverage = meta.coverage or {}
