@@ -15,8 +15,11 @@ from pathlib import Path
 class Scrapper_Record_Map_Repository(BaseRepository[Scrapper_Record_Map]):
     model=Scrapper_Record_Map
 
-def save_map():
-    ''
-    pass
-def get_map(map):
-    pass
+    @staticmethod
+    def save_map(map_dict=None):
+        ''
+        pass
+
+    @staticmethod
+    def get_map(map_dict=None):
+        pass

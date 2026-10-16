@@ -1,3 +1,4 @@
+from markdown_it.common import normalize_url
 from __future__ import annotations
 
 import logging
