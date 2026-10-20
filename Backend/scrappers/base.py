@@ -1,5 +1,5 @@
 from __future__ import annotations
-from markdown_it.common import normalize_url
+#from markdown_it.common import normalize_url
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
