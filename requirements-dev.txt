@@ -434,3 +434,5 @@ zstandard==0.25.0
     # via
     #   -r requirements.txt
     #   langsmith
+playwright>=1.40.0
+    #playwright for scrappers
