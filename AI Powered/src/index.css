@@ -77,3 +77,13 @@
 .dark .bg-gray-50 {
   background-color: #111827 !important; /* gray-900 */
 }
+
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark textarea,
+.dark select {
+  color: #ffffff;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #9ca3af;
+}

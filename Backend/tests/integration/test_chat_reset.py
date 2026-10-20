@@ -154,7 +154,7 @@ def test_timeout_persists_dump_and_reports_recovery_even_when_ai_unavailable(mon
     result=runner.run_event_turn(sid,jid)
     assert result['timedOut'] and not result['requestFulfilled']
     assert len(result['records'])==0 and len(result['timeoutOptions']['scrapers'])==5
-    assert result['timeoutOptions']['recommendedSource'] is None
+    assert result['timeoutOptions']['recommendedSource'] == 'googlemaps'
     assert 'rerun' in result['reply'] and 'five minutes' in result['reply']
     with session_scope() as db:
         assert db.get(Job,jid).status == ('Partial' if count else 'Failed')

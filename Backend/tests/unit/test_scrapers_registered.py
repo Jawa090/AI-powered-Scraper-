@@ -19,6 +19,7 @@ IGNORED_FILES = {
     "_template.py",
     "utils.py",
     "bonfire_parser.py",
+    "normalize.py",
 }
 
 
