@@ -1,9 +1,14 @@
 """Canonical search criteria shared by chat, completion and persistence."""
+from google.genai._gaos.types.credentials import environmentvariableupdateconfig
 import hashlib
 import json
 import re
 from pydantic import BaseModel, Field, field_validator
 from Database.normalize import normalize_state
+import sys
+from pathlib import Path
+
+dir=Path(__file__).resolve().parent.parent
 
 
 def category_terms(value):
@@ -55,8 +60,25 @@ class SearchCriteria(BaseModel):
     @field_validator("source", mode="before")
     @classmethod
     def clean_source(cls, value):
-        return 'nyscr' if str(value).casefold() == 'ny' else str(value).strip().casefold() if value else None
-
+        #return 'nyscr' if str(value).casefold() == 'ny' else str(value).strip().casefold() if value else None
+        if not value:
+            return None
+        raw = str(value).strip().casefold()
+        if raw == "ny":
+            return "nyscr"
+        compact = re.sub(r"[^a-z0-9]", "", raw)
+        compact_no_suffix = re.sub(r"(scrappers?|scrapers?)$", "", compact)
+        try:
+            from Backend.scrappers.controller import list_scrapers
+            for meta in list_scrapers():
+                mid = meta.id.casefold()
+                mname = re.sub(r"(scrappers?|scrapers?)$", "", re.sub(r"[^a-z0-9]", "", meta.name.casefold()))
+                if compact in (mid, mname) or compact_no_suffix in (mid, mname):
+                    return meta.id
+        except Exception:
+            pass
+        return compact_no_suffix or compact or raw
+    
     @field_validator("us_state", mode="before")
     @classmethod
     def clean_state(cls, value):

@@ -25,11 +25,11 @@ from scrappers.utils import state_code, to_json_safe
 logger = logging.getLogger(__name__)
 
 SCRAPER_PATHS = [
+    "scrappers.GoogleMaps_Allcategories:GoogleMapsScrapper",
     "scrappers.bonfire:BonfireScraper",
     "scrappers.dasny:DasnyScraper",
     "scrappers.jwiz:JWizScraper",
     "scrappers.nyscr:NyscrScraper",
-    "scrappers.GoogleMaps_Allcategories:GoogleMapsScrapper",
 ]
 
 REGISTERED_SCRAPERS: List[Type[BaseScraper]] = []
@@ -196,10 +196,20 @@ def validate_params(scraper_id: str, raw: Union[Dict[str, Any], ScrapeParams]) -
         raise InvalidScrapeParams(f"{meta.name} requires a city before it can run. Ask the user for the city.")
 
     if getattr(meta, "supported_cities", None) and city:
+        import re
         city_lookup = {c.lower(): c for c in meta.supported_cities}
-        if city.lower() not in city_lookup:
+        compact_lookup = {re.sub(r"[^a-z0-9]", "", c.lower()): c for c in meta.supported_cities}
+        for c in meta.supported_cities:
+            if c.lower().endswith(" city"):
+                base = c.lower()[:-5].strip()
+                city_lookup.setdefault(base, c)
+                compact_lookup.setdefault(re.sub(r"[^a-z0-9]", "", base), c)
+        clean_c = city.lower().strip()
+        compact_c = re.sub(r"[^a-z0-9]", "", clean_c)
+        matched = city_lookup.get(clean_c) or compact_lookup.get(compact_c)
+        if not matched:
             raise InvalidScrapeParams(f"Requested City Data Not Avaliable: '{city}'. Available cities: {', '.join(meta.supported_cities)}")
-        city = city_lookup[city.lower()]
+        city = matched
 
     if has_location_filter:
         cov_city = meta.coverage.get("city")

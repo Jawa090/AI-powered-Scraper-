@@ -1,3 +1,4 @@
+from sqlalchemy import true
 from pathlib import Path
 import sys
 root_dir=Path(__file__).resolve().parent.parent.parent
@@ -8,6 +9,9 @@ from dotenv import load_dotenv
 import os
 import json
 from openai import OpenAI
+import pandas as pd
+from typing import Optional, Any
+
 
 load_dotenv()
 
@@ -28,9 +32,15 @@ class Normalize():
                 base_url=os.getenv("LLM_BASE_URL")
             )
             self._initialized = True
-
+    def map_exists(self,scrapper_code):
+        if Scrapper_Record_Map_Repository.check_if_map_exists(scrapper_code):
+            return True
+        else:
+            return False
     def create_map(self, raw_datapoint):
         # this creates the map and passes it to the DB for storage, also views it 
+        """The raw data needs to contain a record type column
+        and source code"""
         print("Raw data\n")
         print(raw_datapoint)
         standard_schema = StandardRecord.model_json_schema()["properties"]
@@ -62,14 +72,96 @@ class Normalize():
         map_dict = json.loads(response.choices[0].message.content)
         print("Map\n")
         print(map_dict)
-        Scrapper_Record_Map_Repository.get_map(map_dict)
-        return "data record gotton and saved in db"
+        code=raw_datapoint.get("source_code")
+        print(code)
+        Scrapper_Record_Map_Repository.get_map(map_dict,code)
+        return map_dict
 
-    def normalize_data(self):
-        # Normalize raw data based on the MAP in DB
-        pass
+    def get_map_from_db(self,scrapper_code):
+        map= Scrapper_Record_Map_Repository. get_scrapper_map_from_db(scrapper_code)
+        if map is None:
+            raise ValueError("No Map returned by DB")
+        return map
+    def normalize_data(
+        self, field_map: Optional[dict[str, str]], raw: Optional[dict[str, Any]]
+    ) -> Optional[StandardRecord]:
+        """
+        Normalize a raw scraped datapoint into a canonical StandardRecord
+        using the LLM/DB-generated mapping.
+        """
+        if not raw or not isinstance(raw, dict):
+            return None
+
+        # Determine StandardRecord valid field names (Pydantic v1 & v2 compatible)
+        std_fields = (
+            set(StandardRecord.model_fields.keys())
+            if hasattr(StandardRecord, "model_fields")
+            else set(StandardRecord.__fields__.keys())
+        )
+
+        data: dict[str, Any] = {}
+        mapped_raw_keys: set[str] = set()
+
+        # 1. Map canonical fields according to field_map
+        if isinstance(field_map, dict):
+            for std_key, raw_key in field_map.items():
+                if (
+                    std_key in std_fields
+                    and std_key != "extra"
+                    and isinstance(raw_key, str)
+                    and raw_key in raw
+                ):
+                    if raw[raw_key] is not None:
+                        data[std_key] = raw[raw_key]
+                    mapped_raw_keys.add(raw_key)
+
+        # 2. Required field fallbacks if not mapped (track used fallback keys)
+        if not data.get("source_code"):
+            for candidate in ("source_code", "scrapper_code", "scraper_code"):
+                if raw.get(candidate):
+                    data["source_code"] = raw[candidate]
+                    mapped_raw_keys.add(candidate)
+                    break
+            else:
+                data["source_code"] = "unknown"
+        data["source_code"] = str(data["source_code"]).strip().lower()
+
+        if not data.get("record_kind"):
+            for candidate in ("record_kind", "record_type"):
+                if raw.get(candidate):
+                    data["record_kind"] = raw[candidate]
+                    mapped_raw_keys.add(candidate)
+                    break
+            else:
+                data["record_kind"] = "company"
+
+        # 3. Direct fallbacks for any standard field present in raw but unmapped/None
+        for std_key in std_fields:
+            if data.get(std_key) is None and std_key in raw and std_key != "extra":
+                data[std_key] = raw[std_key]
+                mapped_raw_keys.add(std_key)
+
+        # 4. Pack all remaining unmapped raw fields into `extra`
+        extra = dict(raw["extra"]) if isinstance(raw.get("extra"), dict) else {}
+        for raw_k, raw_v in raw.items():
+            if raw_k not in mapped_raw_keys and raw_k != "extra":
+                extra[raw_k] = raw_v
+
+        # Clean empty string due_at to avoid datetime validation error
+        if data.get("due_at") == "":
+            data["due_at"] = None
+
+        data["extra"] = extra
+        print("StandardRecord\n")
+        print(StandardRecord(**data))
+
+        return StandardRecord(**data)
 
 normalizer = Normalize()
 
 if __name__ == "__main__":
-    normalizer.create_map({})  
+    raw_data={}
+    excel_path=r"C:\Users\adil.zia\Desktop\Tasks\Task3\Google-Map-Scraping-Agent-for-Construction-Based-Projects-in-USA\ServicesFromGM.xlsx"
+    df=pd.read_excel(excel_path)
+    raw_data=df.iloc[165].to_dict()
+    normalizer.create_map(raw_data)  

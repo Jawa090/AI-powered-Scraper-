@@ -1,6 +1,5 @@
-from markdown_it.common import normalize_url
 from __future__ import annotations
-
+from markdown_it.common import normalize_url
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
@@ -143,7 +142,7 @@ class StandardRecord(BaseModel):
     postal_code: Optional[str] = Field(default=None, description="ZIP or postal code")
     category: Optional[str] = Field(default=None, description="Industry, commodity code, NAICS/NIGP code, or trade classification")
     due_at: Optional[datetime] = Field(default=None, description="Bid submission deadline, closing date, or expiration timestamp (DO NOT map posted_date, publish_date, or start_date here)")
-    extra: Dict[str, Any] = Field(default_factory=dict, description="Raw metadata or additional attributes")
+    extra: Dict[str, Any] = Field(default_factory=dict, description="A dictionary of all remaining unmapped keys from raw_datapoint that were not assigned to any other StandardRecord field. Both the key and the value MUST be the exact column/key name string from raw_datapoint (e.g. {'rating': 'rating','address': 'address'}). NEVER output the actual data values or nulls.")
 
 
 # Backwards compatibility alias
@@ -160,11 +159,11 @@ class BaseScraper(ABC):
     """Abstract base class for all modular scrapers."""
     meta: ScraperMeta
     headless_default: bool = True
-
     def __init__(self, ctx: Optional[ScrapeContext] = None, headless: Optional[bool] = None) -> None:
         self.ctx: ScrapeContext = ctx or NullScrapeContext()
         self._is_closed: bool = False
         self.headless: bool = headless if headless is not None else self.headless_default
+        self.cache_map:Optional[Dict[str,Any]] = None
 
     def check_cancel(self) -> None:
         """Raises JobCancelled if the context indicates the job should stop."""
@@ -183,8 +182,20 @@ class BaseScraper(ABC):
     def to_standard(self, raw: Dict[str, Any]) -> Optional[StandardRecord]:
         """Transform a raw source dictionary into a canonical StandardRecord."""
         from Backend.scrappers.normalize import normalizer
-        report = normalizer.create_map(raw)
-        return report
+        if self.cache_map is None:
+            self.cache_map=self.get_map(raw)
+        record=normalizer.normalize_data(self.cache_map,raw)
+        return record
+    def get_map(self,raw: Dict[str, Any]) -> Dict[str,Any]:
+        if self.cache_map is not None:
+            return self.cache_map
+        from Backend.scrappers.normalize import normalizer
+        scrapper_code=raw.get("source_code")
+        if normalizer.map_exists(scrapper_code):
+            map=normalizer.get_map_from_db(scrapper_code)
+        else:    
+            map = normalizer.create_map(raw)
+        return map
         
 #this is the entry point where the system enters the scrapper.
     def run(self, params: ScrapeParams) -> Iterator[StandardRecord]:

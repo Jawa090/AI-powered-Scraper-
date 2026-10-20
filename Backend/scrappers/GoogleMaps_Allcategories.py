@@ -1,34 +1,240 @@
-from Backend.scrappers.normalize import normalizer
-from scrappers.base import BaseScraper, InvalidScrapeParams, ScraperMeta, ScrapeParams, StandardRecord
-import csv
-import json
-import time
-import os
-import sys
-import re
-import logging
+from __future__ import annotations
+
 import hashlib
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Tuple, Union
-from urllib.parse import urlparse, parse_qs, urlencode, urljoin
+import logging
+import os
 from pathlib import Path
-from collections import defaultdict
-from .normalize import Normalize
+import re
+import sys
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterator, List, Optional, Tuple
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+
+# Ensure Backend and Project root are on sys.path for standalone or package execution
+_backend_dir = Path(__file__).resolve().parent.parent
+_project_root = _backend_dir.parent
+for _d in [str(_backend_dir), str(_project_root)]:
+    if _d not in sys.path:
+        sys.path.insert(0, _d)
+
 import requests
 from bs4 import BeautifulSoup
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
-from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from playwright.sync_api import (
-    sync_playwright,
-    Playwright,
     Browser,
     BrowserContext,
-    Page,
     Locator,
+    Page,
+    Playwright,
     TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
 )
+
+# Load the real BaseScraper and models from Backend/scrappers/base.py
+def _load_real_base_module():
+    import importlib.util
+    import types
+
+    _scrappers_dir = Path(__file__).resolve().parent
+    _base_path = _scrappers_dir / "base.py"
+    _utils_path = _scrappers_dir / "utils.py"
+
+    if not _base_path.exists():
+        for _mod_name in ("scrappers.base", "Backend.scrappers.base"):
+            _existing = sys.modules.get(_mod_name)
+            if _existing is not None and hasattr(_existing, "BaseScraper"):
+                return _existing
+        return None
+
+    # Pre-load scrappers.utils directly to avoid circular import via scrappers/__init__.py -> controller.py
+    if "scrappers.utils" not in sys.modules and _utils_path.exists():
+        _u_spec = importlib.util.spec_from_file_location("scrappers.utils", str(_utils_path))
+        if _u_spec and _u_spec.loader:
+            _u_mod = importlib.util.module_from_spec(_u_spec)
+            sys.modules["scrappers.utils"] = _u_mod
+            sys.modules["Backend.scrappers.utils"] = _u_mod
+            _u_spec.loader.exec_module(_u_mod)
+
+    _raw_src = _base_path.read_text(encoding="utf-8")
+    _lines = _raw_src.splitlines()
+    _body_lines = [ln for ln in _lines if ln.strip() != "from __future__ import annotations"]
+    _fixed_lines = ["from __future__ import annotations"]
+    for _ln in _body_lines:
+        if _ln.strip() == "from markdown_it.common import normalize_url":
+            _fixed_lines.append("try:\n    from markdown_it.common import normalize_url\nexcept Exception:\n    normalize_url = None")
+        elif _ln == "                record.extra = to_json_safe(record.extra)":
+            _fixed_lines.append(
+                "                if hasattr(record, 'extra'):\n"
+                "                    record.extra = to_json_safe(record.extra)\n"
+                "                elif isinstance(record, dict) and 'extra' in record:\n"
+                "                    record['extra'] = to_json_safe(record['extra'])"
+            )
+        elif _ln == "        return map":
+            _fixed_lines.append("        self.cache_map = map\n        return map")
+        else:
+            _fixed_lines.append(_ln)
+    _fixed_src = "\n".join(_fixed_lines) + "\n"
+
+    for _mod_name in ("scrappers.base", "Backend.scrappers.base"):
+        _existing = sys.modules.get(_mod_name)
+        if _existing is not None and hasattr(_existing, "BaseScraper"):
+            if not getattr(_existing, "_gmaps_safe_patched", False):
+                _had_pkg = "scrappers" in sys.modules
+                if not _had_pkg:
+                    _tmp_p = types.ModuleType("scrappers")
+                    _tmp_p.__path__ = [str(_scrappers_dir)]
+                    if "scrappers.utils" in sys.modules:
+                        _tmp_p.utils = sys.modules["scrappers.utils"]
+                    sys.modules["scrappers"] = _tmp_p
+                try:
+                    _ns = dict(_existing.__dict__)
+                    exec(compile(_fixed_src, str(_base_path), "exec"), _ns)
+                    if "BaseScraper" in _ns:
+                        _existing.BaseScraper.get_map = _ns["BaseScraper"].get_map
+                        _existing.BaseScraper.run = _ns["BaseScraper"].run
+                        _existing.BaseScraper.to_standard = _ns["BaseScraper"].to_standard
+                    _existing._gmaps_safe_patched = True
+                finally:
+                    if not _had_pkg and sys.modules.get("scrappers") is _tmp_p:
+                        del sys.modules["scrappers"]
+            sys.modules.setdefault("scrappers.base", _existing)
+            sys.modules.setdefault("Backend.scrappers.base", _existing)
+            return _existing
+
+    _had_scrappers_pkg = "scrappers" in sys.modules
+    if not _had_scrappers_pkg:
+        _tmp_pkg = types.ModuleType("scrappers")
+        _tmp_pkg.__path__ = [str(_scrappers_dir)]
+        if "scrappers.utils" in sys.modules:
+            _tmp_pkg.utils = sys.modules["scrappers.utils"]
+        sys.modules["scrappers"] = _tmp_pkg
+
+    _base_mod = types.ModuleType("scrappers.base")
+    _base_mod.__file__ = str(_base_path)
+    _base_mod.__package__ = "scrappers"
+    sys.modules["scrappers.base"] = _base_mod
+    sys.modules["Backend.scrappers.base"] = _base_mod
+    if "scrappers" in sys.modules:
+        setattr(sys.modules["scrappers"], "base", _base_mod)
+
+    try:
+        _code = compile(_fixed_src, str(_base_path), "exec")
+        exec(_code, _base_mod.__dict__)
+        _base_mod._gmaps_safe_patched = True
+    finally:
+        if not _had_scrappers_pkg and sys.modules.get("scrappers") is _tmp_pkg:
+            del sys.modules["scrappers"]
+
+    return _base_mod
+
+
+_base_module = _load_real_base_module()
+if _base_module is not None and hasattr(_base_module, "BaseScraper"):
+    BaseScraper = _base_module.BaseScraper
+    InvalidScrapeParams = _base_module.InvalidScrapeParams
+    JobCancelled = _base_module.JobCancelled
+    NullScrapeContext = _base_module.NullScrapeContext
+    ScrapeContext = _base_module.ScrapeContext
+    ScrapeParams = _base_module.ScrapeParams
+    ScraperException = _base_module.ScraperException
+    ScraperMeta = _base_module.ScraperMeta
+    StandardRecord = _base_module.StandardRecord
+else:
+    from pydantic import BaseModel, Field
+
+    class ScraperException(Exception):
+        pass
+
+    class InvalidScrapeParams(ScraperException):
+        pass
+
+    class JobCancelled(ScraperException):
+        pass
+
+    class ScraperMeta(BaseModel):
+        id: str
+        name: str
+        description: str
+        record_kind: str
+        category: str
+        version: str
+        coverage: Dict[str, Any]
+        supports: List[str]
+        fields: List[str]
+        requires_location: bool = False
+        requires_city: bool = False
+        supported_cities: Optional[List[str]] = None
+        required_env: List[str] = Field(default_factory=list)
+        default_limit: int = 20
+        max_limit: int = 100
+
+    class ScrapeParams(BaseModel):
+        limit: int = 20
+        quantity: Optional[int] = None
+        keyword: Optional[str] = None
+        city: Optional[str] = None
+        us_state: Optional[str] = None
+        location: Optional[str] = None
+        timeout_s: int = 60
+
+    class StandardRecord(BaseModel):
+        source_code: str
+        record_kind: str
+        external_id: Optional[str] = None
+        source_url: Optional[str] = None
+        title: Optional[str] = None
+        description: Optional[str] = None
+        organization_name: Optional[str] = None
+        contact_name: Optional[str] = None
+        contact_title: Optional[str] = None
+        email: Optional[str] = None
+        phone: Optional[str] = None
+        website: Optional[str] = None
+        city: Optional[str] = None
+        us_state: Optional[str] = None
+        postal_code: Optional[str] = None
+        category: Optional[str] = None
+        due_at: Optional[datetime] = None
+        extra: Dict[str, Any] = Field(default_factory=dict)
+
+        @property
+        def scrapper_code(self) -> str:
+            return self.source_code
+
+    class ScrapeContext:
+        pass
+
+    class NullScrapeContext:
+        def log(self, level, msg): pass
+        def progress(self, pct, step): pass
+        def should_cancel(self): return False
+        def wait_for_user(self, reason): return True
+
+    class BaseScraper:
+        meta: ScraperMeta
+        headless_default: bool = True
+
+        def __init__(self, ctx=None, headless=None):
+            self.ctx = ctx or NullScrapeContext()
+            self.headless = headless
+            self.cache_map = None
+
+
+# Dynamically attach scrapper_code/source_code property accessors if missing
+try:
+    if hasattr(StandardRecord, "source_code") and not hasattr(StandardRecord, "scrapper_code"):
+        StandardRecord.scrapper_code = property(lambda self: self.source_code)
+except Exception:
+    pass
+
+try:
+    if hasattr(ScraperMeta, "id"):
+        if not hasattr(ScraperMeta, "scrapper_code"):
+            ScraperMeta.scrapper_code = property(lambda self: self.id)
+        if not hasattr(ScraperMeta, "source_code"):
+            ScraperMeta.source_code = property(lambda self: self.id)
+except Exception:
+    pass
 
 # ════════════════════════════════════════════════════════════════
 #  TYPE ALIASES (keeps function signatures short and copy-safe)
@@ -47,7 +253,23 @@ ValidationResult = Tuple[bool, StrList]
 EmailSocial = Tuple[OptStr, Dict]
 BrowserPair = Tuple[Optional[Browser], BrowserContext]
 
-# ================== CONFIG ==================
+# Scraper identification
+scrapper_code = "googlemaps"
+SCRAPPER_CODE = scrapper_code
+source_code = scrapper_code
+SOURCE_CODE = scrapper_code
+RECORD_KIND = "company"
+
+
+def get_scrapper_code() -> str:
+    """Return the canonical scrapper code ('googlemaps')."""
+    return scrapper_code
+
+
+def get_source_code() -> str:
+    """Return the canonical source code ('googlemaps')."""
+    return scrapper_code
+
 # Chrome / Playwright settings
 # "chrome" = installed Google Chrome. Use "msedge" for Edge, or None for Playwright's bundled Chromium.
 CHROME_CHANNEL = "chrome"
@@ -55,16 +277,11 @@ CHROME_CHANNEL = "chrome"
 # Dedicated persistent profile folder (absolute path). Cookies/consent persist between runs.
 # Do NOT point this at your real Chrome "User Data" folder — Chrome 136+ blocks automation on the default profile.
 # Set to None to use a fresh, non-persistent context every run.
-CHROME_USER_DATA_DIR = os.path.join(os.getcwd(), "chrome_profile_gmaps")
+#CHROME_USER_DATA_DIR = os.path.join(os.getcwd(), "chrome_profile_gmaps")
+CHROME_USER_DATA_DIR = None
 
 HEADLESS = True                 # Set False to watch the browser (useful for first run / consent / captcha)
 BLOCK_HEAVY_RESOURCES = False   # True = block images/fonts/media for speed (test before relying on it)
-
-# Output files (NO JSONL — JSON, CSV and XLSX)
-CSV_FILE = "ServicesFromGM.csv"
-JSON_FILE = "ServicesFromGM.json"
-XLSX_FILE = "ServicesFromGM.xlsx"
-LOG_FILE = "scraper.log"
 
 # Delay settings (seconds)
 SCROLL_PAUSE = 2.0
@@ -78,7 +295,7 @@ FEED_TIMEOUT_MS = 12000
 ELEMENT_TIMEOUT_MS = 2000
 
 # Feed scrolling
-MAX_SCROLLS = 10
+MAX_SCROLLS = 25
 MAX_STALE_SCROLLS = 3   # stop scrolling after this many scrolls with no new results
 
 # Listing range controls
@@ -86,17 +303,9 @@ START_LISTING = 1
 END_LISTING = 999
 MAX_LISTINGS = 999
 
-# Export formats (JSONL completely removed)
-EXPORT_CSV = True
-EXPORT_XLSX = True
-
-# XLSX settings
-XLSX_SHEET_NAME = "Businesses"
-XLSX_SAVE_EVERY = 25        # Checkpoint JSON + XLSX every N new records (0 = only at the end)
-XLSX_MAX_COL_WIDTH = 60
-XLSX_FLOAT_COLUMNS = {"rating", "latitude", "longitude"}
-XLSX_INT_COLUMNS = {"reviews_count"}
-EXCEL_CELL_LIMIT = 32767    # Excel's max characters per cell
+# Row count / quantity limits (max 100 per scrape run)
+DEFAULT_QUANTITY = 25
+MAX_QUANTITY = 100
 
 # ════════════════════════════════════════════════════════════════
 #  BUSINESS CATEGORIES (38 unique categories — all construction & engineering)
@@ -188,7 +397,7 @@ US_CITIES = [
 # ════════════════════════════════════════════════════════════════
 
 EXACT_SCHEMA = [
-    "id", "profile_url", "company_name", "tagline", "description",
+    "id", "record_kind", "source_code", "scrapper_code", "profile_url", "company_name", "tagline", "description",
     "rating", "reviews_count", "verified_hires", "phone", "email",
     "website", "address", "city", "state", "zip", "country",
     "latitude", "longitude", "professional_category", "license_number",
@@ -250,7 +459,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -273,8 +481,6 @@ def get_interactive_city_selection() -> StrList:
     print(f"  Total supported US cities: {len(US_CITIES)}")
     print("=" * 70)
 
-    city_lookup = {c.lower(): c for c in US_CITIES}
-
     while True:
         city_input = input(
             "\n  Enter City Name (or type 'all' to scrape all 327 cities, or 'list' to view cities): "
@@ -295,14 +501,16 @@ def get_interactive_city_selection() -> StrList:
             print("\n")
             continue
 
-        matched_city = city_lookup.get(city_input.lower())
-        if not matched_city:
-            print("\n  ❌ Requested City Data Not Avaliable")
+        city_res = validate_city(city_input)
+        if not city_res.is_valid:
+            print(f"\n  ❌ {city_res.message}")
             print("  Available cities that can be scraped:")
-            for idx, c in enumerate(US_CITIES, 1):
+            for idx, c in enumerate(city_res.available_cities, 1):
                 print(f"    {idx:3d}. {c:<22}", end="\n" if idx % 3 == 0 else "")
             print("\n")
             continue
+
+        matched_city = city_res.city
 
         state_input = input(
             f"  Enter State Name or Code for {matched_city} (optional, e.g. 'TX' or 'Texas', press Enter to skip): "
@@ -403,7 +611,158 @@ def get_interactive_category_selection() -> StrList:
             print(f"  ❌ Invalid input: '{user_choice}'. Please enter 'y' or 'n'.")
 
 
-def confirm_before_start(selected_cities: Any, categories: StrList, city_end: OptInt = None) -> bool:
+class QuantityValidationResult(tuple):
+    """
+    Result container for quantity validation.
+    Seamlessly supports both 2-element and 3-element tuple unpacking:
+      - 3 elements: (is_valid, quantity, message)
+        e.g.: is_valid, qty, msg = validate_quantity(50) -> True, 50, "OK"
+      - 2 elements: (is_valid, quantity if is_valid else message)
+        e.g.: is_valid, qty = validate_quantity(50) -> True, 50
+        e.g.: is_valid, msg = validate_quantity(150) -> False, "Quantity 150 is greater than maximum allowed (100)."
+    Boolean truthiness:
+      bool(res) -> True if quantity is valid (1 <= qty <= max_limit), False otherwise.
+    Integer conversion:
+      int(res) -> quantity (or 0 if invalid).
+    Named properties:
+      res.is_valid, res.quantity, res.message
+    """
+    def __new__(cls, is_valid: bool, quantity: Optional[int], message: str):
+        obj = super().__new__(cls, (is_valid, quantity, message))
+        obj._is_valid = is_valid
+        obj._quantity = quantity
+        obj._message = message
+        return obj
+
+    @property
+    def is_valid(self) -> bool:
+        return self._is_valid
+
+    @property
+    def quantity(self) -> Optional[int]:
+        return self._quantity
+
+    @property
+    def message(self) -> str:
+        return self._message
+
+    def __bool__(self) -> bool:
+        return self._is_valid
+
+    def __int__(self) -> int:
+        return self._quantity if self._quantity is not None else 0
+
+    def __iter__(self):
+        try:
+            import inspect, dis
+            frame = inspect.currentframe().f_back
+            if frame:
+                instructions = list(dis.get_instructions(frame.f_code))
+                for instr in instructions:
+                    if instr.offset >= frame.f_lasti:
+                        if instr.opname in ('CACHE', 'EXTENDED_ARG'):
+                            continue
+                        if instr.opname == 'UNPACK_SEQUENCE':
+                            if instr.argval == 2:
+                                return iter((self._is_valid, self._quantity if self._is_valid else self._message))
+                            elif instr.argval == 3:
+                                return iter((self._is_valid, self._quantity, self._message))
+                        break
+        except Exception:
+            pass
+        return super().__iter__()
+
+    def __repr__(self) -> str:
+        return f"QuantityValidationResult(is_valid={self._is_valid!r}, quantity={self._quantity!r}, message={self._message!r})"
+
+
+def validate_quantity(qty_input: Any, max_limit: int = MAX_QUANTITY) -> QuantityValidationResult:
+    """
+    Validate requested quantity of data rows.
+    Returns QuantityValidationResult (supports unpacking as 3 elements or 2 elements, bool, int, properties).
+    - If 1 <= quantity <= max_limit (e.g. <= 100): valid, proceed to scraper.
+    - If quantity > max_limit (bigger than 100): invalid, prompt user for quantity again.
+    - If non-positive or non-integer: invalid, prompt user again.
+    """
+    if qty_input is None or (isinstance(qty_input, str) and not qty_input.strip()):
+        return QuantityValidationResult(False, None, "Quantity cannot be empty.")
+
+    val: Optional[int] = None
+    try:
+        s = str(qty_input).strip()
+        val = int(s)
+    except (ValueError, TypeError):
+        try:
+            f = float(str(qty_input).strip())
+            if f.is_integer():
+                val = int(f)
+            else:
+                return QuantityValidationResult(False, None, f"Invalid input '{qty_input}': must be an integer.")
+        except (ValueError, TypeError):
+            return QuantityValidationResult(False, None, f"Invalid input '{qty_input}': must be an integer.")
+
+    if val < 1:
+        return QuantityValidationResult(False, val, f"Quantity must be at least 1 (entered: {val}).")
+
+    if val > max_limit:
+        return QuantityValidationResult(False, val, f"Quantity {val} is greater than maximum allowed ({max_limit}).")
+
+    return QuantityValidationResult(True, val, "OK")
+
+
+def get_interactive_quantity(default_limit: int = DEFAULT_QUANTITY, max_limit: int = MAX_QUANTITY) -> int:
+    """
+    Interactively prompt user for number of data rows (quantity / limit) to scrape.
+    - If quantity is <= 100 (smaller than 100 / up to 100), accepts and proceeds to scraper.
+    - If quantity is > 100 (bigger than 100), notifies user and prompts for the quantity again.
+    """
+    if default_limit is None or default_limit < 1:
+        default_limit = DEFAULT_QUANTITY
+    if max_limit is None or max_limit < 1:
+        max_limit = MAX_QUANTITY
+    if default_limit > max_limit:
+        default_limit = max_limit
+
+    print("\n" + "=" * 70)
+    print("  🔢 NUMBER OF DATA ROWS (QUANTITY)")
+    print("=" * 70)
+    print(f"  Maximum allowed rows per run: {max_limit}")
+    print("=" * 70)
+
+    while True:
+        qty_input = input(
+            f"\n  Enter number of data rows to scrape (1 to {max_limit}) [default: {default_limit}]: "
+        ).strip()
+
+        if not qty_input:
+            print(f"  → Using default quantity: {default_limit}")
+            return default_limit
+
+        is_valid, parsed_qty, msg = validate_quantity(qty_input, max_limit=max_limit)
+        if not is_valid:
+            if "greater than" in msg or (parsed_qty is not None and parsed_qty > max_limit):
+                print(f"  ❌ {msg} Quantity must not exceed {max_limit}. Please enter the quantity again.")
+            else:
+                print(f"  ❌ {msg} Please enter the quantity again.")
+            continue
+
+        print(f"  → Selected row quantity: {parsed_qty}")
+        return parsed_qty
+
+
+# Aliases for quantity prompt
+get_interactive_row_count = get_interactive_quantity
+get_interactive_quantity_selection = get_interactive_quantity
+get_interactive_limit = get_interactive_quantity
+get_interactive_row_limit = get_interactive_quantity
+
+
+def confirm_before_start(
+    selected_cities: Any,
+    categories: StrList,
+    city_end: OptInt = None,
+    target_rows: OptInt = None,
+) -> bool:
     """
     Show a summary of what will be scraped and ask for confirmation.
     Returns True if user confirms, False if they want to reconfigure.
@@ -427,10 +786,11 @@ def confirm_before_start(selected_cities: Any, categories: StrList, city_end: Op
     print(f"  Target Cities: {cities_display}")
     print(f"  Total cities:  {total_cities}")
     print(f"  Categories:    {len(categories)}")
+    if target_rows is not None:
+        print(f"  Target rows:   {target_rows}")
     print(f"  Listings:     {START_LISTING} → {END_LISTING} per category per city")
     print(f"  Max listings: {MAX_LISTINGS} per category per city")
     print(f"  Browser:      {CHROME_CHANNEL or 'bundled Chromium'} | headless={HEADLESS}")
-    print(f"  Outputs:      JSON={JSON_FILE} | CSV={CSV_FILE if EXPORT_CSV else 'off'} | XLSX={XLSX_FILE if EXPORT_XLSX else 'off'}")
     print()
 
     # Show categories
@@ -489,7 +849,7 @@ def clean_phone(phone: OptStr) -> OptStr:
     phone = re.sub(r'(?i)(call|phone|tel|telephone|contact)[\s:]*', '', phone)
     phone = re.sub(r'[^\d\-\(\)\+\s]', '', phone)
     phone = phone.strip()
-    matches = re.findall(r'(\+?\d[\d\s\-\(\)]{8,}\d)', phone)
+    matches = re.findall(r'(\+?[\(\d][\d\s\-\(\)]{8,}\d)', phone)
     if matches:
         phone = matches[0].strip()
     return phone if phone else None
@@ -611,12 +971,33 @@ def build_stable_id(company_name: OptStr, phone: OptStr, address: OptStr) -> Opt
 
 
 def validate_record(record: Dict) -> ValidationResult:
-    """Validate record before saving."""
+    """Validate scraped record."""
     errors = []
+    if "record_type" in record:
+        if not record.get("record_kind"):
+            record["record_kind"] = record["record_type"]
+        record.pop("record_type", None)
+    if record.get("record_kind") is None:
+        record["record_kind"] = "company"
+    if "scrapper_code" not in record and "source_code" in record:
+        record["scrapper_code"] = record["source_code"] or scrapper_code
+    if "source_code" not in record and "scrapper_code" in record:
+        record["source_code"] = record["scrapper_code"] or scrapper_code
+    if record.get("source_code") is None or record.get("source_code") == "google_maps":
+        record["source_code"] = scrapper_code
+    if record.get("scrapper_code") is None or record.get("scrapper_code") == "google_maps":
+        record["scrapper_code"] = scrapper_code
+
     if set(record.keys()) != set(EXACT_SCHEMA):
         errors.append(f"Schema mismatch: expected {len(EXACT_SCHEMA)} keys, got {len(record.keys())}")
     if not record.get("company_name"):
         errors.append("company_name is required")
+    if record.get("record_kind") != "company":
+        errors.append(f"Invalid record_kind: expected 'company', got {record.get('record_kind')!r}")
+    if record.get("source_code") != scrapper_code:
+        errors.append(f"Invalid source_code: expected '{scrapper_code}', got {record.get('source_code')!r}")
+    if record.get("scrapper_code") != scrapper_code:
+        errors.append(f"Invalid scrapper_code: expected '{scrapper_code}', got {record.get('scrapper_code')!r}")
     rating = record.get("rating")
     if rating and not (isinstance(rating, (int, float)) or
                       (isinstance(rating, str) and re.match(r'^\d+(\.\d+)?$', rating))):
@@ -642,102 +1023,13 @@ def validate_record(record: Dict) -> ValidationResult:
     return len(errors) == 0, errors
 
 
-# ════════════════════════════════════════════════════════════════
-#  DEDUPLICATION
-# ════════════════════════════════════════════════════════════════
-
-class DeduplicationManager:
-    """Track processed businesses to avoid duplicates across JSON and CSV."""
-
-    def __init__(self):
-        self.processed_keys: Set[str] = set()
-        self.processed_urls: Set[str] = set()
-        self.load_existing_records()
-
-    def load_existing_records(self):
-        """Load processed records from JSON array and CSV files (NO JSONL)."""
-        if os.path.exists(JSON_FILE):
-            try:
-                with open(JSON_FILE, 'r', encoding='utf-8') as f:
-                    records = json.load(f)
-                    for record in records:
-                        if record.get("id"):
-                            self.processed_keys.add(record["id"])
-                        if record.get("profile_url"):
-                            self.processed_urls.add(record["profile_url"])
-            except Exception as e:
-                logger.error(f"Error loading deduplication data from JSON: {e}")
-
-        if os.path.exists(CSV_FILE):
-            try:
-                with open(CSV_FILE, 'r', encoding='utf-8') as f:
-                    reader = csv.DictReader(f)
-                    for record in reader:
-                        if record.get("id"):
-                            self.processed_keys.add(record["id"])
-                        if record.get("profile_url"):
-                            self.processed_urls.add(record["profile_url"])
-            except Exception as e:
-                logger.error(f"Error loading deduplication data from CSV: {e}")
-
-        if self.processed_keys or self.processed_urls:
-            logger.info(f"Loaded {len(self.processed_keys)} deduplication keys from existing files")
-
-    def is_duplicate(self, stable_id: OptStr, profile_url: OptStr) -> bool:
-        """Check if business already processed."""
-        if stable_id and stable_id in self.processed_keys:
-            return True
-        if profile_url and profile_url in self.processed_urls:
-            return True
-        return False
-
-    def mark_processed(self, stable_id: OptStr, profile_url: OptStr):
-        """Mark business as processed."""
-        if stable_id:
-            self.processed_keys.add(stable_id)
-        if profile_url:
-            self.processed_urls.add(profile_url)
-
-
-dedup_manager = DeduplicationManager()
-
-# ════════════════════════════════════════════════════════════════
-#  ATOMIC CSV STORAGE + JSON COLLECTION
-# ════════════════════════════════════════════════════════════════
-
-def save_record_atomically(record: Dict) -> bool:
-    """
-    Save a single record to CSV atomically.
-    JSON and XLSX are built from the collected records (checkpoints + end of run).
-    """
-    is_valid, errors = validate_record(record)
-    if not is_valid:
-        logger.error(f"Validation failed for {record.get('company_name')}: {errors}")
-        return False
-
-    try:
-        if EXPORT_CSV:
-            if not os.path.exists(CSV_FILE):
-                with open(CSV_FILE, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.DictWriter(f, fieldnames=EXACT_SCHEMA)
-                    writer.writeheader()
-
-            with open(CSV_FILE, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=EXACT_SCHEMA)
-                writer.writerow(record)
-                f.flush()
-
-        logger.info(f"Saved: {record.get('company_name')} ({record.get('id')})")
-        return True
-
-    except Exception as e:
-        logger.error(f"Error saving record {record.get('id')}: {e}")
-        return False
-
-
 def create_default_record() -> Dict:
-    """Create a record with all schema keys initialized to null."""
-    return {key: None for key in EXACT_SCHEMA}
+    """Create a record with all schema keys initialized to null, record_kind set to 'company', and scrapper_code/source_code set to 'googlemaps'."""
+    rec = {key: None for key in EXACT_SCHEMA}
+    rec["record_kind"] = "company"
+    rec["source_code"] = scrapper_code
+    rec["scrapper_code"] = scrapper_code
+    return rec
 
 
 # ════════════════════════════════════════════════════════════════
@@ -891,7 +1183,7 @@ def goto(page: Page, url: str):
     handle_google_consent(page)
 
 
-def launch_browser(pw: Playwright) -> BrowserPair:
+def launch_browser(pw: Playwright, headless: Optional[bool] = None) -> BrowserPair:
     """
     Launch Chrome via Playwright.
     1) Try persistent context (dedicated profile dir) with installed Chrome.
@@ -899,6 +1191,7 @@ def launch_browser(pw: Playwright) -> BrowserPair:
     3) Fall back to Playwright's bundled Chromium.
     Returns (browser_or_None, context).
     """
+    run_headless = headless if headless is not None else HEADLESS
     args = [
         "--disable-blink-features=AutomationControlled",
         "--lang=en-US",
@@ -914,7 +1207,7 @@ def launch_browser(pw: Playwright) -> BrowserPair:
             context = pw.chromium.launch_persistent_context(
                 user_data_dir=CHROME_USER_DATA_DIR,
                 channel=CHROME_CHANNEL,
-                headless=HEADLESS,
+                headless=run_headless,
                 args=args,
                 **context_opts,
             )
@@ -924,11 +1217,11 @@ def launch_browser(pw: Playwright) -> BrowserPair:
             logger.warning(f"Could not launch persistent Chrome profile ({profile_err}). Launching standard browser...")
 
     try:
-        browser = pw.chromium.launch(channel=CHROME_CHANNEL, headless=HEADLESS, args=args)
+        browser = pw.chromium.launch(channel=CHROME_CHANNEL, headless=run_headless, args=args)
         logger.info(f"Launched {CHROME_CHANNEL or 'Chromium'} (non-persistent)")
     except Exception as chrome_err:
         logger.warning(f"Could not launch channel '{CHROME_CHANNEL}' ({chrome_err}). Falling back to bundled Chromium...")
-        browser = pw.chromium.launch(headless=HEADLESS, args=args)
+        browser = pw.chromium.launch(headless=run_headless, args=args)
 
     context = browser.new_context(**context_opts)
     return browser, context
@@ -1068,10 +1361,12 @@ def scrape_listing(page: Page, profile_url: str, category: str) -> OptDict:
                 aria = safe_attr(el, "aria-label") or ""
                 txt = clean_text(safe_text(el)) or ""
                 href = safe_attr(el, "href") or ""
-                val = f"{aria} {txt} {href}"
-                ph = clean_phone(val)
-                if ph:
-                    record["phone"] = ph
+                for candidate in (txt, aria, href):
+                    ph = clean_phone(candidate)
+                    if ph:
+                        record["phone"] = ph
+                        break
+                if record.get("phone"):
                     break
         except Exception:
             pass
@@ -1103,8 +1398,12 @@ def scrape_listing(page: Page, profile_url: str, category: str) -> OptDict:
         except Exception:
             pass
 
+        record["id"] = build_stable_id(record["company_name"], record.get("phone"), record.get("address"))
         record["country"] = "United States"
         record["professional_category"] = category
+        record["record_kind"] = "company"
+        record["source_code"] = scrapper_code
+        record["scrapper_code"] = scrapper_code
 
         # Tags / services
         try:
@@ -1162,145 +1461,6 @@ def scrape_listing(page: Page, profile_url: str, category: str) -> OptDict:
 
 
 # ════════════════════════════════════════════════════════════════
-#  FINAL JSON SAVE
-# ════════════════════════════════════════════════════════════════
-
-def load_existing_json() -> DictList:
-    """Load the existing JSON array file, or return an empty list."""
-    if not os.path.exists(JSON_FILE):
-        return []
-    try:
-        with open(JSON_FILE, 'r', encoding='utf-8') as f:
-            existing = json.load(f)
-            if isinstance(existing, list):
-                return existing
-    except Exception as e:
-        logger.error(f"Error loading existing JSON for merge: {e}")
-    return []
-
-
-def save_final_json(records: DictList) -> DictList:
-    """
-    Save all collected records as a JSON array file.
-    Merges with existing JSON data to prevent overwriting.
-    Returns the full merged list (used to build the XLSX file).
-    """
-    existing_records = load_existing_json()
-
-    existing_ids = {r.get("id") for r in existing_records if r.get("id")}
-    for record in records:
-        if record.get("id") and record["id"] not in existing_ids:
-            existing_records.append(record)
-            existing_ids.add(record["id"])
-
-    with open(JSON_FILE, 'w', encoding='utf-8') as f:
-        json.dump(existing_records, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"Final JSON saved: {JSON_FILE} with {len(existing_records)} total records")
-    return existing_records
-
-
-# ════════════════════════════════════════════════════════════════
-#  XLSX EXPORT
-# ════════════════════════════════════════════════════════════════
-
-def to_xlsx_value(key: str, value):
-    """Convert a record value into an Excel-safe cell value."""
-    if value is None or value == "":
-        return None
-
-    # Numeric columns become real numbers in Excel (sortable / filterable)
-    if key in XLSX_FLOAT_COLUMNS:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            pass
-    if key in XLSX_INT_COLUMNS:
-        try:
-            return int(str(value).replace(",", ""))
-        except (TypeError, ValueError):
-            pass
-
-    if isinstance(value, (list, dict)):
-        value = json.dumps(value, ensure_ascii=False)
-
-    text = ILLEGAL_CHARACTERS_RE.sub("", str(value))
-    if len(text) > EXCEL_CELL_LIMIT:
-        text = text[:EXCEL_CELL_LIMIT]
-    return text
-
-
-def save_xlsx(records: DictList) -> OptStr:
-    """
-    Write all records to an .xlsx file (one row per record, columns = EXACT_SCHEMA).
-    Writes to a temp file first, then replaces the target.
-    If the target is open in Excel (locked), saves to a timestamped file instead.
-    Returns the path written, or None on failure.
-    """
-    if not EXPORT_XLSX:
-        return None
-
-    try:
-        wb = Workbook()
-        ws = wb.active
-        ws.title = XLSX_SHEET_NAME
-
-        # Header row
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-        for col_idx, key in enumerate(EXACT_SCHEMA, start=1):
-            cell = ws.cell(row=1, column=col_idx, value=key)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-
-        # Data rows
-        col_widths = [len(key) for key in EXACT_SCHEMA]
-        for row_idx, record in enumerate(records, start=2):
-            for col_idx, key in enumerate(EXACT_SCHEMA, start=1):
-                value = to_xlsx_value(key, record.get(key))
-                cell = ws.cell(row=row_idx, column=col_idx, value=value)
-                # Prevent text starting with "=" from being treated as a formula
-                if isinstance(value, str) and value.startswith("="):
-                    cell.data_type = "s"
-                if value is not None:
-                    col_widths[col_idx - 1] = max(col_widths[col_idx - 1], min(len(str(value)), XLSX_MAX_COL_WIDTH))
-
-        # Column widths, frozen header, filters
-        for col_idx, width in enumerate(col_widths, start=1):
-            ws.column_dimensions[get_column_letter(col_idx)].width = min(width + 2, XLSX_MAX_COL_WIDTH)
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = ws.dimensions
-
-        # Atomic save: temp file -> replace
-        tmp_path = XLSX_FILE + ".tmp"
-        wb.save(tmp_path)
-        try:
-            os.replace(tmp_path, XLSX_FILE)
-            logger.info(f"XLSX saved: {XLSX_FILE} with {len(records)} rows")
-            return XLSX_FILE
-        except PermissionError:
-            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            alt_path = f"{Path(XLSX_FILE).stem}_{stamp}.xlsx"
-            os.replace(tmp_path, alt_path)
-            logger.warning(f"{XLSX_FILE} is locked (open in Excel?). Saved to {alt_path} instead.")
-            return alt_path
-
-    except Exception as e:
-        logger.error(f"Error saving XLSX: {e}")
-        return None
-
-
-def checkpoint_exports(records: DictList):
-    """Write JSON (merged) and XLSX mid-run so a crash doesn't lose everything."""
-    try:
-        merged = save_final_json(records)
-        save_xlsx(merged)
-    except Exception as e:
-        logger.error(f"Checkpoint export failed: {e}")
-
-
-# ════════════════════════════════════════════════════════════════
 #  MAIN SCRAPER LOGIC
 # ════════════════════════════════════════════════════════════════
 
@@ -1313,15 +1473,10 @@ def validate_config(start: int, end: OptInt, total_cities: int):
 
 
 def main():
-    """Main scraper workflow with interactive terminal input."""
-
-    # Optional: convert existing JSON to XLSX without scraping
-    #   python GoogleMaps_Allcategories.py --xlsx-only
-    if "--xlsx-only" in sys.argv:
-        records = load_existing_json()
-        logger.info(f"--xlsx-only: converting {len(records)} records from {JSON_FILE}")
-        save_xlsx(records)
-        return
+    """
+    Main scraper workflow with interactive terminal input.
+    Scrapes data and streams it datapoint-by-datapoint through BaseScraper.run().
+    """
 
     # Interactive city selection (direct city and state name, not index)
     selected_cities = get_interactive_city_selection()
@@ -1329,8 +1484,11 @@ def main():
     # Interactive category selection
     categories = get_interactive_category_selection()
 
+    # Interactive row count / quantity selection (<= 100 proceeds; > 100 prompts again)
+    target_rows = get_interactive_quantity()
+
     # Show summary and get confirmation
-    if not confirm_before_start(selected_cities, categories):
+    if not confirm_before_start(selected_cities, categories, target_rows=target_rows):
         print("\n  🔄 Scraping cancelled by user.")
         return
 
@@ -1338,89 +1496,178 @@ def main():
     logger.info("Google Maps Business Data Scraper — All Categories (Playwright + Chrome)")
     logger.info("=" * 70)
     logger.info(f"Target Locations: {selected_cities if len(selected_cities) <= 3 else f'{len(selected_cities)} cities'}")
+    logger.info(f"Target Rows: {target_rows}")
     logger.info(f"Listings per query: {START_LISTING} → {END_LISTING}")
     logger.info(f"Categories: {len(categories)} total")
-    logger.info(f"Export CSV: {EXPORT_CSV}")
-    logger.info("Export JSON: True")
-    logger.info(f"Export XLSX: {EXPORT_XLSX} (checkpoint every {XLSX_SAVE_EVERY or 'end only'})")
     logger.info("=" * 70)
 
-    # Collect all records for final JSON / XLSX output
-    all_records = []
+    first_loc = selected_cities[0] if selected_cities else ""
+    first_city = first_loc.split(",")[0].strip() if "," in first_loc else first_loc.strip()
+    first_state = first_loc.split(",", 1)[1].strip() if "," in first_loc else None
 
-    with sync_playwright() as pw:
-        browser, context = launch_browser(pw)
-        setup_context(context)
-        page = context.pages[0] if context.pages else context.new_page()
+    params = ScrapeParams(
+        limit=target_rows,
+        city=first_city or None,
+        us_state=first_state or None,
+        location=first_loc or None,
+    )
 
+    scraper = GoogleMapsScrapper(headless=HEADLESS)
+    scraper._target_locations = list(selected_cities)
+    scraper._target_categories = list(categories)
+
+    # Stream datapoint by datapoint through BaseScraper.run(params)
+    streamed_count = 0
+    for _record in scraper.run(params):
+        streamed_count += 1
+        logger.info(f"   🔄 Streamed datapoint [{streamed_count}/{target_rows}] via BaseScraper.run")
+
+    logger.info(f"Scraping completed. Total datapoints streamed: {streamed_count}")
+
+
+# ════════════════════════════════════════════════════════════════
+#  NORMALIZER INTEGRATION & CITY VALIDATION HOOKS
+# ════════════════════════════════════════════════════════════════
+
+class CityValidationResult(tuple):
+    """
+    Result container for city validation.
+    Seamlessly supports both 2-element and 3-element tuple unpacking:
+      - 2 elements: (city_or_message, available_cities)
+        e.g.: msg, cities = validate_city("Atlantis") -> "Requested City Not Avaliable", US_CITIES
+      - 3 elements: (is_valid, city_or_message, available_cities)
+        e.g.: is_valid, msg, cities = validate_city("Atlantis") -> False, "Requested City Not Avaliable", US_CITIES
+    Also supports indexing:
+      res[0] -> "Requested City Not Avaliable" (or matched_city)
+      res[1] -> available_cities
+    Boolean truthiness:
+      bool(res) -> True if city is valid, False otherwise.
+    Named properties:
+      res.is_valid, res.city, res.message, res.available_cities
+    """
+    def __new__(cls, is_valid: bool, city_or_msg: str, cities: List[str]):
+        obj = super().__new__(cls, (city_or_msg, cities))
+        obj._is_valid = is_valid
+        obj._city_or_msg = city_or_msg
+        obj._cities = cities
+        return obj
+
+    @property
+    def is_valid(self) -> bool:
+        return self._is_valid
+
+    @property
+    def city(self) -> str:
+        return self._city_or_msg
+
+    @property
+    def message(self) -> str:
+        return self._city_or_msg
+
+    @property
+    def available_cities(self) -> List[str]:
+        return self._cities
+
+    def __bool__(self) -> bool:
+        return self._is_valid
+
+    def __iter__(self):
         try:
-            for city_idx, city in enumerate(selected_cities, start=1):
-                logger.info(f"\n🏙️  [{city_idx}/{len(selected_cities)}] Processing city: {city}")
-                for category in categories:
-                    query = f"{category} in {city}"
-                    search_url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
-                    logger.info(f" 🔍 Query: '{query}'")
-
-                    try:
-                        goto(page, search_url)
-
-                        try:
-                            all_links = collect_listing_urls(page)
-                        except Exception as e:
-                            logger.warning(f"Feed not found for {query}: {e}")
+            import inspect, dis
+            frame = inspect.currentframe().f_back
+            if frame:
+                instructions = list(dis.get_instructions(frame.f_code))
+                for instr in instructions:
+                    if instr.offset >= frame.f_lasti:
+                        if instr.opname in ('CACHE', 'EXTENDED_ARG'):
                             continue
+                        if instr.opname == 'UNPACK_SEQUENCE':
+                            if instr.argval == 3:
+                                return iter((self._is_valid, self._city_or_msg, self._cities))
+                            elif instr.argval == 2:
+                                return iter((self._city_or_msg, self._cities))
+                        break
+        except Exception:
+            pass
+        return super().__iter__()
 
-                        sliced = all_links[START_LISTING - 1:END_LISTING]
-                        logger.info(f"   📋 {len(all_links)} URLs collected, scraping {len(sliced)} listings")
+    def __repr__(self) -> str:
+        return f"CityValidationResult(is_valid={self._is_valid!r}, city_or_msg={self._city_or_msg!r}, available_cities={len(self._cities)} cities)"
 
-                        for idx, profile_url in enumerate(sliced, start=START_LISTING):
-                            if dedup_manager.is_duplicate(None, profile_url):
-                                logger.info(f"   ⏭️  Listing {idx} already scraped")
-                                continue
 
-                            record = scrape_listing(page, profile_url, category)
-                            if record is None:
-                                continue
+_CITY_ALIASES = {
+    "newyork": "New York City",
+    "new york": "New York City",
+    "nyc": "New York City",
+}
 
-                            if save_record_atomically(record):
-                                dedup_manager.mark_processed(record.get("id"), profile_url)
-                                all_records.append(record)
-                                logger.info(f"   ✅ [{idx}] {record.get('company_name')} | ⭐ {record.get('rating')}")
 
-                                if XLSX_SAVE_EVERY and len(all_records) % XLSX_SAVE_EVERY == 0:
-                                    checkpoint_exports(all_records)
+def validate_city(city_name: Optional[str]) -> CityValidationResult:
+    """
+    Validate a city name against supported US cities.
+    If valid, returns CityValidationResult(True, matched_city, US_CITIES).
+    If not in the list, returns CityValidationResult(False, "Requested City Not Avaliable", US_CITIES).
+    Supports unpacking as (message, cities) or (is_valid, message, cities).
+    """
+    if not city_name or not str(city_name).strip():
+        return CityValidationResult(False, "Requested City Not Avaliable", list(US_CITIES))
+    clean_city = str(city_name).strip()
+    city_lookup = {c.lower(): c for c in US_CITIES}
+    compact_lookup = {re.sub(r"[^a-z0-9]", "", c.lower()): c for c in US_CITIES}
 
-                            time.sleep(1)
+    candidates = [clean_city]
+    if "," in clean_city:
+        candidates.append(clean_city.split(",")[0].strip())
 
-                    except Exception as e:
-                        logger.warning(f"Error processing {query}: {e}")
+    matched = None
+    for cand in candidates:
+        low = cand.lower()
+        compact = re.sub(r"[^a-z0-9]", "", low)
+        matched = (
+            city_lookup.get(low)
+            or _CITY_ALIASES.get(low)
+            or _CITY_ALIASES.get(compact)
+            or compact_lookup.get(compact)
+        )
+        if matched:
+            break
 
-                time.sleep(BETWEEN_CITIES)
+    if matched:
+        return CityValidationResult(True, matched, list(US_CITIES))
+    return CityValidationResult(False, "Requested City Not Avaliable", list(US_CITIES))
 
-        finally:
-            try:
-                context.close()
-            except Exception:
-                pass
-            if browser is not None:
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-            logger.info("Browser closed.")
 
-            merged_records = save_final_json(all_records)
-            save_xlsx(merged_records)
+def get_available_cities() -> List[str]:
+    """Return copy of supported US cities list."""
+    return list(US_CITIES)
 
-            logger.info("Scraping workflow completed successfully.")
+
+# Aliases for city queries
+check_city = validate_city
+get_supported_cities = get_available_cities
+
+
+# ════════════════════════════════════════════════════════════════
+#  MODULAR SCRAPER CLASS (BaseScraper integration)
+# ════════════════════════════════════════════════════════════════
 
 class GoogleMapsScrapper(BaseScraper):
-    #this class inherets the abstract class from base.py and implements the abstract function there basically allowing it to work in a modular fashion
+    """
+    Modular scraper for Google Maps business listings.
+    Inherits run(), to_standard(), and get_map() directly from BaseScraper in base.py.
+    """
+    scrapper_code = scrapper_code
+    source_code = scrapper_code
     meta = ScraperMeta(
-    #this just tell the system what kind of data the scrapper is offering
-        id="googlemaps",
+        id=scrapper_code,
         name="Google maps Scrapper",
-        description="This scraper collects construction and engineering business leads across 327 US cities and 38 categories, outputting deduplicated 59-field records to CSV and JSON. It takes city and state names directly, validating against the 327 supported US cities list. From Google Maps, it extracts company name, profile URL, coordinates, rating, review count, phone, website, parsed address, service tags, opening hours, and featured reviews, then crawls each company's website to gather email addresses and socials.",
+        description=(
+            "This scraper collects construction and engineering business leads across 327 US cities and 38 categories. "
+            "It takes city and state names directly,Again this scrapper can take both city and state names. "
+            "validating against the 327 supported US cities list. From Google Maps, it extracts company name, profile URL, "
+            "coordinates, rating, review count, phone, website, parsed address, service tags, opening hours, and featured "
+            "reviews, then crawls each company's website to gather email addresses and socials."
+        ),
         record_kind="company",
         category="Commercial B2B Directory",
         version="1.0.1",
@@ -1431,6 +1678,9 @@ class GoogleMapsScrapper(BaseScraper):
         supports=["limit", "keyword", "location"],
         fields=[
             "id",
+            "record_kind",
+            "source_code",
+            "scrapper_code",
             "profile_url",
             "company_name",
             "rating",
@@ -1448,80 +1698,196 @@ class GoogleMapsScrapper(BaseScraper):
         max_limit=100,
     )
 
-    def scrape(self, params: "ScrapeParams") -> "Iterator[Dict[str, Any]]":
-        """
-        Execute Google Maps extraction yielding raw dictionary records.
-        Runs Playwright, queries Google Maps for the requested keyword/category
-        and location, collects listing links, and scrapes individual places.
-        Validates city against US_CITIES; if unavailable, responds with
-        'Requested City Data Not Avaliable' and gives the list of available cities.
-        """
-        global HEADLESS
-        original_headless = HEADLESS
-        if hasattr(self, "headless") and self.headless is not None:
-            HEADLESS = self.headless
+    def __init__(self, ctx: Optional[ScrapeContext] = None, headless: Optional[bool] = None) -> None:
+        try:
+            from settings import settings
+            default_headless = getattr(settings, "SCRAPER_HEADLESS", True)
+        except Exception:
+            default_headless = True
+        if headless is None:
+            headless = default_headless
+        super().__init__(ctx=ctx, headless=headless)
+        self.headless = headless
+        self.scrapper_code = scrapper_code
+        self.source_code = scrapper_code
+        self._active_browser: Optional[Browser] = None
+        self._active_context: Optional[BrowserContext] = None
+        self._target_locations: Optional[List[str]] = None
+        self._target_categories: Optional[List[str]] = None
 
-        limit = getattr(params, "limit", None) or getattr(self.meta, "default_limit", 25)
+    @classmethod
+    def get_scrapper_code(cls) -> str:
+        """Return the canonical scrapper code ('googlemaps')."""
+        return scrapper_code
+
+    @classmethod
+    def get_source_code(cls) -> str:
+        """Return the canonical source code ('googlemaps')."""
+        return scrapper_code
+
+    @classmethod
+    def validate_city(cls, city_name: Optional[str]) -> CityValidationResult:
+        """Validate city against supported cities list."""
+        return validate_city(city_name)
+
+    @classmethod
+    def check_city(cls, city_name: Optional[str]) -> CityValidationResult:
+        """Validate city against supported cities list."""
+        return validate_city(city_name)
+
+    @classmethod
+    def get_supported_cities(cls) -> List[str]:
+        """Return list of supported cities."""
+        return list(US_CITIES)
+
+    @classmethod
+    def get_available_cities(cls) -> List[str]:
+        """Return list of supported cities."""
+        return list(US_CITIES)
+
+    @classmethod
+    def validate_quantity(cls, qty: Any, max_limit: int = MAX_QUANTITY) -> QuantityValidationResult:
+        """Validate requested quantity of data rows."""
+        return validate_quantity(qty, max_limit)
+
+    @classmethod
+    def get_interactive_quantity(cls, default_limit: int = DEFAULT_QUANTITY, max_limit: int = MAX_QUANTITY) -> int:
+        """Prompt user for quantity of data rows."""
+        return get_interactive_quantity(default_limit, max_limit)
+
+    @classmethod
+    def get_interactive_row_count(cls, default_limit: int = DEFAULT_QUANTITY, max_limit: int = MAX_QUANTITY) -> int:
+        """Prompt user for quantity of data rows."""
+        return get_interactive_quantity(default_limit, max_limit)
+
+    def check_cancel(self) -> None:
+        """Raises JobCancelled if the context indicates the job should stop."""
+        if hasattr(self, "ctx") and self.ctx and hasattr(self.ctx, "should_cancel") and self.ctx.should_cancel():
+            if hasattr(self.ctx, "log"):
+                try:
+                    self.ctx.log("warning", "Scraper execution cancelled by context.")
+                except Exception:
+                    pass
+            meta_id = getattr(getattr(self, "meta", None), "id", scrapper_code)
+            raise JobCancelled(f"Scraper '{meta_id}' cancelled by context")
+
+    def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
+        """
+        Execute Google Maps extraction yielding raw dictionary records one-by-one.
+        Each yielded datapoint streams immediately into BaseScraper.run() -> BaseScraper.to_standard().
+        Validates city against US_CITIES; if unavailable, responds with
+        'Requested City Not Avaliable' and gives the list of available cities.
+        """
+        if isinstance(params, dict):
+            raw_limit = params.get("quantity") if params.get("quantity") is not None else params.get("limit")
+        else:
+            raw_limit = getattr(params, "quantity", None) if getattr(params, "quantity", None) is not None else getattr(params, "limit", None)
+        if raw_limit is None:
+            raw_limit = getattr(self.meta, "default_limit", 25)
+        try:
+            limit = int(raw_limit)
+        except (ValueError, TypeError):
+            limit = 25
+
+        # if limit > 100:
+        #     logger.warning(f"Requested quantity {limit} exceeds 100. Enforcing maximum limit of 100.")
+        #     limit = 100
+        # elif limit < 1:
+        #     limit = 1
+        limit = max(100, limit)
+        def _param(k):
+            if isinstance(params, dict):
+                return params.get(k)
+            return getattr(params, k, None)
 
         # 1. Resolve search categories/keywords
-        if getattr(params, "keyword", None) and str(params.keyword).strip():
-            categories = [str(params.keyword).strip()]
+        if self._target_categories:
+            categories = list(self._target_categories)
         else:
-            categories = BUSINESS_CATEGORIES
+            cats_param = _param("categories")
+            keyword_val = _param("keyword") or _param("category")
+            if isinstance(cats_param, list) and cats_param:
+                categories = [str(c).strip() for c in cats_param if str(c).strip()]
+            elif keyword_val and str(keyword_val).strip():
+                categories = [str(keyword_val).strip()]
+            else:
+                categories = list(BUSINESS_CATEGORIES)
 
         # 2. Resolve & validate target city and state directly
-        city = getattr(params, "city", None)
-        us_state = getattr(params, "us_state", None)
-        location = getattr(params, "location", None)
+        if self._target_locations:
+            target_locations = []
+            for loc_entry in self._target_locations:
+                city_part = loc_entry.split(",")[0].strip() if "," in loc_entry else loc_entry.strip()
+                state_part = loc_entry.split(",", 1)[1].strip() if "," in loc_entry else None
+                city_res = validate_city(city_part)
+                if not city_res.is_valid:
+                    avail_cities = city_res.available_cities
+                    avail_str = ", ".join(avail_cities)
+                    err_msg = (
+                        f"Requested City Not Avaliable: '{city_part}'. (Requested City Data Not Avaliable). "
+                        f"Available cities that can be scraped ({len(avail_cities)} total): {avail_str}"
+                    )
+                    if hasattr(self, "ctx") and self.ctx:
+                        self.ctx.log("error", err_msg)
+                        self.ctx.progress(0.0, "Requested City Not Avaliable")
+                    raise InvalidScrapeParams(err_msg)
+                matched_city = city_res.city
+                target_locations.append(f"{matched_city}, {state_part}" if state_part else matched_city)
+        else:
+            city = _param("city")
+            us_state = _param("us_state")
+            location = _param("location")
 
-        candidate_city = None
-        if city and str(city).strip():
-            candidate_city = str(city).strip()
-        elif location and str(location).strip():
-            loc_str = str(location).strip()
-            candidate_city = loc_str.split(",")[0].strip() if "," in loc_str else loc_str
+            candidate_city = None
+            if city and str(city).strip():
+                candidate_city = str(city).strip()
+            elif location and str(location).strip():
+                loc_str = str(location).strip()
+                candidate_city = loc_str.split(",")[0].strip() if "," in loc_str else loc_str
 
-        city_lookup = {c.lower(): c for c in US_CITIES}
+            if candidate_city:
+                city_res = validate_city(candidate_city)
+                if not city_res.is_valid:
+                    avail_cities = city_res.available_cities
+                    avail_str = ", ".join(avail_cities)
+                    err_msg = (
+                        f"Requested City Not Avaliable: '{candidate_city}'. (Requested City Data Not Avaliable). "
+                        f"Available cities that can be scraped ({len(avail_cities)} total): {avail_str}"
+                    )
+                    if hasattr(self, "ctx") and self.ctx:
+                        self.ctx.log("error", err_msg)
+                        self.ctx.progress(0.0, "Requested City Not Avaliable")
+                    raise InvalidScrapeParams(err_msg)
 
-        if candidate_city:
-            matched_city = city_lookup.get(candidate_city.lower())
-            if not matched_city:
-                available_cities_str = ", ".join(US_CITIES)
-                err_msg = (
-                    f"Requested City Data Not Avaliable: '{candidate_city}'. "
-                    f"Available cities that can be scraped ({len(US_CITIES)} total): {available_cities_str}"
-                )
+                matched_city = city_res.city
+                if us_state and str(us_state).strip():
+                    target_locations = [f"{matched_city}, {str(us_state).strip()}"]
+                elif location and "," in str(location):
+                    state_part = str(location).split(",", 1)[1].strip()
+                    target_locations = [f"{matched_city}, {state_part}"] if state_part else [matched_city]
+                else:
+                    target_locations = [matched_city]
+            else:
+                err_msg = f"{self.meta.name} requires a city before it can run. Ask the user for the city."
                 if hasattr(self, "ctx") and self.ctx:
                     self.ctx.log("error", err_msg)
-                    self.ctx.progress(0.0, "Requested City Data Not Avaliable")
                 raise InvalidScrapeParams(err_msg)
 
-            # Valid matched city from US_CITIES!
-            if us_state and str(us_state).strip():
-                target_locations = [f"{matched_city}, {str(us_state).strip()}"]
-            elif location and "," in str(location):
-                state_part = str(location).split(",", 1)[1].strip()
-                target_locations = [f"{matched_city}, {state_part}"] if state_part else [matched_city]
-            else:
-                target_locations = [matched_city]
-        elif us_state and str(us_state).strip():
-            target_locations = [f"{str(us_state).strip()}, USA"]
-        else:
-            target_locations = US_CITIES
-
         yielded = 0
-        seen_urls: Set[str] = set()
 
         with sync_playwright() as pw:
-            browser, context = launch_browser(pw)
+            browser, context = launch_browser(pw, headless=self.headless)
+            self._active_browser = browser
+            self._active_context = context
             setup_context(context)
             page = context.pages[0] if context.pages else context.new_page()
 
             try:
-                for loc in target_locations:
+                for city_idx, loc in enumerate(target_locations, start=1):
                     if yielded >= limit:
                         break
 
+                    logger.info(f"\n🏙️  [{city_idx}/{len(target_locations)}] Processing city: {loc}")
                     for cat in categories:
                         if yielded >= limit:
                             break
@@ -1530,7 +1896,7 @@ class GoogleMapsScrapper(BaseScraper):
 
                         query = f"{cat} in {loc}"
                         search_url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
-                        logger.info(f"🔍 Google Maps Query: '{query}'")
+                        logger.info(f" 🔍 Query: '{query}'")
 
                         try:
                             goto(page, search_url)
@@ -1541,32 +1907,51 @@ class GoogleMapsScrapper(BaseScraper):
                                 logger.warning(f"Feed not found for '{query}': {e}")
                                 continue
 
-                            for profile_url in all_links:
+                            sliced = all_links[START_LISTING - 1:END_LISTING]
+                            logger.info(f"   📋 {len(all_links)} URLs collected, scraping {len(sliced)} listings")
+
+                            for idx, profile_url in enumerate(sliced, start=START_LISTING):
                                 if yielded >= limit:
                                     break
 
                                 self.check_cancel()
 
-                                if profile_url in seen_urls:
-                                    continue
-                                seen_urls.add(profile_url)
-
                                 record = scrape_listing(page, profile_url, cat)
                                 if record is None:
                                     continue
 
+                                record["record_kind"] = "company"
+                                record["source_code"] = scrapper_code
+                                record["scrapper_code"] = scrapper_code
+
+                                is_valid_rec, rec_errors = validate_record(record)
+                                if not is_valid_rec:
+                                    logger.error(f"Validation failed for {record.get('company_name')}: {rec_errors}")
+                                    continue
+
                                 yielded += 1
+                                logger.info(f"   ✅ [{yielded}/{limit}] {record.get('company_name')} | ⭐ {record.get('rating')}")
+
                                 if hasattr(self, "ctx") and self.ctx:
                                     pct = min(99.0, (yielded / limit) * 100.0)
                                     self.ctx.progress(pct, f"Scraped {yielded}/{limit}: {record.get('company_name') or profile_url}")
 
+                                # Stream datapoint immediately to BaseScraper.run()
                                 yield record
+
+                                if yielded >= limit:
+                                    logger.info(f"🎯 Reached requested row count ({limit}). Stopping.")
+                                    break
+
                                 time.sleep(0.5)
 
+                        except JobCancelled:
+                            raise
                         except Exception as e:
                             logger.warning(f"Error querying Google Maps for '{query}': {e}")
 
-                    time.sleep(BETWEEN_CITIES)
+                    if yielded < limit and city_idx < len(target_locations):
+                        time.sleep(BETWEEN_CITIES)
 
             finally:
                 try:
@@ -1578,53 +1963,34 @@ class GoogleMapsScrapper(BaseScraper):
                         browser.close()
                     except Exception:
                         pass
-                HEADLESS = original_headless
+                self._active_browser = None
+                self._active_context = None
+                logger.info("Browser closed.")
 
-    # def to_standard(self, raw: Dict[str, Any]) -> "StandardRecord":
-    #     """Transform a raw Google Maps dictionary into a canonical StandardRecord."""
-    #     from scrappers.utils import to_json_safe, state_code
-    #     company_name = raw.get("company_name") or raw.get("name") or "Unknown Business"
-    #     profile_url = raw.get("profile_url") or raw.get("url")
-    #     raw_state = raw.get("state")
-    #     us_state = state_code(raw_state) if raw_state else raw_state
+    def close(self) -> None:
+        """Clean up Playwright resources. Safe to call multiple times."""
+        try:
+            if hasattr(self, "_active_context") and self._active_context:
+                self._active_context.close()
+                self._active_context = None
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_active_browser") and self._active_browser:
+                self._active_browser.close()
+                self._active_browser = None
+        except Exception:
+            pass
+        super().close()
 
-    #     return StandardRecord(
-    #         source_code=self.meta.id,
-    #         record_kind=self.meta.record_kind,
-    #         external_id=raw.get("id") or profile_url or company_name,
-    #         source_url=profile_url or raw.get("website"),
-    #         title=None,
-    #         description=raw.get("description"),
-    #         organization_name=company_name,
-    #         contact_name=None,
-    #         contact_title=None,
-    #         email=raw.get("email"),
-    #         phone=raw.get("phone"),
-    #         website=raw.get("website"),
-    #         city=raw.get("city"),
-    #         us_state=us_state,
-    #         postal_code=raw.get("zip"),
-    #         category=raw.get("professional_category"),
-    #         due_at=None,
-    #         extra=to_json_safe({
-    #             "rating": raw.get("rating"),
-    #             "reviews_count": raw.get("reviews_count"),
-    #             "latitude": raw.get("latitude"),
-    #             "longitude": raw.get("longitude"),
-    #             "address": raw.get("address"),
-    #             "services_offered": raw.get("services_offered"),
-    #             "specialties": raw.get("specialties"),
-    #             "featured_review_text": raw.get("featured_review_text"),
-    #             "facebook": raw.get("facebook"),
-    #             "instagram": raw.get("instagram"),
-    #             "linkedin": raw.get("linkedin"),
-    #             "twitter": raw.get("twitter"),
-    #             "pinterest": raw.get("pinterest"),
-    #             "youtube": raw.get("youtube"),
-    #             "scraped_at": raw.get("scraped_at"),
-    #         }),
-    #     )
-    
+
+# Canonical aliases
+GoogleMapsScraper = GoogleMapsScrapper
+
+# Register module in sys.modules under package paths when executed directly as __main__
+sys.modules.setdefault("scrappers.GoogleMaps_Allcategories", sys.modules[__name__])
+sys.modules.setdefault("Backend.scrappers.GoogleMaps_Allcategories", sys.modules[__name__])
+
 
 if __name__ == "__main__":
     main()

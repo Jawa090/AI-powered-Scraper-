@@ -50,6 +50,10 @@ audit_output.txt
 # Temporary files
 docs/baseline/*.tmp
 
+# Chrome browser profiles
+chrome_profile_gmaps/
+**/chrome_profile_gmaps/
+
 # Local audit tools and disposable DB connection state
 .audit-tools/
 docs/audit/integration_database.json

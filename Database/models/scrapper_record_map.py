@@ -14,6 +14,7 @@ class Scrapper_Record_Map(Base):
     __tablename__="scrapper_record_maps"
     id: Mapped[str] =mapped_column(String(100),primary_key=True,default=lambda: str(uuid.uuid4()))
     scrapper_id:Mapped[str]=mapped_column(String(100),ForeignKey("sources.id",ondelete="CASCADE"),unique=True,index=True)
+    scrapper_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     scrapper_map:Mapped[dict]=mapped_column(JSON(),nullable=False)
     scrapper_hash:Mapped[Optional[str]]=mapped_column(String(64))
     reviewed:Mapped[bool]=mapped_column(Boolean,nullable=False,default=False,server_default="false")
