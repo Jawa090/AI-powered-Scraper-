@@ -295,3 +295,5 @@ xxhash==4.0.1
     #   langsmith
 zstandard==0.25.0
     # via langsmith
+playwright>=1.40.0
+    #playwright for scrappers
