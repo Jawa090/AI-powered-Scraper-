@@ -9,7 +9,10 @@ from dotenv import load_dotenv
 import os
 import json
 from openai import OpenAI
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 from typing import Optional, Any
 
 

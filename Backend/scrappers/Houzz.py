@@ -33,7 +33,7 @@ for _d in [str(_backend_dir), str(_project_root)]:
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-import pandas as pd
+
 from selenium import webdriver
 from selenium.common.exceptions import (
     NoSuchElementException,
@@ -1060,17 +1060,35 @@ class HouzzScraper(BaseScraper):
         urls: List[str] = []
         try:
             try:
-                df = pd.read_csv(filepath, encoding="utf-8-sig")
-            except Exception:
-                df = pd.read_csv(filepath, encoding="latin1")
+                import pandas as pd
+                try:
+                    df = pd.read_csv(filepath, encoding="utf-8-sig")
+                except Exception:
+                    df = pd.read_csv(filepath, encoding="latin1")
 
-            df.columns = [re.sub(r'[^\x00-\x7F]+', '', str(c)).strip() for c in df.columns]
-            profile_col = next((c for c in df.columns if any(k in c.lower() for k in ("profile", "link", "url"))), None)
-            if profile_col:
-                for val in df[profile_col].dropna():
-                    s_val = str(val).strip()
-                    if s_val.startswith("http"):
-                        urls.append(s_val)
+                df.columns = [re.sub(r'[^\x00-\x7F]+', '', str(c)).strip() for c in df.columns]
+                profile_col = next((c for c in df.columns if any(k in c.lower() for k in ("profile", "link", "url"))), None)
+                if profile_col:
+                    for val in df[profile_col].dropna():
+                        s_val = str(val).strip()
+                        if s_val.startswith("http"):
+                            urls.append(s_val)
+            except ImportError:
+                for enc in ("utf-8-sig", "latin1"):
+                    try:
+                        with open(filepath, "r", encoding=enc) as f:
+                            reader = csv.DictReader(f)
+                            if reader.fieldnames:
+                                clean_fields = {re.sub(r'[^\x00-\x7F]+', '', str(c)).strip(): c for c in reader.fieldnames}
+                                profile_key = next((raw for clean, raw in clean_fields.items() if any(k in clean.lower() for k in ("profile", "link", "url"))), None)
+                                if profile_key:
+                                    for row in reader:
+                                        val = str(row.get(profile_key, "") or "").strip()
+                                        if val.startswith("http"):
+                                            urls.append(val)
+                                    break
+                    except Exception:
+                        continue
         except Exception as e:
             logger.warning("Failed to load URLs from file %s: %s", filepath, e)
         return urls
@@ -1541,7 +1559,6 @@ sys.modules.setdefault("Backend.scrappers.Houzz", sys.modules[__name__])
 # ---------------------------------------------------------------------------
 def main():
     import argparse
-import csv
     parser = argparse.ArgumentParser(description="Houzz Home Professionals Scraper")
     parser.add_argument("--limit", type=int, default=20, help="Maximum profiles to scrape")
     parser.add_argument("--keyword", type=str, default="General Contractors", help="Search trade/keyword")
@@ -1585,8 +1602,20 @@ import csv
         logger.error("Scraper error: %s", e)
     finally:
         if records_out and args.csv:
-            df = pd.DataFrame(records_out)
-            df.to_csv(args.csv, index=False, encoding="utf-8-sig")
+            try:
+                import pandas as pd
+                df = pd.DataFrame(records_out)
+                df.to_csv(args.csv, index=False, encoding="utf-8-sig")
+            except ImportError:
+                keys = set()
+                for r in records_out:
+                    if isinstance(r, dict):
+                        keys.update(r.keys())
+                fieldnames = sorted(keys)
+                with open(args.csv, "w", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(records_out)
             logger.info("Saved %d records to %s", len(records_out), args.csv)
 
 
