@@ -265,7 +265,7 @@ def test_more_records_exposes_action_and_click_delivers_two_unseen_rows(account,
     assert more['pendingAction'] and more['proposedActions'] and not more['jobId']
     assert more['records'] == [] and more['totalAvailable'] == 0
     proposal = more['pendingAction']['proposal']
-    assert proposal['source'] == 'jwiz' and proposal['args']['quantity'] == 2 and proposal['args']['new_only']
+    assert proposal['source'] == 'bbb' and proposal['args']['quantity'] == 2 and proposal['args']['new_only']
     with session_scope() as db:
         assert db.scalar(select(Job).where(Job.created_by == account.id)) is None
     client = TestClient(app)

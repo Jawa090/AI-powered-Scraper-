@@ -20,6 +20,7 @@ IGNORED_FILES = {
     "utils.py",
     "bonfire_parser.py",
     "normalize.py",
+    "Facebook.py",
 }
 
 

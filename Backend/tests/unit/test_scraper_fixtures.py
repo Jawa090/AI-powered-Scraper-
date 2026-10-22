@@ -69,10 +69,10 @@ def test_controller_fixture_mode_execution(scraper_id, monkeypatch):
 def test_controller_describe_and_to_api_dict():
     """Verify describe_for_llm and to_api_dict output structure and completeness."""
     ids = scraper_ids()
-    assert set(ids) == {"bonfire", "dasny", "jwiz", "nyscr", "googlemaps"}
+    assert set(ids) == {"bonfire", "dasny", "jwiz", "nyscr", "googlemaps", "bbb", "bluebook", "houzz"}
 
     all_meta = list_scrapers()
-    assert len(all_meta) == 5
+    assert len(all_meta) == 8
 
     for meta in all_meta:
         api_dict = to_api_dict(meta)
@@ -95,10 +95,10 @@ def test_sync_sources_creates_rows():
     session.query.return_value.filter.return_value.first.return_value = None
 
     synced = sync_sources(session)
-    assert len(synced) == 5
+    assert len(synced) == 8
     synced_codes = {s.code for s in synced}
-    assert synced_codes == {"bonfire", "dasny", "jwiz", "nyscr", "googlemaps"}
-    assert session.add.call_count == 5
+    assert synced_codes == {"bonfire", "dasny", "jwiz", "nyscr", "googlemaps", "bbb", "bluebook", "houzz"}
+    assert session.add.call_count == 8
     session.flush.assert_called_once()
 
 

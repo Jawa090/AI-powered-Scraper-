@@ -29,7 +29,7 @@ def propose_scrape(
     This tool triggers the user confirmation flow before any scraping job is enqueued.
 
     Args:
-        source: Scraper source ID (e.g. "bonfire", "dasny", "jwiz", "nyscr","googlemaps").
+        source: Scraper source ID (e.g. "bonfire", "dasny", "jwiz", "nyscr","googlemaps","houzz", "bbb","bluebook").
         quantity: Missing number of matching records to collect (1-1000).
 
     Category, state, record type, and required fields come from the exact

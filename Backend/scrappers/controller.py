@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union
 import importlib
+import re
 
 from scrappers.base import (
     BaseScraper,
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 SCRAPER_PATHS = [
     "scrappers.GoogleMaps_Allcategories:GoogleMapsScrapper",
+    "scrappers.BBB scrapper:BBBScraper",
+    "scrappers.Blue Book scrapper:BlueBookScraper",
+    "scrappers.Houzz:HouzzScraper",
     "scrappers.bonfire:BonfireScraper",
     "scrappers.dasny:DasnyScraper",
     "scrappers.jwiz:JWizScraper",
@@ -34,10 +38,20 @@ SCRAPER_PATHS = [
 
 REGISTERED_SCRAPERS: List[Type[BaseScraper]] = []
 _IMPORT_ERRORS = {}
+KNOWN_SCRAPER_IDS = {
+    "scrappers.GoogleMaps_Allcategories": "googlemaps",
+    "scrappers.BBB scrapper": "bbb",
+    "scrappers.Blue Book scrapper": "bluebook",
+    "scrappers.Houzz": "houzz",
+    "scrappers.bonfire": "bonfire",
+    "scrappers.dasny": "dasny",
+    "scrappers.jwiz": "jwiz",
+    "scrappers.nyscr": "nyscr",
+}
 
 for path in SCRAPER_PATHS:
     mod_path, cls_name = path.split(":")
-    scraper_id = mod_path.split(".")[-1]
+    scraper_id = KNOWN_SCRAPER_IDS.get(mod_path, re.sub(r"[^a-z0-9]", "", mod_path.split(".")[-1].lower()))
     try:
         mod = importlib.import_module(mod_path)
         cls = getattr(mod, cls_name)
