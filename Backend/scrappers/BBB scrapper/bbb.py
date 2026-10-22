@@ -23,7 +23,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import urlencode, urljoin
 
 # Ensure Backend and Project root are on sys.path for standalone or package execution
