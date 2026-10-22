@@ -8,6 +8,7 @@ streaming extraction, non-blocking CAPTCHA handling, and seamless normalization 
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import importlib.util
 import json
@@ -1540,6 +1541,7 @@ sys.modules.setdefault("Backend.scrappers.Houzz", sys.modules[__name__])
 # ---------------------------------------------------------------------------
 def main():
     import argparse
+import csv
     parser = argparse.ArgumentParser(description="Houzz Home Professionals Scraper")
     parser.add_argument("--limit", type=int, default=20, help="Maximum profiles to scrape")
     parser.add_argument("--keyword", type=str, default="General Contractors", help="Search trade/keyword")
