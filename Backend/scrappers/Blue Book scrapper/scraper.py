@@ -25,12 +25,13 @@ from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urljoin
 
 # Ensure Backend directory is on sys.path
+# NOTE: Only _backend_dir is added; adding _scrappers_dir would shadow
+# Backend/utils/ (package) with Backend/scrappers/utils.py (single file).
 _current_dir = Path(__file__).resolve().parent
 _scrappers_dir = _current_dir.parent
 _backend_dir = _scrappers_dir.parent
-for _p in [str(_backend_dir), str(_scrappers_dir), str(_current_dir)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
 
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 

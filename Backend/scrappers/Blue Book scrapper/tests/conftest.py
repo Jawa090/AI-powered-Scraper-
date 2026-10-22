@@ -17,7 +17,7 @@ _scrapper_dir = _tests_dir.parent
 _scrappers_dir = _scrapper_dir.parent
 _backend_dir = _scrappers_dir.parent
 
-for _p in [str(_backend_dir), str(_scrappers_dir), str(_scrapper_dir)]:
+for _p in [str(_backend_dir)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

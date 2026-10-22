@@ -135,7 +135,7 @@ def test_agent_proposal_selects_state_only_scraper_without_asking_city():
 
     proposal = _required_scrape_proposal(state)
     assert isinstance(proposal, AIMessage)
-    assert proposal.tool_calls[0]["args"]["source"] == "jwiz"
+    assert proposal.tool_calls[0]["args"]["source"] == "bbb"
 
 
 @pytest.mark.unit
