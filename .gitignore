@@ -60,3 +60,10 @@ docs/audit/integration_database.json
 docs/audit/nyscr_resume.flag
 
 .nyscr-browser-profile/
+**/.nyscr-browser-profile/
+fb_scraper_profile/
+**/fb_scraper_profile/
+fb_session_state.json
+fb_token.txt
+facebook_scraper_checkpoint.json
+

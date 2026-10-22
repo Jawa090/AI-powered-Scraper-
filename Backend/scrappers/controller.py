@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 SCRAPER_PATHS = [
     "scrappers.GoogleMaps_Allcategories:GoogleMapsScrapper",
+    "scrappers.BBB scrapper:BBBScraper",
+    "scrappers.Blue Book scrapper:BlueBookScraper",
+    "scrappers.Houzz:HouzzScraper",
     "scrappers.bonfire:BonfireScraper",
     "scrappers.dasny:DasnyScraper",
     "scrappers.jwiz:JWizScraper",

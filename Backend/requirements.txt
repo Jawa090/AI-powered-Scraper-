@@ -297,3 +297,4 @@ zstandard==0.25.0
     # via langsmith
 playwright==1.63.0
     #playwright for scrappers
+lxml==5.3.0
