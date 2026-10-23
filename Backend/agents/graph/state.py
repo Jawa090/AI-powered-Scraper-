@@ -30,6 +30,7 @@ class AgentState(TypedDict, total=False):
     rag_status: dict
     rag_hits: list
     slots: dict                        # category, us_state, quantity, required_fields, source, fresh_within_days
+    attempted_scrapers: list[str]      # scrapers already run for this request
     request_intent: str
     intent_interpreted: bool
     missing_requirements: list[str]

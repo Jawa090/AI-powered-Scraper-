@@ -40,12 +40,21 @@ CERT_PHRASES = {
     "veteran owned small business": "VOSB",
     "service disabled veteran owned": "SDVOSB",
 }
-SOCIAL_DOMAINS = {"facebook.com", "linkedin.com", "instagram.com", "youtube.com", "twitter.com", "x.com"}
+SOCIAL_DOMAINS = {
+    "facebook.com", "fb.com", "fb.me", "linkedin.com", "instagram.com",
+    "instagr.am", "youtube.com", "youtu.be", "twitter.com", "x.com",
+}
 CHALLENGE_PHRASES = [
     "verify you are human", "verify that you are human", "robot verification",
     "checking your browser", "performing security verification", "just a moment",
 ]
-BLOCK_PHRASES = ["request blocked", "access denied"]
+BLOCK_PHRASES = [
+    "request blocked",
+    "access denied",
+    "access restricted",
+    "unavailable from your location",
+    "the content you are trying to access is unavailable",
+]
 _SKIP_CLASSES = re.compile(
     r"(^|[-_ ])(sponsor(?:ed|ship)?|advert|ad-|related|people[-_ ]also|also[-_ ]view|promo|regional[-_ ]sponsor)([-_ ]|$)",
     re.I)
@@ -118,9 +127,17 @@ def _clean_scope(soup: BeautifulSoup):
         if getattr(bad, "attrs", None) is None:
             continue
         # Some profile layouts place Company Info/Key Contacts/Locations in a
-        # sidebar; preserve an aside containing those stable section ids.
-        if bad.name == "aside" and bad.find(id=re.compile(r"companyInfoSection|keyContactSection|locationsPage-", re.I)):
-            continue
+        # sidebar; preserve an aside containing those stable section ids or contact links.
+        if bad.name == "aside":
+            if bad.find(id=re.compile(r"companyInfoSection|keyContactSection|locationsPage-", re.I)):
+                continue
+            if bad.find("a", href=re.compile(r"^tel:", re.I)):
+                continue
+            if any(
+                any(d in (a.get("href") or "").lower() for d in ("facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com"))
+                for a in bad.find_all("a", href=True)
+            ):
+                continue
         bad.decompose()
     for el in list(soup.find_all(True)):
         if getattr(el, "attrs", None) is None:  # already removed with an ancestor
@@ -298,8 +315,24 @@ def _external_links(scope) -> tuple[str, list[str]]:
                 socials.append(href)
             continue
         label = (_clean_text(a.get_text(" ")) + " " + (a.get("title") or "")).lower()
-        if not website and ("website" in label or "our website" in label or label.strip() == dom or dom in label):
-            website = strip_tracking(href)
+        cls_and_id = (" ".join(a.get("class") or []) + " " + (a.get("id") or "")).lower()
+        if not website:
+            if (
+                "website" in label
+                or "our website" in label
+                or "web site" in label
+                or "homepage" in label
+                or "visit site" in label
+                or "company site" in label
+                or label.strip() == dom
+                or dom in label
+                or "website" in cls_and_id
+            ):
+                website = strip_tracking(href)
+            elif a.find(["i", "svg", "img"]):
+                icon_cls = " ".join([c for tag in a.find_all(["i", "svg", "img"]) for c in (tag.get("class") or [])]).lower()
+                if any(k in icon_cls for k in ("globe", "website", "world", "link", "external")):
+                    website = strip_tracking(href)
     return website, socials
 
 
@@ -538,12 +571,34 @@ def _find_city_state(lines: list[str], text: str = "") -> str:
     return f"{m.group(1)}, {m.group(2)}" if m else ""
 
 
+def _is_probable_street(line: str) -> bool:
+    s = str(line or "").strip().lower()
+    if not s or len(s) < 3 or len(s) > 100:
+        return False
+    if s in {
+        "website", "contact us", "contact", "view phone", "view alt phone",
+        "view fax", "locations", "email", "request a quote", "get directions",
+        "directions", "main location",
+    }:
+        return False
+    if s.startswith("http://") or s.startswith("https://") or "@" in s or "www." in s:
+        return False
+    if phonelib.find_in_text(line):
+        return False
+    if re.search(r"^\d+", s) or re.search(r"\bp\.?o\.?\s*box\b", s):
+        return True
+    if re.search(r"\b(street|st|avenue|ave|road|rd|boulevard|blvd|highway|hwy|drive|dr|lane|ln|court|ct|place|pl|way|suite|ste|floor|fl|building|bldg)\b", s):
+        return True
+    return False
+
+
 def _parse_address_lines(lines: list[str]) -> dict:
     """Find 'City, ST ZIP' line; street = lines between heading and it."""
     for i, line in enumerate(lines):
         m = _ADDR_RE.match(line)
         if m:
-            street = ", ".join(lines[max(0, i - 2):i]) if i else ""
+            candidate_streets = [l for l in lines[max(0, i - 2):i] if _is_probable_street(l)]
+            street = ", ".join(candidate_streets)
             # Drop a repeated company-name first line from the street part.
             return {"street": street, "city": m.group(1).strip(), "state": m.group(2),
                     "zip": m.group(3), "address_raw": ", ".join(x for x in [street, line] if x)}
@@ -731,7 +786,7 @@ def parse_listing(html: str, url: str, category: str = "") -> dict:
             "email": emails[0]["email"] if emails else "",
             "email_source": emails[0]["source"] if emails else "",
             "extra_emails": [e["email"] for e in emails[1:]],
-            "website": website, "city_state": city_state, "city": city, "state": state, "zip": zipc,
+            "website": website, "socials": _socials, "city_state": city_state, "city": city, "state": state, "zip": zipc,
             "street": address.get("street", ""), "address_raw": address.get("address_raw", ""),
             "category": category, "source_url": canonical(url),
             "listing_trades": trades[:15], "locations": locations,

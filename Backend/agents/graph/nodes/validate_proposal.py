@@ -27,6 +27,9 @@ def validate_proposal(state):
         if evidence.get('sufficient'):
             raise ValueError('The database already contains enough matching records')
         meta = get_meta(source)
+        attempted = set(args.get('attempted_scrapers') or state.get('attempted_scrapers') or (state.get('slots') or {}).get('attempted_scrapers') or [])
+        if source in attempted:
+            raise ValueError(f'Source {source} has already been attempted in this request')
         ready, reason = check_ready(source)
         if not ready:
             raise ValueError('Source is not ready: ' + str(reason))
@@ -37,9 +40,14 @@ def validate_proposal(state):
                 raise ValueError('Proposal criteria differ from the searched request')
         missing = max(1, criteria.quantity - evidence.get('total', 0))
         quantity = min(args.get('quantity') or missing, missing)
-        params = validate_params(source, {'limit': quantity, 'keyword': criteria.category,
+        user_kw = (
+            (state.get("slots") or {}).get("user_keyword")
+            or (criteria.category.split(",")[0].strip() if criteria.category else None)
+        )
+        scraper_keyword = user_kw or criteria.category
+        params = validate_params(source, {'limit': quantity, 'keyword': scraper_keyword,
             'us_state': criteria.us_state, 'city': criteria.city})
-        normalized = {**criteria.model_dump(), 'source': source, 'quantity': params.limit}
+        normalized = {**criteria.model_dump(), 'source': source, 'quantity': params.limit, 'user_keyword': user_kw, 'attempted_scrapers': list(attempted)}
         seed = str(state.get('query_id')) + json.dumps(normalized, sort_keys=True)
         proposal = {'id': hashlib.sha256(seed.encode()).hexdigest(), 'query_id': state.get('query_id'), 'source': source,
             'args': normalized, 'criteria_hash': criteria.fingerprint(), 'tool_call_id': call['id'], 'question': ''}

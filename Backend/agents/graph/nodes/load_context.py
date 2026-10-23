@@ -182,4 +182,5 @@ def load_context(state: AgentState) -> Dict[str, Any]:
         "pending_proposal": None,
         "event_job_id": None,
         "served_lead_ids": [],
+        "attempted_scrapers": list(state.get('attempted_scrapers') or (state.get('slots') or {}).get('attempted_scrapers') or []),
     }

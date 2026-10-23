@@ -172,6 +172,28 @@ class PeopleParserTests(unittest.TestCase):
         self.assertNotEqual(normalize_person_name("Anna Lee"), normalize_person_name("Ann A. Lee"))
 
 
+class AddressParserTests(unittest.TestCase):
+    def test_address_lines_rejects_buttons_and_phones_as_street(self):
+        from bluebook.parsers import _parse_address_lines
+        lines = ["Contact Us", "Website", "(212) 555-0101", "New York, NY 10001", "Roofing Contractors"]
+        addr = _parse_address_lines(lines)
+        self.assertEqual(addr["street"], "")
+        self.assertEqual(addr["city"], "New York")
+        self.assertEqual(addr["state"], "NY")
+        self.assertEqual(addr["zip"], "10001")
+        self.assertEqual(addr["address_raw"], "New York, NY 10001")
+
+    def test_address_lines_preserves_legitimate_street_address(self):
+        from bluebook.parsers import _parse_address_lines
+        lines = ["Acme Roofing Inc", "123 Main St., Suite 400", "New York, NY 10001"]
+        addr = _parse_address_lines(lines)
+        self.assertEqual(addr["street"], "123 Main St., Suite 400")
+        self.assertEqual(addr["city"], "New York")
+        self.assertEqual(addr["state"], "NY")
+        self.assertEqual(addr["zip"], "10001")
+        self.assertEqual(addr["address_raw"], "123 Main St., Suite 400, New York, NY 10001")
+
 
 if __name__ == "__main__":
     unittest.main()
+

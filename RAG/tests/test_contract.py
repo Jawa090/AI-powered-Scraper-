@@ -3,9 +3,15 @@ RAG Service Contract v1 Tests
 Validates that endpoints /v1/status and /v1/search conform strictly to RAG CONTRACT.md v1.
 """
 import os
+import sys
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from RAG.app import app
 from RAG.embedders import EMBEDDERS

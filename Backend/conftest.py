@@ -36,6 +36,14 @@ for k, v in env_vals.items():
 
 logger = logging.getLogger("test_infra")
 
+def pytest_configure(config):
+    """Register custom markers to prevent PytestUnknownMarkWarning."""
+    config.addinivalue_line("markers", "unit: Fast unit tests with no external services or database")
+    config.addinivalue_line("markers", "integration: Integration tests requiring database / API server")
+    config.addinivalue_line("markers", "graph: LangGraph workflow and state graph execution tests")
+    config.addinivalue_line("markers", "live: Live tests requiring real external websites or APIs (excluded by default)")
+
+
 # ---------------------------------------------------------------------------
 # Session-scoped DB container setup
 # ---------------------------------------------------------------------------

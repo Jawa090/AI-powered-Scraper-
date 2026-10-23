@@ -136,10 +136,11 @@ class LeadRepository(BaseRepository[Lead]):
         assigned_to=None, department_id=None, fresh_within_days=None,
         include_expired=False, record_kind=None, user_id=None, new_only=False,
         exclude_query_id=None, exclude_lead_ids=(), limit=100, offset=0,
+        user_keyword=None, **kwargs,
     ):
         """Filter first, count distinct IDs and return a stable ordered page."""
         from datetime import datetime, timedelta, timezone
-        from Database.search import category_terms
+        from Database.search import category_terms, category_term_variations, normalize_city
         from Database.normalize import normalize_state, parse_location
         from Database.models.query import Query
         from Database.models.query_result import QueryResult
@@ -149,9 +150,20 @@ class LeadRepository(BaseRepository[Lead]):
                 us_state = normalize_state(location)
             elif ',' in location:
                 city, us_state, _ = parse_location(location)
+            elif location.strip().lower() in ("newyork", "ny newyork"):
+                us_state = "NY"
+                city = None
             else:
                 city = location
-        city, us_state = None, normalize_state(us_state) if us_state else None
+        norm_city = normalize_city(city) if city else None
+        us_state = normalize_state(us_state) if us_state else None
+        # Rule 13: "NY newyork" means state NY. When city equals state name (e.g. "New York" with state "NY"
+        # or "newyork"), it represents redundant state specification and collapses to statewide query.
+        # Distinct cities (e.g. Albany, Buffalo, Miami, Austin) are preserved as exact city filters.
+        if norm_city and us_state and (normalize_state(norm_city) == us_state or norm_city.lower().replace(" ", "") == "newyork"):
+            city = None
+        else:
+            city = norm_city
         stmt = select(Lead.id).outerjoin(Lead.organization)
         filters = []
         if exclude_lead_ids:
@@ -159,8 +171,15 @@ class LeadRepository(BaseRepository[Lead]):
         # Category evidence is trade/category/title/description, never company name.
         searchable = sa_func.lower(sa_func.concat_ws(' ', Lead.category, Lead.title, Lead.notes,
             case((Lead.record_kind == 'company', Organization.industry)), Lead.lead_metadata['category'].as_string()))
-        for term in category_terms(category):
-            filters.append(searchable.like('%' + term.replace('%', '').replace('_', '') + '%'))
+        contractor_terms, non_contractor_terms = category_term_variations(category)
+        all_terms = contractor_terms + [t for t in non_contractor_terms if t not in contractor_terms]
+        cat_conditions = []
+        for term in all_terms:
+            clean = term.replace('%', '').replace('_', '').strip()
+            if clean:
+                cat_conditions.append(searchable.like('%' + clean + '%'))
+        if cat_conditions:
+            filters.append(or_(*cat_conditions))
         if city or us_state:
             direct, related = [], [Location.organization_id == Lead.organization_id]
             missing = []
@@ -209,6 +228,17 @@ class LeadRepository(BaseRepository[Lead]):
             filters.append(~exists(delivered))
         ids = stmt.where(*filters).distinct().subquery()
         total = self.session.scalar(select(sa_func.count()).select_from(ids)) or 0
-        page = select(Lead).where(Lead.id.in_(select(ids.c.id))).options(*self._eager_options()).order_by(
-            Lead.created_at.desc(), Lead.id.asc()).offset(max(0, offset)).limit(min(max(1, limit), 1000))
+        contractor_conditions = []
+        for term in contractor_terms:
+            clean = term.replace('%', '').replace('_', '').strip()
+            if clean:
+                contractor_conditions.append(searchable.like('%' + clean + '%'))
+
+        order_clauses = []
+        if contractor_conditions:
+            order_clauses.append(case((or_(*contractor_conditions), 1), else_=2))
+        order_clauses.extend([Lead.created_at.desc(), Lead.id.asc()])
+
+        page = select(Lead).outerjoin(Lead.organization).where(Lead.id.in_(select(ids.c.id))).options(*self._eager_options()).order_by(
+            *order_clauses).offset(max(0, offset)).limit(min(max(1, limit), 1000))
         return list(self.session.scalars(page).all()), total

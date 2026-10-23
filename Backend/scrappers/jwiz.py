@@ -1898,8 +1898,7 @@ class JWizScraper(BaseScraper):
     def scrape(self, params: ScrapeParams) -> Iterator[Dict[str, Any]]:
         """Scrape company cards from JWiz directory listings."""
         location = build_location_slug(params)
-        from Database.search import category_terms
-        keyword = ' '.join(category_terms(params.keyword)) if params.keyword else "contractor"
+        keyword = (params.keyword or "contractor").strip()
         limit = params.limit or 25
 
         client = HTTPClient()

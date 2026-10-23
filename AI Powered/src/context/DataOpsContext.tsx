@@ -174,7 +174,15 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
         const restored = msgs.map((message: any) => ({ ...message, ...message.metadata, pendingAction: null, proposedActions: [],
           timestamp: new Date(message.createdAt).toLocaleTimeString() }));
         if (state.pendingAction && restored.length) {
-          restored[restored.length - 1] = { ...restored[restored.length - 1],
+          // Bug 8 fix: attach pendingAction to the message whose queryId matches,
+          // falling back to the last message if no match found
+          const targetQueryId = state.pendingAction?.proposal?.query_id;
+          let targetIdx = restored.length - 1;
+          if (targetQueryId) {
+            const matchIdx = restored.findIndex((m: any) => m.queryId === targetQueryId || m.id === targetQueryId);
+            if (matchIdx >= 0) targetIdx = matchIdx;
+          }
+          restored[targetIdx] = { ...restored[targetIdx],
             pendingAction: state.pendingAction, proposedActions: state.proposedActions };
         }
         setMessagesBySession({ [row.id]: restored });
@@ -270,6 +278,7 @@ export const DataOpsProvider: React.FC<{ children: ReactNode }> = ({ children })
             matchingRecordsDelivered: data.matchingRecordsDelivered, requestedRecords: data.requestedRecords,
             recoveredRecords: data.recoveredRecords, understoodRequest: data.understoodRequest,
             timedOut: data.timedOut, timeoutOptions: data.timeoutOptions, collectionCancelled: data.collectionCancelled,
+            pendingAction: data.pendingAction, proposedActions: data.proposedActions,
             timestamp: new Date().toLocaleTimeString() };
           setMessagesBySession(prev => ({ ...prev, [sessionId]: [...(prev[sessionId] || []).filter(row => row.id !== message.id), message] }));
           setLeads(prev => [...(data.records || []), ...prev.filter(row => !(data.records || []).some(record => record.id === row.id))]);

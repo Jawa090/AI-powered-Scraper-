@@ -27,6 +27,13 @@ class TestBuildChatModel:
         from settings import settings
         monkeypatch.setattr(settings, "LLM_API_KEY", "")
         monkeypatch.setattr(settings, "LLM_MODEL", "")
+        monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "")
+        monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+        monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "")
+        monkeypatch.setenv("LLM_API_KEY", "")
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+        monkeypatch.setenv("GEMINI_API_KEY", "")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "")
 
         from agents.llm.chat_model import build_chat_model, LLMUnavailable
         with pytest.raises(LLMUnavailable, match="not_configured"):
@@ -66,6 +73,13 @@ class TestHealthCheck:
     def test_health_check_no_keys(self, monkeypatch):
         from settings import settings
         monkeypatch.setattr(settings, "LLM_API_KEY", "")
+        monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "")
+        monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+        monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "")
+        monkeypatch.setenv("LLM_API_KEY", "")
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+        monkeypatch.setenv("GEMINI_API_KEY", "")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "")
 
         from agents.llm.chat_model import llm_health_check
         result = llm_health_check()

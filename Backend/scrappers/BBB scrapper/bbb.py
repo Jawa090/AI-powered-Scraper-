@@ -6,7 +6,7 @@ Conforms to the BaseScraper modular standard on par with GoogleMaps_Allcategorie
 
 Extracts commercial contractor and business leads across all 50 US states and cities:
 - Queries BBB's public, unauthenticated search JSON API (no headless browser overhead for listings)
-- Handles pagination up to site limits (15 pages x 15 = 225 records max per query)
+- Dynamically paginates up to requested quantity, seamlessly exiting when reaching site results limit (BBB typically serves up to 15 pages x 15 = 225 records per query)
 - Strips <em> search highlighting, decodes HTML entities, normalizes addresses, phone numbers, ratings, accreditation
 - Discovers company websites from profile pages and performs direct website crawling for contact emails
 - Supports both ScrapeParams objects and dictionary parameter inputs
@@ -440,14 +440,30 @@ class BBBScraper(BaseScraper):
                 return params.get(k, default)
             return getattr(params, k, default)
 
-        raw_limit = _param("limit")
+        # Resolve limit and quantity parameters
+        raw_limit = _param("quantity") if _param("quantity") is not None else _param("limit")
         if raw_limit is None:
             raw_limit = self.meta.default_limit
         try:
-            limit = int(raw_limit)
+            target_quantity = int(raw_limit)
         except (ValueError, TypeError):
-            limit = 20
-        limit = max(1, min(limit, self.meta.max_limit))
+            target_quantity = 20
+
+        # Adjust max_limit dynamically per specification:
+        # If given quantity < 100, max limit is set to 100.
+        # If given quantity >= 100, max limit is set to that quantity.
+        if target_quantity < 100:
+            effective_max_limit = 100
+        else:
+            effective_max_limit = target_quantity
+
+        try:
+            self.meta = self.meta.model_copy(update={"max_limit": effective_max_limit})
+        except Exception:
+            self.meta.max_limit = effective_max_limit
+
+        # Attempt to scrape the full requested quantity
+        limit = max(1, target_quantity)
 
         keyword = (_param("keyword") or "General Contractors").strip()
 
@@ -476,8 +492,11 @@ class BBBScraper(BaseScraper):
         self._log("info", f"Starting BBB search: keyword='{keyword}', location='{location_str}', limit={limit}")
         self._progress(5.0, f"Querying BBB directory for {keyword} in {location_str}")
 
-        # BBB supports up to 15 pages per search query (15 items per page = 225 items max)
-        for page_num in range(1, 16):
+        # BBB search pagination: dynamically compute max pages needed to fulfill requested quantity.
+        # BBB typically serves up to 15 pages (15 items/page = 225 max). If the site runs out of
+        # listings before reaching limit, the scraper logs the event and exits cleanly with all scraped data.
+        max_pages = max(16, (limit + 14) // 15 + 5)
+        for page_num in range(1, max_pages + 1):
             if yielded >= limit:
                 break
 
@@ -520,7 +539,8 @@ class BBBScraper(BaseScraper):
                         logger.debug("BBB web reader request error on page %d: %s", page_num, jina_err)
 
                 if not results:
-                    logger.info("BBB search completed or reached end of results at page %d", page_num)
+                    logger.info("BBB search completed or reached site limit at page %d (collected %d/%d records)", page_num, yielded, limit)
+                    self._log("info", f"BBB search completed: reached end of available listings at page {page_num} ({yielded}/{limit} records collected).")
                     break
 
                 for item in results:
@@ -629,6 +649,9 @@ class BBBScraper(BaseScraper):
                 logger.error("Error querying BBB API on page %d: %s", page_num, e)
                 self._log("warning", f"BBB query warning on page {page_num}: {e}")
                 break
+
+        self._progress(100.0, f"BBB scraping complete: {yielded} records collected.")
+        self._log("info", f"BBB scraper finished: collected {yielded}/{limit} records.")
 
     def close(self) -> None:
         """Closes HTTP session."""
