@@ -41,7 +41,9 @@ def _persist(state, paused=False):
         reply = (state.get('pending_proposal') or {}).get('question') if paused else None
         if not reply:
             reply = next((normalize_content(m.content) for m in reversed(messages) if getattr(m, 'type', '') == 'ai' and not getattr(m, 'tool_calls', None)), '')
+        attempted = list(state.get('attempted_scrapers') or (state.get('slots') or {}).get('attempted_scrapers') or (q.parameters or {}).get('attempted_scrapers') or [])
         q.parameters = {**(q.parameters or {}), 'slots': state.get('slots') or {},
+            'attempted_scrapers': attempted,
             'kb_state': (state.get('rag_status') or {}).get('state'),
             'kb_hit_ids': [h.get('chunkId') for h in state.get('rag_hits') or []], 'trace': state.get('trace') or []}
         q.decision = _compute_decision(state)

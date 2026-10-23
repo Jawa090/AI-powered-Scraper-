@@ -39,7 +39,8 @@ def grounded_reply(model, messages, facts, answer):
     from agents.llm.chat_model import LLMUnavailable
     counts = {int(value) for key, value in facts.items()
         if key in {'available', 'returned', 'recordsFound', 'recordsDelivered', 'initialRecordsDelivered', 'requestTotalDelivered',
-                   'matchingRecordsDelivered', 'recoveredRecords'} and value is not None}
+                   'matchingRecordsDelivered', 'recoveredRecords',
+                   'requested', 'requestedRecords', 'remaining_records', 'remainingRecords'} and value is not None}
     if not counts or validate_record_counts(normalize_content(answer.content), counts):
         return answer
     correction = invoke_llm(model, [*messages, SystemMessage(content=

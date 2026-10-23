@@ -7,10 +7,26 @@ from services.delivery import completion_target, record_delivery, search_request
 
 def prepare_completions(session, job, inserted=0, updated=0, only_session_ids=None):
     requests = session.query(Query).filter(Query.job_id == job.id).all()
+    if not requests and job.query_id:
+        q_job = session.get(Query, job.query_id)
+        if q_job:
+            requests = [q_job]
     sessions = []
     for original in requests:
         if only_session_ids is not None and original.session_id not in only_session_ids:
             continue
+        if (original.parameters or {}).get('kind') in ('confirmation', 'event'):
+            root_id = (original.parameters or {}).get('originatingQueryId')
+            seen_ids = {original.id}
+            while root_id and root_id not in seen_ids:
+                seen_ids.add(root_id)
+                parent = session.get(Query, root_id)
+                if not parent:
+                    break
+                if (parent.parameters or {}).get('kind') not in ('confirmation', 'event'):
+                    original = parent
+                    break
+                root_id = (parent.parameters or {}).get('originatingQueryId')
         if not original.session_id or (original.parameters or {}).get('kind') in ('confirmation', 'event'):
             continue
         event_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f'dataops:{job.id}:{original.id}'))
@@ -23,12 +39,40 @@ def prepare_completions(session, job, inserted=0, updated=0, only_session_ids=No
         matching_count = len(records)
         recovered = recovered_job_records(session, job)
         timed_out = bool(job.error_message and 'no records received for 5 minutes' in job.error_message)
-        from services.recovery_options import timeout_options
+        from services.recovery_options import timeout_options, get_candidate_scrapers
+        orig_params = original.parameters or {}
+        orig_slots = orig_params.get('slots', {})
+        attempted = list(orig_params.get('attempted_scrapers') or orig_slots.get('attempted_scrapers') or [])
+        if (job.parameters or {}).get('attempted_scrapers'):
+            for s in job.parameters['attempted_scrapers']:
+                if s and s not in attempted:
+                    attempted.append(s)
+        if job.script_id and job.script_id not in attempted:
+            attempted.append(job.script_id)
+        original.parameters = {
+            **orig_params,
+            'attempted_scrapers': attempted,
+        }
+        remaining_records = max(0, target - matching_count)
+        if not fulfilled:
+            candidates = get_candidate_scrapers(orig_slots, attempted_scrapers=attempted, limit=remaining_records, current_source=job.script_id)
+            recommended = candidates[0]['id'] if candidates else None
+        else:
+            candidates = None
+            recommended = None
         outcome = {'requestFulfilled': fulfilled, 'deliveryKind': 'matched' if fulfilled else 'recovered',
             'matchingRecordsDelivered': matching_count, 'requestedRecords': target,
-            'recoveredRecords': len(recovered), 'understoodRequest': (original.parameters or {}).get('slots', {}),
+            'recoveredRecords': len(recovered), 'understoodRequest': orig_slots,
             'collectionCancelled': cleared, 'timedOut': timed_out,
-            'timeoutOptions': timeout_options((original.parameters or {}).get('slots', {}), job.script_id) if timed_out and not cleared else None}
+            'timeoutOptions': timeout_options(orig_slots, job.script_id) if timed_out and not cleared else None,
+            'attempted_scrapers': attempted if not fulfilled else None,
+            'attemptedScrapers': attempted if not fulfilled else None,
+            'remaining_records': remaining_records if not fulfilled else None,
+            'remainingRecords': remaining_records if not fulfilled else None,
+            'candidate_scrapers': candidates if not fulfilled else None,
+            'candidateScrapers': candidates if not fulfilled else None,
+            'recommended_scraper': recommended if not fulfilled else None,
+            'recommendedScraper': recommended if not fulfilled else None}
         if not fulfilled:
             pass # We no longer dump recovered data on failure.
         event_query = Query(id=event_id, session_id=original.session_id, user_id=original.user_id,
@@ -36,6 +80,7 @@ def prepare_completions(session, job, inserted=0, updated=0, only_session_ids=No
             job_id=job.id, status='event_pending', decision='SCRAPER', records_new=inserted,
             records_updated=updated, parameters={**(original.parameters or {}), 'kind': 'event',
                 'originatingQueryId': original.id, 'totalAvailable': total, **outcome,
+                'attempted_scrapers': attempted,
                 'initialRecordsDelivered': (original.records_returned or 0) if (original.parameters or {}).get('slots', {}).get('new_only') else 0})
         session.add(event_query)
         session.flush()

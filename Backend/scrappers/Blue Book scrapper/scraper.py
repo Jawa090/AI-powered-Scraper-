@@ -47,6 +47,7 @@ from scrappers.base import (
 )
 
 # Package-relative imports for Blue Book parsing and taxonomy
+from . import crawler
 from . import geo
 from . import keywords
 from . import parsers
@@ -198,7 +199,7 @@ class BlueBookScraper(BaseScraper):
             keywords=[trade_keyword],
             states=states_arg,
             cities=cities_arg,
-            expansion="balanced",
+            expansion="off",
         )
 
         search_specs = list(plan.specs)
@@ -245,9 +246,10 @@ class BlueBookScraper(BaseScraper):
             page = context.new_page()
             page.set_default_timeout(35000)
 
+            server_blocked = False
             try:
                 for spec_idx, spec in enumerate(search_specs, start=1):
-                    if yielded >= limit:
+                    if yielded >= limit or server_blocked:
                         break
 
                     self.check_cancel()
@@ -266,13 +268,14 @@ class BlueBookScraper(BaseScraper):
 
                         self.check_cancel()
                         try:
-                            page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                            resp = page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                            page_status = resp.status if resp else 200
                         except Exception as e:
                             logger.warning("Failed navigating to search page %s: %s", search_url, e)
                             continue
 
                         listing_html = page.content()
-                        access_state = parsers.detect_access(listing_html)
+                        access_state = parsers.detect_access(listing_html, status=page_status)
                         if access_state == "challenge":
                             logger.warning("Blue Book verification challenge detected on %s", search_url)
                             if hasattr(self, "ctx") and self.ctx:
@@ -280,9 +283,10 @@ class BlueBookScraper(BaseScraper):
                                 if self.ctx.wait_for_user(f"Please solve verification on Blue Book: {search_url}"):
                                     listing_html = page.content()
                         elif access_state == "blocked":
-                            logger.error("Blue Book access blocked by server (403 / Access Denied).")
+                            logger.error("Blue Book access blocked by server (%s / Access Denied).", page_status)
                             if hasattr(self, "ctx") and self.ctx:
-                                self.ctx.log("error", "Blue Book access blocked by server.")
+                                self.ctx.log("error", f"Blue Book access blocked by server ({page_status}).")
+                            server_blocked = True
                             break
 
                         listing_data = parsers.parse_listing(listing_html, page.url, category=spec.trade)
@@ -317,8 +321,10 @@ class BlueBookScraper(BaseScraper):
 
                             # Default values from listing card
                             website = card.get("website") or ""
+                            socials = list(card.get("socials") or [])
                             phone = card.get("phone") or card.get("phone_e164") or ""
                             email = card.get("email") or ""
+                            email_source = card.get("email_source") or ""
                             street = card.get("street") or card.get("address_raw") or ""
                             city = card.get("city") or spec.city
                             state = card.get("state") or spec.state
@@ -360,9 +366,16 @@ class BlueBookScraper(BaseScraper):
                                         city = main_loc.get("city") or city
                                         state = main_loc.get("state") or state
                                         zip_code = main_loc.get("zip") or zip_code
-                                        website = main_loc.get("website") or website
+                                        if not website and main_loc.get("website"):
+                                            website = main_loc.get("website")
                                         if not phone:
                                             phone = main_loc.get("phone") or main_loc.get("phone_e164") or ""
+
+                                    if not website and c_data.get("website"):
+                                        website = c_data.get("website")
+                                    for s in c_data.get("socials") or []:
+                                        if s not in socials:
+                                            socials.append(s)
 
                                     # Extract primary decision maker
                                     if all_contacts:
@@ -373,15 +386,59 @@ class BlueBookScraper(BaseScraper):
                                             phone = first_c.get("phone") or first_c.get("phone_e164") or ""
                                         if not email:
                                             email = first_c.get("email") or ""
+                                            if email:
+                                                email_source = "contacts_page"
+
+                                    if not email and c_data.get("email"):
+                                        email = c_data.get("email")
+                                        email_source = c_data.get("email_source") or "contacts_page"
 
                                 except Exception as c_exc:
                                     logger.debug("Contacts enrichment exception for %s: %s", company_name, c_exc)
+
+                            # Fallback to profile page if website or socials missing from contacts page
+                            if (not website or not socials) and profile_url and contacts_url != profile_url:
+                                try:
+                                    page.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
+                                    p_html = page.content()
+                                    p_data = parsers.parse_profile(p_html, page.url)
+                                    if not website and p_data.get("website"):
+                                        website = p_data.get("website")
+                                    for s in p_data.get("socials") or []:
+                                        if s not in socials:
+                                            socials.append(s)
+                                    if not email and p_data.get("email"):
+                                        email = p_data.get("email")
+                                        email_source = p_data.get("email_source") or "profile_page"
+                                except Exception as p_exc:
+                                    logger.debug("Profile fallback exception for %s: %s", company_name, p_exc)
 
                             # If still on profile root or contacts didn't provide website
                             if not website and card.get("website"):
                                 website = card.get("website")
 
-                            trade_name = spec.trade or card.get("category") or (card.get("listing_trades", [""])[0] if card.get("listing_trades") else trade_keyword)
+                            # Crawl contractor website and social media profiles for email
+                            if not email and (website or socials):
+                                try:
+                                    crawled_email, crawl_meta = crawler.crawl_contractor_for_email(
+                                        website_url=website,
+                                        social_urls=socials,
+                                    )
+                                    if crawled_email:
+                                        email = crawled_email
+                                        email_source = crawl_meta.get("email_source", "crawler")
+                                        logger.info("   📧 Discovered email via %s: %s", email_source, email)
+                                    # Merge any newly discovered social links from the website crawl
+                                    for s in crawl_meta.get("socials") or []:
+                                        if s not in socials:
+                                            socials.append(s)
+                                    if not website and crawl_meta.get("website"):
+                                        website = crawl_meta.get("website")
+                                except Exception as crawl_exc:
+                                    logger.debug("Contractor email crawl exception for %s: %s", company_name, crawl_exc)
+
+                            card_trade = (card.get("listing_trades", [""])[0] if card.get("listing_trades") else "") or card.get("category")
+                            trade_name = card_trade or spec.trade or trade_keyword
 
                             record = {
                                 "id": f"bluebook-{comp_id or yielded + 1}",
@@ -410,18 +467,21 @@ class BlueBookScraper(BaseScraper):
                                     "certifications": card.get("certifications", []),
                                     "contacts": all_contacts,
                                     "locations": all_locations,
+                                    "socials": socials,
+                                    "email_source": email_source,
                                 },
                             }
 
                             yielded += 1
                             logger.info(
-                                "   ✅ [%d/%d] %s | %s, %s | Phone: %s | Contact: %s",
+                                "   ✅ [%d/%d] %s | %s, %s | Phone: %s | Email: %s | Contact: %s",
                                 yielded,
                                 limit,
                                 company_name,
                                 city,
                                 state,
                                 phone or "N/A",
+                                email or "N/A",
                                 contact_name or "N/A",
                             )
 
@@ -436,6 +496,9 @@ class BlueBookScraper(BaseScraper):
                                 break
 
                             time.sleep(0.3)
+
+                    if server_blocked:
+                        break
 
             except JobCancelled:
                 logger.info("Blue Book extraction cancelled by context.")
@@ -467,14 +530,13 @@ class BlueBookScraper(BaseScraper):
 BlueBookScrapper = BlueBookScraper
 BluebookScraper = BlueBookScraper
 
-# Register package aliases in sys.modules so any loader pattern succeeds
-_mod = sys.modules[__name__]
-for _alias in [
-    "scrappers.Blue Book scrapper",
-    "Backend.scrappers.Blue Book scrapper",
-    "scrappers.bluebook",
-    "Backend.scrappers.bluebook",
-    "scrappers.BlueBook",
-    "Backend.scrappers.BlueBook",
-]:
-    sys.modules.setdefault(_alias, _mod)
+__all__ = [
+    "crawler",
+    "BlueBookScraper",
+    "BlueBookScrapper",
+    "BluebookScraper",
+    "SCRAPPER_CODE",
+    "SOURCE_CODE",
+    "RECORD_KIND",
+]
+

@@ -9,6 +9,18 @@ from agents.llm.chat_model import invoke_structured
 
 class RequestCriteria(SearchCriteria):
     record_kind: Literal['company', 'opportunity'] | None = None
+    category: str | None = Field(
+        default=None,
+        description=(
+            "The trade category including trade aliases, related sub-categories, and contractor variations "
+            "(e.g. for electrical contractors: 'electrical contractors, electric contractors, wiring contractors, "
+            "lighting contractors, electrician, electrical, wiring, lighting')."
+        ),
+    )
+    user_keyword: str | None = Field(
+        default=None,
+        description="The exact user-given trade keyword or category without alias expansion (e.g. 'electrical contractors' or 'roofing constructors').",
+    )
     category_specified: bool = False
     location_scope: Literal['statewide', 'any'] | None = None
     has_email: bool | None = None
@@ -96,6 +108,11 @@ def interpret_request(state):
         'a state is still missing unless explicitly supplied. '
         'General bid/opportunity/contract terms describe record_kind=opportunity, not a trade category. '
         'Roofing constructors means roofing companies. NY newyork means state NY. '
+        'When extracting a trade category (e.g. electrical contractors, roofing, plumbing), generate related trade aliases '
+        'and sub-categories, including variations with "contractors"/"contractor" and without "contractor" '
+        '(e.g. for electrical contractors, extract "electrical contractors, electric contractors, wiring contractors, '
+        'lighting contractors, electrician, electrical, wiring, lighting") for criteria.category to query the database, '
+        'and extract the exact user-given trade keyword (e.g. "electrical contractors" or "roofing constructors") in criteria.user_keyword. '
         'Every record request must specify record type, trade/category, location scope, quantity and contact requirements before any data action. '
         'Extract city if the user specifies a city (e.g. Buffalo, Miami, Austin). '
         'Do not guess missing quantities, locations or contact preferences; use null for missing values. '
@@ -160,6 +177,9 @@ def interpret_request(state):
         update['new_only'] = new_only
         allowed_ids = {row['id'] for row in state.get('recent_records') or []}
         detail_ids = [lid for lid in result.detail_record_ids if lid in allowed_ids] if is_continuing else []
+        user_kw = criteria.get('user_keyword') or (criteria.get('category').split(',')[0].strip() if criteria.get('category') else None)
+        if user_kw:
+            criteria['user_keyword'] = user_kw
         update['slots'] = {**criteria, 'new_only': new_only,
             'show_all_details': bool(result.show_all_details if result.show_all_details is not None
                                      else is_continuing and criteria.get('show_all_details')),

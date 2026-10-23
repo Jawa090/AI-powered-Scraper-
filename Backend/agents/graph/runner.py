@@ -137,17 +137,19 @@ def run_turn(user, session_id, text, client_message_id=None, new_only=False, exp
                     changes['served_lead_ids'] = []
                 with session_scope() as db:
                     q = db.get(Query, qid)
-                    q.parameters = {'kind': 'confirmation', 'originatingQueryId': (pending.get('proposal') or {}).get('query_id')}
-                graph.update_state(config, changes)
-                out = graph.invoke(Command(resume=decision), config)
+                    q.parameters = {'kind': 'confirmation', 'originatingQueryId': (pending.get('proposal') or {}).get('query_id'),
+                        'attempted_scrapers': (pending.get('proposal', {}).get('args', {})).get('attempted_scrapers', [])}
+                out = graph.invoke(Command(resume=decision, update=changes), config)
             else:
                 repairs = []
                 for call in getattr((snap.values.get('messages') or [None])[-1], 'tool_calls', []) or []:
                     repairs.append(ToolMessage(content='Previous turn superseded.', tool_call_id=call['id']))
+                attempted = list(snap.values.get('attempted_scrapers') or (snap.values.get('slots') or {}).get('attempted_scrapers') or [])
                 out = graph.invoke({'messages': [*repairs, HumanMessage(content=text)], 'user_id': uid,
                     'user_role': user.role, 'department_id': user.department_id, 'session_id': session_id,
                     'query_id': qid, 'turn_id': str(uuid.uuid4()), 'client_message_id': client_message_id,
-                    'user_text': text, 'new_only': new_only, 'event_job_id': None, 'served_lead_ids': []}, config)
+                    'user_text': text, 'new_only': new_only, 'event_job_id': None, 'served_lead_ids': [],
+                    'attempted_scrapers': attempted}, config)
             after = graph.get_state(config)
             if after.interrupts:
                 save_paused_turn(after.values)
@@ -198,27 +200,83 @@ def run_event_turn(session_id, job_id):
             initial = (q.parameters or {}).get('initialRecordsDelivered', 0)
             outcome = {key: (q.parameters or {}).get(key) for key in (
                 'requestFulfilled', 'deliveryKind', 'matchingRecordsDelivered', 'requestedRecords',
-                'recoveredRecords', 'understoodRequest', 'collectionCancelled', 'timedOut', 'timeoutOptions')}
+                'recoveredRecords', 'understoodRequest', 'collectionCancelled', 'timedOut', 'timeoutOptions',
+                'attempted_scrapers', 'attemptedScrapers', 'remaining_records', 'remainingRecords',
+                'candidate_scrapers', 'candidateScrapers', 'recommended_scraper', 'recommendedScraper')}
             matching_count = outcome['matchingRecordsDelivered']
             if matching_count is None:  # Older pending events contained only matching rows.
                 matching_count = len(records)
             facts = {'status': job.status, 'recordsFound': job.records_found,
                 'recordsDelivered': len(records), 'requested': (q.parameters or {}).get('slots', {}).get('quantity'),
                 **outcome, 'initialRecordsDelivered': initial, 'requestTotalDelivered': initial + matching_count,
-                'error': job.error_message, 'records': records}
+                'error': job.error_message, 'records': records,
+                'attempted_scrapers': outcome.get('attempted_scrapers'),
+                'candidate_scrapers': outcome.get('candidate_scrapers'),
+                'remaining_records': outcome.get('remaining_records'),
+                'recommended_scraper': outcome.get('recommended_scraper')}
             try:
                 timeout_instruction = (' If timedOut is true, explain that the scraper was stopped after five minutes without records. '
                     'Ask whether the user wants to rerun it or try another compatible scraper. Give a short description of every '
                     'source in timeoutOptions. Identify recommendedSource as the most likely compatible alternative based on '
                     'record type and coverage, without promising results. If it is null, explain that there is no other '
                     'compatible source; bid scrapers cannot supply contractor companies.') if outcome.get('timedOut') else ''
-                
-                if len(records) == 0 and not outcome.get('timedOut') and not job.error_message:
+
+                fallback_instruction = ''
+                if not outcome.get('requestFulfilled') and not outcome.get('timedOut'):
+                    # Bug 2 fix: distinguish None (uncomputed) from [] (exhausted)
+                    raw_candidates = outcome.get('candidate_scrapers')
+                    if raw_candidates is None and not outcome.get('requestFulfilled'):
+                        # Candidates weren't computed (e.g. chatCleared race) - recompute on the fly
+                        from services.recovery_options import get_candidate_scrapers as _recompute_candidates
+                        _slots = (q.parameters or {}).get('slots') or (q.parameters or {}).get('understoodRequest') or {}
+                        _attempted = outcome.get('attempted_scrapers') or []
+                        _remaining = outcome.get('remaining_records') or 0
+                        raw_candidates = _recompute_candidates(_slots, attempted_scrapers=_attempted, limit=_remaining, current_source=job.script_id)
+                        if raw_candidates:
+                            outcome['candidate_scrapers'] = raw_candidates
+                            outcome['candidateScrapers'] = raw_candidates
+                            outcome['recommended_scraper'] = raw_candidates[0]['id']
+                            outcome['recommendedScraper'] = raw_candidates[0]['id']
+                    if raw_candidates:
+                        rec = outcome.get('recommended_scraper')
+                        rem = outcome.get('remaining_records', 0)
+                        fallback_instruction = (
+                            f' The previous scraper fell short or encountered an issue. Only {matching_count} matching records were delivered so far against the requested quantity. '
+                            f'Reason over the remaining candidate scrapers in candidate_scrapers (excluding all attempted_scrapers: {outcome.get("attempted_scrapers")}). '
+                            f'Propose running the next best scraper ({rec}) to collect the remaining {rem} records, and ask for the user\'s permission to proceed. '
+                            'Never suggest or repeat any scraper in attempted_scrapers.'
+                        )
+                    else:
+                        # Only announce exhaustion when candidates is explicitly empty list [], not None
+                        if raw_candidates is not None:
+                            fallback_instruction = (
+                                f' The previous scraper fell short or encountered an issue. Only {matching_count} matching records were delivered so far. '
+                                'All candidate scrapers for this category and location have been exhausted. '
+                                'Announce clearly that all available scrapers for this category have been exhausted and no more scrapers are available.'
+                            )
+
+                system_prompt = (
+                    'Report the completed scrape using only supplied facts. '
+                    'When requestFulfilled is false, explicitly say the requested requirements were not met and the requested quantity was not reached. '
+                    'Explain the understoodRequest and matching count against the requested count. '
+                    'Explain source errors separately. '
+                    'Sequential scraper fallback: When requestFulfilled is false, if candidate_scrapers are available, report the partial data delivered so far, '
+                    'explain that the attempted scraper fell short, reason over the remaining candidate scrapers, and propose the recommended_scraper for the remaining quantity with user permission. '
+                    'Never repeat or propose any scraper from attempted_scrapers. '
+                    'If candidate_scrapers is empty or exhausted, announce clearly that all available scrapers for this category have been exhausted. '
+                    'When fulfilled, only requested matching rows are displayed. '
+                    'Use concise, natural language for the user; do not expose internal field names, JSON values, identifiers or code terminology. '
+                    'The displayed table supplies the individual rows. Do not execute new work. Recovery choices require fresh user approval.'
+                )
+
+                if len(records) == 0 and not outcome.get('timedOut') and not job.error_message and not outcome.get('candidate_scrapers'):
                     from langchain_core.messages import AIMessage
-                    answer = AIMessage(content="Requested data not found")
+                    answer = AIMessage(content="Requested data not found. All available scrapers for this category have been exhausted.")
                 else:
-                    answer = invoke_llm(get_chat_model(), [SystemMessage(content='Report the completed scrape using only supplied facts. When requestFulfilled is false, explicitly say the requested requirements were not met and the requested quantity was not reached. Explain the understoodRequest and matching count against the requested count. When fulfilled, only requested matching rows are displayed. Explain source errors separately. Use concise, natural language for the user; do not expose internal field names, JSON values, identifiers or code terminology. The displayed table supplies the individual rows. Do not execute new work. Recovery choices require fresh user approval.'),
-                        HumanMessage(content=json.dumps(facts) + timeout_instruction)])
+                    answer = invoke_llm(get_chat_model(), [
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=json.dumps(facts) + timeout_instruction + fallback_instruction)
+                    ])
                     from agents.graph.nodes.finalize import grounded_reply
                     answer = grounded_reply(get_chat_model(), [HumanMessage(content=json.dumps(facts))], facts, answer)
             except LLMUnavailable as exc:
@@ -230,15 +288,105 @@ def run_event_turn(session_id, job_id):
             reply = normalize_content(answer.content)
             if not reply.strip():
                 raise HTTPException(503, {'error': {'code': 'LLM_UNAVAILABLE', 'message': 'Empty completion response'}})
+
+            next_source = outcome.get('recommended_scraper')
+            rem_qty = outcome.get('remaining_records') or 0
+            slots_data = (q.parameters or {}).get('slots') or (q.parameters or {}).get('understoodRequest') or {}
+
+            pending_action = None
+            proposed_actions = []
+
+            if next_source and rem_qty > 0 and not outcome.get('collectionCancelled'):
+                try:
+                    import hashlib
+                    from scrappers.controller import get_meta, validate_params
+                    from Database.search import SearchCriteria
+
+                    next_meta = get_meta(next_source)
+                    criteria = SearchCriteria.from_slots(slots_data)
+                    user_kw = slots_data.get('user_keyword') or (criteria.category.split(',')[0].strip() if criteria.category else None)
+                    scraper_kw = user_kw or criteria.category
+
+                    vparams = validate_params(next_source, {
+                        'limit': rem_qty,
+                        'keyword': scraper_kw,
+                        'us_state': criteria.us_state,
+                        'city': criteria.city,
+                    })
+                    normalized = {
+                        **criteria.model_dump(),
+                        'source': next_source,
+                        'quantity': vparams.limit,
+                        'user_keyword': user_kw,
+                        'attempted_scrapers': outcome.get('attempted_scrapers') or [],
+                    }
+                    root_qid = (q.parameters or {}).get('originatingQueryId') or q.id
+                    seed = str(root_qid) + json.dumps(normalized, sort_keys=True)
+                    proposal_id = hashlib.sha256(seed.encode()).hexdigest()
+                    proposal_call_id = 'proposal-' + uuid.uuid4().hex
+                    fallback_proposal = {
+                        'id': proposal_id,
+                        'query_id': root_qid,
+                        'source': next_source,
+                        'args': normalized,
+                        'criteria_hash': criteria.fingerprint(),
+                        'tool_call_id': proposal_call_id,
+                        'question': reply,
+                    }
+                    action_label = f"Run {next_meta.name if next_meta else next_source} for {rem_qty} more records"
+                    pending_action = {
+                        'type': 'scrape_confirmation',
+                        'proposal': fallback_proposal,
+                        'label': action_label,
+                        'question': reply,
+                    }
+                    proposed_actions = [{
+                        'actionType': 'scrape',
+                        'label': action_label,
+                        'parameters': normalized,
+                        'requiresConfirmation': True,
+                    }]
+
+                    try:
+                        turn_id = str(uuid.uuid4())
+                        graph = get_compiled_graph()
+                        config = {'configurable': {'thread_id': session_id}, 'recursion_limit': settings.RECURSION_LIMIT}
+                        graph.update_state(config, {
+                            'turn_id': turn_id,
+                            'user_id': q.user_id,
+                            'session_id': session_id,
+                            'query_id': root_qid,
+                            'confirmed': False,
+                            'attempted_scrapers': outcome.get('attempted_scrapers') or [],
+                            'slots': slots_data,
+                            'last_search': {
+                                'turn_id': turn_id,
+                                'slots_hash': criteria.fingerprint(),
+                                'total': matching_count,
+                                'sufficient': False,
+                                'error': False,
+                                'items': [],
+                                'lead_ids': [],
+                            },
+                            'pending_proposal': fallback_proposal,
+                        }, as_node='ask_confirmation')
+                        graph.invoke(None, config)
+                    except Exception as g_err:
+                        logger.warning('Failed to update graph state for fallback proposal: %s', g_err)
+                except Exception as p_err:
+                    logger.warning('Failed to construct fallback proposal: %s', p_err)
+
             record_delivery(db, q, records)
             q.status = 'completed'
             q.response = {'reply': reply, 'records': records, 'total': len(records), 'queryId': q.id,
                 'showAllDetails': outcome['deliveryKind'] == 'recovered' or bool((q.parameters or {}).get('slots', {}).get('show_all_details')),
                 'jobId': job.id, 'sessionId': session_id, 'status': job.status, 'decision': q.decision,
-                **outcome, 'initialRecordsDelivered': initial, 'requestTotalDelivered': initial + matching_count}
+                **outcome, 'initialRecordsDelivered': initial, 'requestTotalDelivered': initial + matching_count,
+                'pendingAction': pending_action, 'proposedActions': proposed_actions}
             db.add(AgentMessage(id=q.id + ':agent', session_id=session_id, sender='agent', role='agent',
                 text=reply, message_metadata={'queryId': q.id, 'jobId': job.id, 'records': records,
-                                             **outcome, 'showAllDetails': q.response['showAllDetails'], 'event': True}))
+                                             **outcome, 'showAllDetails': q.response['showAllDetails'], 'event': True,
+                                             'pendingAction': pending_action, 'proposedActions': proposed_actions}))
             event.status, event.reply, event.delivered_at = 'delivered', reply, datetime.now(timezone.utc)
             db.flush()
             more = db.scalar(select(SessionEvent.id).where(SessionEvent.session_id == session_id,

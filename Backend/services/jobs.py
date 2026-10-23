@@ -110,6 +110,9 @@ def enqueue_scrape(
 
     validated_params = validate_params(clean_id, params)
     params_dict = validated_params.model_dump()
+    # Bug 7 fix: preserve attempted_scrapers through validation (model_dump strips non-standard keys)
+    if params.get('attempted_scrapers'):
+        params_dict['attempted_scrapers'] = params.get('attempted_scrapers')
 
     user_id = getattr(user, "id", str(user))
     if query_id:

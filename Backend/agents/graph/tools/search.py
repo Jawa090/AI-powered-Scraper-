@@ -32,7 +32,10 @@ def search_leads(
 
     Call before any scrape proposal. Companies use record_kind=company; bids use
     opportunity. For '10 roofing constructors from NY newyork', use roofing,
-    NY, company and quantity=10. Do not broaden the location or category.
+    NY, company and quantity=10. The category parameter accepts trade categories,
+    expanded trade aliases, related sub-categories, and contractor variations
+    (e.g. 'electrical contractors, electric contractors, wiring contractors, electrician, electrical, wiring').
+    Records matching specific contractor variations are prioritized first.
     Existing criteria carry forward when a filter is omitted. Set reset_filters=True
     for a new request, a switch between companies and bids, or an explicit removal
     of earlier restrictions; then supply all filters for the new request.
@@ -85,6 +88,9 @@ def count_leads(category: Optional[str] = None, us_state: Optional[str] = None, 
     state: Annotated[dict, InjectedState] = None) -> dict:
     """Count using exactly the search filters, including new-only and record kind.
 
+    The category parameter accepts trade categories, expanded trade aliases,
+    related sub-categories, and contractor variations (e.g. 'electrical contractors,
+    electric contractors, wiring contractors, electrician, electrical, wiring').
     Database failures propagate as errors and never count as zero available rows.
     """
     from Database.controller import Repositories, session_scope

@@ -400,6 +400,13 @@ class TestProbeAndHealth:
 
     def test_probe_not_configured_when_empty_key(self, monkeypatch):
         monkeypatch.setattr("settings.settings.LLM_API_KEY", "")
+        monkeypatch.setattr("settings.settings.DEEPSEEK_API_KEY", "")
+        monkeypatch.setattr("settings.settings.GEMINI_API_KEY", "")
+        monkeypatch.setattr("settings.settings.OPENROUTER_API_KEY", "")
+        monkeypatch.setenv("LLM_API_KEY", "")
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+        monkeypatch.setenv("GEMINI_API_KEY", "")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "")
         res = probe()
         assert res["reachable"] is False
         assert res["reason"] == "not_configured"

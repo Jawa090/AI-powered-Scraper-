@@ -1,7 +1,61 @@
-"""Recovery choices come from source capabilities, never invented coverage."""
-from scrappers.controller import list_scrapers, check_ready, validate_params
+from scrappers.controller import list_scrapers, check_ready, validate_params, get_meta
 from scrappers.base import InvalidScrapeParams
 from Database.search import SearchCriteria
+
+
+def get_candidate_scrapers(slots, attempted_scrapers=None, limit=1, current_source=None):
+    """
+    Find candidate scrapers matching record_kind and geographic coverage,
+    verified ready, strictly excluding any scrapers in attempted_scrapers.
+    """
+    attempted = {s.lower() for s in (attempted_scrapers or []) if s}
+    if current_source:
+        attempted.add(current_source.lower())
+    criteria = SearchCriteria.from_slots(slots)
+    target_kind = criteria.record_kind or (getattr(get_meta(current_source), 'record_kind', None) if current_source else None) or 'company'
+
+    candidates = []
+    user_kw = (slots or {}).get("user_keyword") or (criteria.category.split(",")[0].strip() if criteria.category else None)
+    scraper_kw = user_kw or criteria.category
+
+    for meta in list_scrapers():
+        if meta.id.lower() in attempted:
+            continue
+        ready, _ = check_ready(meta.id)
+        if not ready:
+            continue
+        if meta.record_kind != target_kind:
+            continue
+        try:
+            validate_params(meta.id, {
+                'limit': max(1, limit or 1),
+                'keyword': scraper_kw,
+                'us_state': criteria.us_state,
+                'city': criteria.city,
+            })
+        except InvalidScrapeParams:
+            continue
+        coverage = meta.coverage or {}
+        state = coverage.get('state')
+        if state and criteria.us_state and state.casefold() != criteria.us_state.casefold():
+            continue
+        # Bug 4 fix: exclude state-specific scrapers from nationwide searches
+        if state and not criteria.us_state:
+            continue
+        city = coverage.get('city')
+        if city and criteria.city and city.casefold() != criteria.city.casefold():
+            continue
+        candidates.append({
+            'id': meta.id,
+            'name': meta.name,
+            'description': meta.description,
+            'coverage': coverage,
+            'recordKind': meta.record_kind,
+            'compatible': True,
+            'ready': True,
+        })
+    candidates.sort(key=lambda row: (-int(bool((row.get('coverage') or {}).get('state'))), row['id']))
+    return candidates
 
 
 def timeout_options(slots, failed_source):

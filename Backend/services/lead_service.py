@@ -83,6 +83,8 @@ class LeadService(BaseService):
         department_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        user_keyword: Optional[str] = None,
+        **kwargs,
     ) -> Tuple[List[Lead], int]:
         """
         Database-filtered search for Lead records matching specified filters.
@@ -99,6 +101,8 @@ class LeadService(BaseService):
             department_id=department_id,
             limit=limit,
             offset=offset,
+            user_keyword=user_keyword,
+            **kwargs,
         )
 
     # ------------------------------------------------------------------

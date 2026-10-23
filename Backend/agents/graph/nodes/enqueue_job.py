@@ -41,6 +41,9 @@ def enqueue_job(state: AgentState) -> Dict[str, Any]:
     args = proposal.get("args") or {}
 
     source = proposal.get("source") or args.get("source", "")
+    attempted = list(args.get("attempted_scrapers") or state.get("attempted_scrapers") or (state.get("slots") or {}).get("attempted_scrapers") or [])
+    if source and source not in attempted:
+        attempted.append(source)
     category = args.get("category")
     city = args.get("city") or (state.get("slots") or {}).get("city")
     us_state = args.get("us_state") or (state.get("slots") or {}).get("us_state")
@@ -56,14 +59,21 @@ def enqueue_job(state: AgentState) -> Dict[str, Any]:
     elif us_state:
         location = us_state
 
-    # Map category -> keyword/category and location for scrapers
+    # Scrapers search ONLY with the user-given keyword, never with aliases
+    user_kw = (
+        args.get("user_keyword")
+        or (state.get("slots") or {}).get("user_keyword")
+        or (category.split(",")[0].strip() if category else None)
+    )
+    scraper_keyword = user_kw or category
     params = {
-        "keyword": category,
-        "category": category,
+        "keyword": scraper_keyword,
+        "category": scraper_keyword,
         "city": city,
         "location": location,
         "us_state": us_state,
         "limit": max(100, qty),
+        "attempted_scrapers": attempted,
     }
 
     try:
@@ -80,6 +90,19 @@ def enqueue_job(state: AgentState) -> Dict[str, Any]:
             confirmation = session.get(Query, state.get('query_id'))
             if confirmation:
                 confirmation.job_id = job.id
+                confirmation.parameters = {
+                    **(confirmation.parameters or {}),
+                    'attempted_scrapers': attempted,
+                }
+            orig_id = proposal.get('query_id')
+            if orig_id and orig_id != state.get('query_id'):
+                orig_q = session.get(Query, orig_id)
+                if orig_q:
+                    orig_q.job_id = job.id
+                    orig_q.parameters = {
+                        **(orig_q.parameters or {}),
+                        'attempted_scrapers': attempted,
+                    }
             session.commit()
 
             tool_msg = ToolMessage(
@@ -101,6 +124,8 @@ def enqueue_job(state: AgentState) -> Dict[str, Any]:
                 "active_job_id": job.id,
                 "decision": decision,
                 "pending_proposal": None,
+                "intent_interpreted": True,
+                "attempted_scrapers": attempted,
             }
 
     except Exception as e:

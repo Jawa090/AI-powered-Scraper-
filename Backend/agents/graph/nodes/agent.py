@@ -49,16 +49,21 @@ def _required_scrape_proposal(state):
             or evidence.get('slots_hash') != criteria.fingerprint()):
         return None
     quantity = max(1, criteria.quantity - evidence.get('total', 0))
+    attempted = set(state.get('attempted_scrapers') or (state.get('slots') or {}).get('attempted_scrapers') or [])
     candidates = [meta for meta in list_scrapers()
                   if meta.record_kind == criteria.record_kind
-                  and (not criteria.source or meta.id == criteria.source)]
+                  and (not criteria.source or meta.id == criteria.source or criteria.source in attempted)
+                  and meta.id not in attempted]
+    candidates.sort(key=lambda m: (-int(bool((m.coverage or {}).get('state'))), m.id))
     eligible = []
     invalid_city_err = None
     for meta in candidates:
         if not check_ready(meta.id)[0]:
             continue
         try:
-            validate_params(meta.id, {'limit': quantity, 'keyword': criteria.category,
+            user_kw = state.get('slots', {}).get('user_keyword') or (criteria.category.split(',')[0].strip() if criteria.category else None)
+            scraper_kw = user_kw or criteria.category
+            validate_params(meta.id, {'limit': quantity, 'keyword': scraper_kw,
                                       'us_state': criteria.us_state, 'city': criteria.city})
         except InvalidScrapeParams as exc:
             if "Requested City Data Not Avaliable" in str(exc):
@@ -79,7 +84,7 @@ def _required_scrape_proposal(state):
         return None
     import uuid
     return AIMessage(content='', tool_calls=[{'id': 'proposal-' + uuid.uuid4().hex,
-        'name': 'propose_scrape', 'args': {'source': eligible[0].id, 'quantity': quantity}}])
+        'name': 'propose_scrape', 'args': {'source': eligible[0].id, 'quantity': quantity, 'attempted_scrapers': list(attempted)}}])
 
 
 def _sanitize_trimmed_history(messages: List[BaseMessage]) -> List[BaseMessage]:
@@ -132,6 +137,8 @@ def call_model(state: AgentState) -> Dict[str, Any]:
     Executes the LLM turn with all tools bound.
     Propagates LLMUnavailable on unrecoverable/exhausted API errors.
     """
+    if state.get('active_job_id'):
+        return {'messages': [AIMessage(content='... Running task')]}
     interpretation = {}
     if state.get('tool_steps', 0) == 0 and not state.get('intent_interpreted'):
         from agents.graph.nodes.gather_requirements import interpret_request
